@@ -9,7 +9,8 @@ and no VPN. Installing is one command: nothing to clone or build.
 1. Apple-silicon Mac: `uname -m` prints `arm64`.
 2. DSH Desktop is installed (`/Applications/DeepSeek Harness.app`) and has been opened once:
    `~/.dsh/profiles/desktop/package.json` exists (`$DSH_HOME/profiles/desktop/…` if `DSH_HOME` is set).
-3. `dsh --version` prints `0.2.0-rc.2` or a 0.2.1 version (`0.2.1`, `0.2.1-alpha.N`, `-beta.N`, `-rc.N`). If `dsh` is
+3. `dsh --version` prints `0.2.0-rc.2`, a 0.2.1 version (`0.2.1`, `0.2.1-alpha.N`, `-beta.N`, `-rc.N`) or a 0.2.2
+   release candidate or release (`0.2.2-rc.N`, `0.2.2`). If `dsh` is
    not found, use the app's own launcher in its place:
    `"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"`.
 4. Earlier install from source: if `~/.dsh/profiles/desktop/cordis.patch.yml` contains

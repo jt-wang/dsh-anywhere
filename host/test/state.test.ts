@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -66,7 +67,7 @@ test('mobile-created blank exceptions expire, retire on engagement, and remain b
 test('OS-released runtime lock excludes another process; crash restart safely recovers without blocking admin access', async t => {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-mobile-lock-')));
   const path = join(dir, 'host.sqlite'), requestId = randomUUID();
-  const child = spawn(process.execPath, [new URL('./fixtures/runtime-child.ts', import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/, ''), path, requestId], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./fixtures/runtime-child.ts', import.meta.url)), path, requestId], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
   let state: HostState | undefined;
   t.after(async () => { if (child.exitCode === null && child.signalCode === null) { child.kill(); await once(child, 'exit'); } state?.close(); rmSync(dir, { recursive: true, force: true }); });
   const [message] = await once(child, 'message') as [{ deviceId: string }];

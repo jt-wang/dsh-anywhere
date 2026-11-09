@@ -34,7 +34,9 @@ test('installed FileUploads seeds empty and legacy receipt budgets through its r
         return { attachmentId: randomUUID(), name: request.name, bytes };
       }
     }
-    for (const plugin of [SessionStore, AgentRegistry, MemoryAttachments, FileUploads]) await ctx.plugin(plugin);
+    // DSH 0.2.2's AgentRegistry injects sessionProjections; earlier registries need nothing more.
+    const projections = (AgentRegistry.inject as string[] | undefined)?.includes('sessionProjections') ? [(await load('@deepseek-ai/dsh-session-projection')).default] : [];
+    for (const plugin of [SessionStore, ...projections, AgentRegistry, MemoryAttachments, FileUploads]) await ctx.plugin(plugin);
     const sessions = ctx.get('sessions'), agents = ctx.get('agents');
     const session = sessions.create(summary.sessionId);
     const agent: any = { id: session.id, session };

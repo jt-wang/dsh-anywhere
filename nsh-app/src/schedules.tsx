@@ -1,11 +1,12 @@
-// Automation tasks, as DSH Desktop's task manager shows them: every Host task (schedule/catalog), enabled first; a task
-// opens in a sheet with its delivery records (schedule/history, 20 a page) and a delete that asks first
-// (schedule/delete). DSH offers no pause and no create on this surface: tasks come from the agent's schedule tools.
+// Automation tasks, as DSH Desktop's task manager shows them: every Host task (schedule/catalog), active first; a task
+// opens in a sheet with its delivery records (schedule/history, 20 a page) and a delete that asks first (schedule/delete
+// on 0.2.1, schedule/edit on 0.2.2). The phone does not create, edit or pause tasks: they come from the agent's tools
+// and DSH Desktop.
 import { cleanup, effect, List, signal, Scroll, Text, untracked, View } from 'nsh'
 import { Sheet } from 'nsh/base'
 import { dsh } from './state.ts'
 import { ConnectionBar } from './status.tsx'
-import { deleted, formatAt, frequency, HISTORY_PAGE, historyOf, lastSent, nextRun, tasksOf, type Delivery, type HistoryPage, type Task } from './schedules.ts'
+import { deleteCall, deleted, formatAt, frequency, historyCall, historyOf, lastSent, nextRun, tasksOf, type Delivery, type HistoryPage, type Task, type TaskStatus } from './schedules.ts'
 import { readable, S } from './strings.ts'
 import { Grabber, haptic, SCRIM, SHEET, sheetBottom } from './ui.tsx'
 
@@ -49,10 +50,12 @@ export function SchedulesScreen() {
   )
 }
 
-function Status(props: { active: boolean }) {
+const statusWord = (status: TaskStatus) => (status === 'active' ? S.scheduleActive : status === 'paused' ? S.schedulePaused : S.scheduleInactive)
+
+function Status(props: { status: TaskStatus }) {
   return (
     <View class="rounded-full bg-secondary px-[8px] py-[2px]">
-      <Text class={`text-[12px] ${props.active ? 'text-foreground' : 'text-muted-foreground'}`}>{props.active ? S.scheduleActive : S.scheduleInactive}</Text>
+      <Text class={`text-[12px] ${props.status === 'active' ? 'text-foreground' : 'text-muted-foreground'}`}>{statusWord(props.status)}</Text>
     </View>
   )
 }
@@ -60,13 +63,13 @@ function Status(props: { active: boolean }) {
 function TaskRow(props: { task: () => Task; now: () => number; onOpen: () => void }) {
   const t = props.task
   const next = () => nextRun(t(), props.now())
-  const label = () => [t().title, frequency(t(), S, phoneZone), t().active ? S.scheduleActive : S.scheduleInactive, next() ? S.scheduleNext(next()!) : '', lastSent(t(), props.now())].filter(Boolean).join(S.factSep)
+  const label = () => [t().title, frequency(t(), S, phoneZone), statusWord(t().status), next() ? S.scheduleNext(next()!) : '', lastSent(t(), props.now())].filter(Boolean).join(S.factSep)
   return (
     <View role="button" testID={`schedule-${t().id}`} accessibilityLabel={label()} onPress={props.onOpen}
       class="mx-2 px-3 py-[10px] rounded-[10px] gap-[3px] active:bg-secondary transition-colors duration-150">
       <View class="flex-row items-center gap-2">
         <Text class="flex-1 text-foreground text-[15px] leading-5 line-clamp-2">{t().title}</Text>
-        <Status active={t().active} />
+        <Status status={t().status} />
       </View>
       <Text class="text-muted-foreground text-[13px] leading-[18px]">{frequency(t(), S, phoneZone)}</Text>
       <If when={next()}><Text class="text-muted-foreground text-[13px] leading-[18px]">{S.scheduleNext(next() ?? '')}</Text></If>
@@ -88,7 +91,7 @@ function TaskSheet(props: { task: () => Task | undefined; onClose: () => void; o
     const mine = ++epoch
     loading.set(true); problem.set('')
     try {
-      const h = historyOf(await dsh().rpc('schedule/history', { request: { sessionId: task.sessionId, id: task.id, limit: HISTORY_PAGE, ...(before ? { before } : {}) } }))
+      const h = historyOf(await dsh().rpc(...historyCall(task, before)))
       if (mine !== epoch) return
       if ('code' in h) { problem.set(h.code === 'schedule_not_found' ? S.scheduleGone : S.scheduleRecordsError); return }
       records.update((r) => (before ? [...r, ...h.records] : h.records))
@@ -103,7 +106,7 @@ function TaskSheet(props: { task: () => Task | undefined; onClose: () => void; o
     const task = props.task(); if (!task || deleting()) return
     deleting.set(true); problem.set('')
     try {
-      const gone = deleted(await dsh().rpc('schedule/delete', { request: { sessionId: task.sessionId, id: task.id } }))
+      const gone = deleted(await dsh().rpc(...deleteCall(task)))
       haptic(gone ? 'confirm' : 'reject')
       if (gone) props.onClose(); else problem.set(S.scheduleGone)
       props.onChanged()
@@ -117,7 +120,7 @@ function TaskSheet(props: { task: () => Task | undefined; onClose: () => void; o
         <Scroll class="px-5" style={{ flexShrink: 1 }}>
           <View class="flex-row items-start gap-2">
             <Text class="flex-1 text-foreground text-[17px] leading-[22px] font-semibold">{t()?.title ?? ''}</Text>
-            <Status active={t()?.active ?? false} />
+            <Status status={t()?.status ?? 'ended'} />
           </View>
           <Text class="mt-1 text-muted-foreground text-[13px] leading-[18px]">{t() ? frequency(t()!, S, phoneZone) : ''}</Text>
           <If when={t() && nextRun(t()!)}><Text class="text-muted-foreground text-[13px] leading-[18px]">{S.scheduleNext(t() ? nextRun(t()!) ?? '' : '')}</Text></If>

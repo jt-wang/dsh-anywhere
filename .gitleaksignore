@@ -1,0 +1,5 @@
+# Reviewed false positives: a type name after a parameter called pairingToken; the frozen local-pairing test vector
+# (all-same-byte test keys); two strings of the minified upstream @xterm/xterm 6.0.0 lib/xterm.js.
+nsh-app/android/app/src/main/java/dev/dshmobile/nsh/Invite.java:generic-api-key:39
+tailcat/mobile/bridge_test.go:generic-api-key:200
+nsh-app/src/vendor/xterm.ts:generic-api-key:2

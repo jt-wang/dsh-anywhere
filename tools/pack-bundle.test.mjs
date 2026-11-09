@@ -96,7 +96,7 @@ test('the package installs with no scripts and no dependencies and declares its 
   assert.ok(entries.has(path.posix.join('package', row.name)), `row ${row.name} points at a file in the package`);
 
   const versions = ['0.2.0-rc.1', '0.2.0-rc.2', '0.2.0-rc.3', '0.2.0', '0.2.1-0', '0.2.1-alpha.0', '0.2.1-alpha.1', '0.2.1-beta.1', '0.2.1-rc.0', '0.2.1-rc.2',
-    '0.2.1-rc.3', '0.2.1-rc.5', '0.2.1-rc.17', '0.2.1-nightly.1', '0.2.1-dev.3', '0.2.1-rc.x', '0.2.1', '0.2.2-alpha.1', '0.2.2-rc.1', '0.2.2', '0.2.10', '0.3.0', '1.0.0'];
+    '0.2.1-rc.3', '0.2.1-rc.5', '0.2.1-rc.17', '0.2.1-nightly.1', '0.2.1-dev.3', '0.2.1-rc.x', '0.2.1', '0.2.2-alpha.1', '0.2.2-alpha.3', '0.2.2-beta.1', '0.2.2-rc.0', '0.2.2-rc.1', '0.2.2-rc.9', '0.2.2-nightly.1', '0.2.2', '0.2.3-rc.1', '0.2.10', '0.3.0', '1.0.0'];
   for (const version of versions) assert.equal(satisfies(version, manifest.engines.dsh), isCompatibleDshVersion(version), `${version} against ${manifest.engines.dsh}`);
   // A range cannot say "one number after the tag": DSH would load a 0.2.1-rc.1.2, and the companion then refuses to start.
   assert.equal(satisfies('0.2.1-rc.1.2', manifest.engines.dsh), true);

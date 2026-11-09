@@ -11,8 +11,8 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: $(DSH_VERSION)
     CURRENT_PROJECT_VERSION: $(DSH_BUILD)
-    DSH_VERSION: "0.1.3"
-    DSH_BUILD: "4"
+    DSH_VERSION: "0.1.4"
+    DSH_BUILD: "5"
     DSH_BUNDLE_PREFIX: io.jingtao # build.sh passes yours (signing.env) for a phone build
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: $(DSH_TEAM) # set at build time (ios/build.sh), never in this file

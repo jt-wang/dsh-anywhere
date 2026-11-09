@@ -1,15 +1,22 @@
-// Scheduled tasks as DSH 0.2.1-rc.3 keeps them (dsh-schedule's `schedule` remote): schedule/catalog lists every Host
-// task, enabled or inactive, with the Session it delivers to; schedule/history pages one task's saved deliveries newest
-// first; schedule/delete removes a task with its records. DSH has no pause: a task turns inactive only when it can never
-// run again (a one-shot that ran), and a delivery record says the message reached the chat, not what the agent did.
+// Scheduled tasks as DSH keeps them (dsh-schedule's `schedule` remote): schedule/catalog lists every Host task with where
+// it delivers; schedule/history pages one task's saved deliveries newest first. A delivery record says the message
+// reached the chat, not what the agent did.
+// 0.2.1: a row names its Session; history and schedule/delete take that Session with the task id; a task turns inactive
+// only when it can never run again (a one-shot that ran).
+// 0.2.2 (dsh-schedule 0.2.2-rc.1 types): a row has a target (one Session, a Session made at the first
+// delivery, or a new Session each time) and is active, paused or ended; RRULE timing is new; history takes the task id
+// alone; schedule/delete is gone (HTTP 404 on rc.1) and a delete is schedule/edit with action 'delete'.
 import { S, type Strings } from './strings.ts'
 
 export type ScheduleUnit = 'day' | 'hour' | 'minute' | 'second'
-export type TaskKind = 'after' | 'at' | 'every' | 'daily' | 'weekly' | 'cron'
+export type TaskKind = 'after' | 'at' | 'every' | 'daily' | 'weekly' | 'cron' | 'rrule'
+export type TaskStatus = 'active' | 'paused' | 'ended'
 export interface Delivery { scheduledAt: string; deliveredAt: string; messageId: string; prompt?: string }
 export interface Task {
-  id: string; kind: TaskKind; title: string; prompt: string; scheduledAt: string; sessionId: string; active: boolean
-  everySeconds?: number; time?: string; timeZone?: string; weekdays?: number[]; expression?: string; lastDelivery?: Delivery
+  id: string; kind: TaskKind; title: string; prompt: string; scheduledAt: string; status: TaskStatus; active: boolean
+  /** The Session a 0.2.1 task belongs to; its history and delete name it. A 0.2.2 task has none (it has a target). */
+  sessionId?: string
+  everySeconds?: number; time?: string; timeZone?: string; weekdays?: number[]; expression?: string; rrule?: string; lastDelivery?: Delivery
 }
 export interface HistoryPage { records: Delivery[]; nextBefore?: string; pruned: boolean; unavailable: boolean }
 /** A page, or why there is none: schedule_not_found, delivery_cursor_not_found, or unknown for an unreadable answer. */
@@ -20,7 +27,7 @@ export const HISTORY_PAGE = 20
 
 const obj = (v: unknown): Record<string, any> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : undefined)
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
-const KINDS: TaskKind[] = ['after', 'at', 'every', 'daily', 'weekly', 'cron']
+const KINDS: TaskKind[] = ['after', 'at', 'every', 'daily', 'weekly', 'cron', 'rrule']
 
 function deliveryOf(v: unknown): Delivery | undefined {
   const d = obj(v), scheduledAt = str(d?.scheduledAt), deliveredAt = str(d?.deliveredAt), messageId = str(d?.messageId)
@@ -30,18 +37,21 @@ function deliveryOf(v: unknown): Delivery | undefined {
 
 function taskOf(v: unknown): Task | undefined {
   const t = obj(v)
-  const id = str(t?.id), title = str(t?.title), scheduledAt = str(t?.scheduledAt), sessionId = str(t?.sessionId)
-  if (!id || !title || !scheduledAt || !sessionId || !KINDS.includes(t!.kind)) return undefined
+  const id = str(t?.id), title = str(t?.title), scheduledAt = str(t?.scheduledAt)
+  const legacy = str(t?.sessionId), target = obj(t?.target)
+  if (!id || !title || !scheduledAt || !(legacy ? !target : target) || !KINDS.includes(t!.kind)) return undefined
+  const status: TaskStatus = t!.status === 'paused' ? 'paused' : t!.status === 'ended' || t!.status === 'inactive' ? 'ended' : 'active'
   const last = deliveryOf(t!.lastDelivery)
   return {
-    id, kind: t!.kind, title, prompt: str(t!.prompt) ?? '', scheduledAt, sessionId, active: t!.status !== 'inactive',
+    id, kind: t!.kind, title, prompt: str(t!.prompt) ?? '', scheduledAt, status, active: status === 'active', ...(legacy ? { sessionId: legacy } : {}),
+    ...(str(t!.rrule) ? { rrule: t!.rrule } : {}),
     ...(typeof t!.everySeconds === 'number' ? { everySeconds: t!.everySeconds } : {}), ...(str(t!.time) ? { time: t!.time } : {}),
     ...(str(t!.timeZone) ? { timeZone: t!.timeZone } : {}), ...(Array.isArray(t!.weekdays) ? { weekdays: t!.weekdays.filter((d: unknown) => typeof d === 'number') } : {}),
     ...(str(t!.expression) ? { expression: t!.expression } : {}), ...(last ? { lastDelivery: last } : {}),
   }
 }
 
-/** The tasks of a schedule/catalog answer: enabled ones by next run, then inactive ones, latest first. */
+/** The tasks of a schedule/catalog answer: active ones by next run, then paused and ended ones, latest first. */
 export function tasksOf(value: unknown): Task[] {
   if (!Array.isArray(value)) return []
   const tasks = value.flatMap((v) => { const t = taskOf(v); return t ? [t] : [] })
@@ -63,6 +73,8 @@ export function frequency(task: Task, strings: Strings = S, zone?: string): stri
   if (task.kind === 'daily') return zoned(strings.scheduleDaily(clock(task.time ?? '')))
   if (task.kind === 'weekly') return zoned(strings.scheduleWeekly((task.weekdays ?? []).map((d) => strings.weekdays[d - 1] ?? String(d)).join(strings.listSep), clock(task.time ?? '')))
   if (task.kind === 'cron') return zoned(strings.scheduleCron(task.expression ?? ''))
+  // "DTSTART;TZID=…:…\nRRULE:FREQ=…": the rule line is what it does; its start is the next run.
+  if (task.kind === 'rrule') return strings.scheduleRRule(/(?:^|\n)RRULE:([^\n]*)/.exec(task.rrule ?? '')?.[1] ?? task.rrule ?? '')
   return strings.scheduleOnce
 }
 
@@ -72,7 +84,7 @@ export function formatAt(iso: string, strings: Strings = S): string {
   return Number.isNaN(at.getTime()) ? iso : at.toLocaleString(strings.ago.date, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
-/** When an enabled task runs next: soon in minutes or hours, later as a date; undefined for an inactive task. */
+/** When an active task runs next: soon in minutes or hours, later as a date; undefined for a paused or ended one. */
 export function nextRun(task: Task, now = Date.now(), strings: Strings = S): string | undefined {
   if (!task.active) return undefined
   const ms = Date.parse(task.scheduledAt) - now
@@ -113,5 +125,15 @@ export function historyOf(value: unknown): History {
   }
 }
 
-/** Whether a schedule/delete answer says the task is gone; `{deleted: false}` comes with schedule_not_found. */
+/** The schedule/history call for one page of a task's records, older than `before` when given. */
+export function historyCall(task: Task, before?: string): [string, { request: Record<string, unknown> }] {
+  return ['schedule/history', { request: { ...(task.sessionId ? { sessionId: task.sessionId } : {}), id: task.id, limit: HISTORY_PAGE, ...(before ? { before } : {}) } }]
+}
+
+/** The call that deletes a task with its records: schedule/delete on 0.2.1, schedule/edit on 0.2.2. */
+export function deleteCall(task: Task): [string, { request: Record<string, unknown> }] {
+  return task.sessionId ? ['schedule/delete', { request: { sessionId: task.sessionId, id: task.id } }] : ['schedule/edit', { request: { id: task.id, action: 'delete' } }]
+}
+
+/** Whether a delete answer says the task is gone; a miss comes as schedule_not_found (with `deleted: false` on 0.2.1). */
 export const deleted = (value: unknown) => obj(value)?.deleted === true

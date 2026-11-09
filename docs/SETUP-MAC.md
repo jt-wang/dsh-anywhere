@@ -18,7 +18,8 @@ dsh plugin --profile desktop add https://github.com/jt-wang/dsh-anywhere/release
 
 No `dsh` on PATH: use the app's launcher
 `"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"`. DSH checks the supported versions
-(`0.2.0-rc.2` and every 0.2.1 release or pre-release) while installing.
+(`0.2.0-rc.2`, every 0.2.1 release or pre-release, and every 0.2.2 release candidate or release) while
+installing.
 
 DSH loads the new bundle; on its first start the companion creates its private Tailcat configuration in
 `~/Library/Application Support/DSHMobile/host/` (a random host ID, a P-256 certificate for `h-<hostId>.dsh.invalid`,
@@ -54,7 +55,7 @@ Tools:
   exact pinned toolchain itself).
 - Your DSH home: the folder that contains `profiles/web/package.json` (`profiles/desktop` for the DSH Desktop app). Export it, for example
   `export DSH_HOME="$HOME/.dsh"`, after checking the folder exists. It is never guessed.
-- `dsh --version` must print a supported version (`0.2.0-rc.2` or a 0.2.1 release or pre-release); otherwise pass it
+- `dsh --version` must print a supported version (`0.2.0-rc.2`, a 0.2.1 release or pre-release, or a 0.2.2 release candidate or release); otherwise pass it
   explicitly with `--dsh-version`.
 
 Build, from this repository:

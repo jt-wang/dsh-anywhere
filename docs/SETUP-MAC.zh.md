@@ -14,7 +14,7 @@ dsh plugin --profile desktop add https://github.com/jt-wang/dsh-anywhere/release
 
 PATH 里没有 `dsh` 时，用 App 自带的
 `"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"`。安装时 DSH 会检查版本：支持
-`0.2.0-rc.2` 和 0.2.1 的所有正式版与预发布版。
+`0.2.0-rc.2`、0.2.1 的所有正式版与预发布版，以及 0.2.2 的候选版（rc）与正式版。
 
 DSH 会加载这个插件。插件第一次启动时，在 `~/Library/Application Support/DSHMobile/host/` 生成私有的 Tailcat 配置；
 那里的 `companion.log` 最后一行是 `running <版本号>` 就说明在运行了。然后在 DSH 里打开 **Settings → Mobile → Pair a phone**。
