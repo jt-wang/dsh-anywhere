@@ -27,9 +27,9 @@ import (
 )
 
 type bootstrap struct {
-	Version  int `json:"version"`
-	Expires  int64 `json:"expiresAt"`
-	Tailcat  struct {
+	Version int   `json:"version"`
+	Expires int64 `json:"expiresAt"`
+	Tailcat struct {
 		Address string `json:"address"`
 		Port    int    `json:"port"`
 		Key     string `json:"key"`

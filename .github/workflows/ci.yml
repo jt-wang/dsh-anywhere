@@ -1,0 +1,195 @@
+name: CI
+
+# Every pull request and every push to main or ci runs the tests a contributor runs locally, plus a secret scan of the
+# tree. The Android and iOS shells (Gradle and Swift tests, emulator and simulator checks) need the NSH runtime built
+# for each platform and run on a Mac before a release.
+on:
+  pull_request:
+  push:
+    branches: [main, ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # NSH from source: the app needs fixes that are on NSH's main branch but not yet in a release.
+  NSH_COMMIT: 7b3031fb7c9b93b0dee65f48a227bcf15d2bda38
+  GITLEAKS_VERSION: "8.30.1"
+  # SHA-256 of gitleaks_8.30.1_linux_x64.tar.gz, from the release's checksums file. Update both together.
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+
+jobs:
+  host:
+    name: Companion / Linux / Node 24
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: host
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          # Upgrade tests load the shipped 0.7.0 sources (2168cf4) from Git history.
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            host/package-lock.json
+            relay/package-lock.json
+      - name: Install locked dependencies
+        # Host relay integration tests import the relay package from ../relay.
+        run: |
+          npm ci
+          npm ci --prefix ../relay
+      - name: Compile
+        run: npm run build
+      - name: Test
+        run: npm test
+
+  host-macos:
+    name: Companion / macOS / live Tailcat pairing
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      GOTOOLCHAIN: go1.27.3
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            host/package-lock.json
+            relay/package-lock.json
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build the macOS Tailcat helper
+        shell: bash
+        run: |
+          HELPERS_ONLY=1 tools/build-tailcat.sh
+          file host/dist/tailcat/dsh-tailcat-host-darwin-arm64
+          codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64
+      - name: Put OpenSSL 3 first on PATH (the image's openssl is LibreSSL)
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          prefix="$(brew --prefix openssl@3)"
+          [ -x "$prefix/bin/openssl" ] || brew install openssl@3
+          "$prefix/bin/openssl" version | grep '^OpenSSL 3\.'
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+      - name: Build and test the companion (real dns-sd Bonjour)
+        working-directory: host
+        run: |
+          npm ci
+          npm ci --prefix ../relay
+          npm run build
+          npm test
+      - name: Pair a reference phone over real Tailcat relays
+        shell: bash
+        run: tools/tailcat-e2e.sh
+      - name: Install, activate and uninstall in a throwaway DSH home
+        shell: bash
+        run: |
+          sandbox="$(cd "$(mktemp -d)" && pwd -P)"  # macOS mktemp is under the /var symlink
+          mkdir -p "$sandbox/home" "$sandbox/dsh/profiles/web"
+          echo '{}' > "$sandbox/dsh/profiles/web/package.json"
+          printf -- '- insert:\n    - id: existing-plugin\n      name: example\n' > "$sandbox/dsh/profiles/web/cordis.patch.yml"
+          cp "$sandbox/dsh/profiles/web/cordis.patch.yml" "$sandbox/original.yml"
+          export HOME="$sandbox/home"
+          node tools/install-host.mjs --dsh-home "$sandbox/dsh" --dsh-version 0.2.2
+          node tools/install-host.mjs --dsh-home "$sandbox/dsh" --dsh-version 0.2.2 --activate
+          grep -q 'DSH-MOBILE-COMPANION-BEGIN' "$sandbox/dsh/profiles/web/cordis.patch.yml"
+          node tools/install-host.mjs --dsh-home "$sandbox/dsh" --dsh-version 0.2.2 --uninstall
+          cmp "$sandbox/original.yml" "$sandbox/dsh/profiles/web/cordis.patch.yml"
+          echo "installer: install, activate and uninstall restored the original profile"
+
+  tailcat:
+    name: Tailcat / Go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tailcat
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Format, vet and test
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          go test -count=1 ./...
+
+  app:
+    name: Phone app / NSH tests and check
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Restore the NSH build
+        id: nsh-cache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/nsh-bin
+          key: nsh-cli-${{ runner.os }}-${{ env.NSH_COMMIT }}
+      - name: Build NSH from source
+        if: steps.nsh-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          git init -q "$RUNNER_TEMP/nsh" && cd "$RUNNER_TEMP/nsh"
+          git fetch -q --depth 1 https://github.com/longbridge/nsh.git "$NSH_COMMIT"
+          git checkout -q FETCH_HEAD
+          cargo build --release -p nsh-cli
+          mkdir -p "$RUNNER_TEMP/nsh-bin" && cp target/release/nsh "$RUNNER_TEMP/nsh-bin/"
+      - name: Test and check the app
+        working-directory: nsh-app
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/nsh-bin/nsh" --version
+          "$RUNNER_TEMP/nsh-bin/nsh" test
+          "$RUNNER_TEMP/nsh-bin/nsh" check
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Scan the tree
+        shell: bash
+        run: |
+          curl -sfL -o "$RUNNER_TEMP/gitleaks.tar.gz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" dir . --redact --no-banner --exit-code 1

@@ -1,17 +1,34 @@
 #!/usr/bin/env bash
-# Checks a built DSH.app before it goes to App Store Connect: right id and version, built for a phone, signed for
-# distribution, the export-compliance answer and the privacy manifest inside, no path from the build machine.
-#   check-testflight.sh path/to/DSH.app
+# Checks the ipa before it goes to App Store Connect: right id and version, built for a phone, signed for
+# distribution, the export-compliance answer and the privacy manifest inside, no Symbols/ (crash symbols, which hold
+# the build machine's paths; they stay on this Mac), and no path from the build machine in any file of the ipa.
+#   check-testflight.sh path/to/DSH.ipa      (a DSH.app gets every check except the ipa's own)
 # Prints one line per check and exits 1 if any fails.
 set -uo pipefail
-app="${1:?usage: check-testflight.sh path/to/DSH.app}"
+input="${1:?usage: check-testflight.sh path/to/DSH.ipa}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
-plist="$app/Info.plist"
 bad=0
 ok() { echo "ok    $1"; }
 no() { echo "FAIL  $1"; bad=1; }
 is() { [ "$2" = "$3" ] && ok "$1 = $3" || no "$1 is '$2', expected '$3'"; }
-key() { /usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null; }
+# PlistBuddy prints a missing key or file as text on stdout, so print nothing unless it succeeds.
+key() { local value; value="$(/usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null)" && printf '%s' "$value"; }
+
+if [ "${input##*.}" = ipa ]; then
+  what=ipa; scan="$(mktemp -d)"; trap 'rm -rf "$scan"' EXIT
+  unzip -q "$input" -d "$scan" || { no "cannot unpack $input"; exit 1; }
+  app="$(find "$scan/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -1)"
+  [ -n "$app" ] || { no "no Payload/*.app in the ipa"; exit 1; }
+  if [ -e "$scan/Symbols" ]; then
+    no "the ipa carries Symbols/: export with uploadSymbols false"
+    find "$scan/Symbols" -type f | sed "s#^$scan/#      #"
+  else
+    ok "no Symbols/ in the ipa"
+  fi
+else
+  what=app; app="$input"; scan="$app"
+fi
+plist="$app/Info.plist"
 
 read -r want_version want_build < <(python3 -I -c 'import json,sys; a=json.load(open(sys.argv[1])); print(a["version"], a["build"])' "$root/nsh.json")
 is "bundle id" "$(key CFBundleIdentifier "$plist")" "${DSH_BUNDLE_PREFIX:-io.jingtao}.dshanywhere"
@@ -50,13 +67,14 @@ else
   no "no PrivacyInfo.xcprivacy in the app"
 fi
 
-# Everything inside the app, not only the binary: the NSH bundle and the resources ship to testers as well.
+# Every file, not only the binary: the NSH bundle and the resources ship to testers, and an ipa's other files go to
+# Apple.
 found=0
 while IFS= read -r -d '' file; do
   n="$(strings -a "$file" 2>/dev/null | grep -cE '(/Users/[^/ ]+/|/Volumes/[^/ ]+|/var/folders/)')"
-  if [ "$n" -gt 0 ]; then echo "      $n in ${file#"$app"/}"; found=$((found + n)); fi
-done < <(find "$app" -type f -print0)
-[ "$found" = 0 ] && ok "no path from the build machine in the app" || no "$found paths from a machine in the app"
+  if [ "$n" -gt 0 ]; then echo "      $n in ${file#"$scan"/}"; found=$((found + n)); fi
+done < <(find "$scan" -type f -print0)
+[ "$found" = 0 ] && ok "no path from the build machine in the $what" || no "$found paths from a machine in the $what"
 
 # Only for a build signed for distribution; a simulator build fails here on purpose.
 ent="$(mktemp)"

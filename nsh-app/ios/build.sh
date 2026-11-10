@@ -59,10 +59,12 @@ if [ "${ARCHIVE:-}" = 1 ]; then
 <key>signingCertificate</key><string>Apple Distribution</string>
 <key>provisioningProfiles</key><dict><key>$DSH_BUNDLE_PREFIX.dshanywhere</key><string>$DSH_PROFILE</string></dict>
 <key>manageAppVersionAndBuildNumber</key><false/>
+<key>uploadSymbols</key><false/>
 </dict></plist>
 EOF
   xcodebuild -quiet -exportArchive -archivePath "$archive" -exportOptionsPlist "$options" -exportPath "$out/export"
-  "$IOS/check-testflight.sh" "$archive/Products/Applications/DSH.app"
+  # Crash symbols stay in the archive on this Mac (its dSYMs); the ipa carries none.
+  "$IOS/check-testflight.sh" "$out/export/DSH.ipa" || exit 1
   echo "→ $out/export/DSH.ipa ($(du -sh "$out/export/DSH.ipa" | cut -f1 | tr -d ' '))"
   exit 0
 fi

@@ -1,0 +1,83 @@
+name: DSH canary
+
+# DSH publishes pre-releases often, and the companion accepts every 0.2.1 version and the 0.2.2 release candidates
+# and release (host/src/compatibility.ts). Each day this runs the real DSH SessionController from npm's `latest` and `next`
+# against the built companion adapter, so the release that breaks it is found the day it ships, not by a user.
+# A failure turns the run red; it opens no issue.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  push:
+    paths:
+      - .github/workflows/dsh-canary.yml
+      - host/src/compatibility.ts
+      - tools/dsh-canary/**
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'An exact @deepseek-ai/dsh version to test instead of latest and next'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: DSH ${{ matrix.tag }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJSON(inputs.version && format('["{0}"]', inputs.version) || '["latest","next"]') }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            host/package-lock.json
+            relay/package-lock.json
+      - name: Build the companion host
+        working-directory: host
+        run: |
+          npm ci
+          npm ci --prefix ../relay
+          npm run build
+      - name: Stage DSH ${{ matrix.tag }} from npm (no install scripts)
+        id: stage
+        run: |
+          # The canary only accepts a runtime below $HOME/Documents/DeepSeekHarness.
+          runtime="$HOME/Documents/DeepSeekHarness/cache/dsh-${{ matrix.tag }}/runtime"
+          mkdir -p "$runtime" && cd "$runtime"
+          echo '{"private":true}' > package.json
+          npm install --ignore-scripts --no-audit --no-fund "@deepseek-ai/dsh@${{ matrix.tag }}"
+          version=$(node -p "require('./node_modules/@deepseek-ai/dsh/package.json').version")
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "DSH ${{ matrix.tag }} is $version"
+      - name: The companion accepts this version
+        run: |
+          node --input-type=module -e "
+            const { isCompatibleDshVersion, SUPPORTED_DSH_VERSIONS } = await import('./host/dist/compatibility.js');
+            const v = '${{ steps.stage.outputs.version }}';
+            if (!isCompatibleDshVersion(v)) { console.error('DSH ' + v + ' is outside ' + SUPPORTED_DSH_VERSIONS + ': a new line needs inspection and a canary before it is added.'); process.exit(1); }
+            console.log('DSH ' + v + ' is in ' + SUPPORTED_DSH_VERSIONS);"
+      - name: Canary self-tests and type check against this runtime
+        run: |
+          node --test tools/dsh-canary/*.test.mjs
+          node tools/dsh-canary/typecheck.mjs "${{ steps.stage.outputs.runtime }}"
+      - name: Full canary (real SessionController + companion adapter)
+        run: node tools/dsh-canary/run.mjs --runtime-root "${{ steps.stage.outputs.runtime }}"
+      - name: Registry-mode profile insertion
+        run: node --expose-internals tools/dsh-canary/run.mjs --registry-check --port 19446 --runtime-root "${{ steps.stage.outputs.runtime }}"

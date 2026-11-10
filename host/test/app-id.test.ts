@@ -12,10 +12,13 @@ test('Android takes its application id from nsh.json, which is the app id', () =
   assert.match(readFileSync(join(app, 'android', 'app', 'build.gradle'), 'utf8'), /applicationId app\.id\b/);
 });
 
-test('iOS bundle ids and the prefix any new target would inherit are under the same id', () => {
+test('iOS bundle ids are the same id under the default prefix; a build for your own phone swaps only the prefix', () => {
   const project = readFileSync(join(app, 'ios', 'project.yml'), 'utf8');
-  assert.deepEqual([...project.matchAll(/PRODUCT_BUNDLE_IDENTIFIER: (\S+)/g)].map(m => m[1]), [ID, `${ID}.uitests`]);
-  assert.equal(project.match(/bundleIdPrefix: (\S+)/)?.[1], 'io.jingtao');
+  const prefix = project.match(/^\s*DSH_BUNDLE_PREFIX: (\S+)/m)?.[1];
+  assert.equal(prefix, 'io.jingtao');
+  const ids = [...project.matchAll(/PRODUCT_BUNDLE_IDENTIFIER: (\S+)/g)].map(m => m[1]);
+  assert.ok(ids.every(id => id.startsWith('$(DSH_BUNDLE_PREFIX).')), 'every target takes the configurable prefix');
+  assert.deepEqual(ids.map(id => id.replace('$(DSH_BUNDLE_PREFIX)', prefix!)), [ID, `${ID}.uitests`]);
 });
 
 test('the iPhone keeps its link in a keychain item named with the same id', () => {
