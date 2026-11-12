@@ -31,3 +31,23 @@ test('a prompt sent after an earlier notice is a held prompt turn', async () => 
   assert.deepEqual(model.notices, []);
   assert.equal(model.calls, 1);
 });
+
+test('a child task with DSH\'s result-delivery guidance block after the prompt is the held prompt turn', async () => {
+  // DSH 0.2.2-rc.2 appends one text block to a parent-delivered child's first message (dsh-subagent
+  // `withResultDeliveryGuidance`, read 2026-11-12); the 2026-11-12 canary child ended in error before model start.
+  const model = createDeterministicAdapter(class {});
+  const message = { role: 'user', content: [{ type: 'text', text: PROMPTS.cancel }, { type: 'text', text: 'Your final answer is delivered automatically if your parent is still online.' }], source: { kind: 'user' } };
+  const run = turn(model, [message], 'session-synthetic-child');
+  assert.equal(await settledWithin(run.done, 200), false, 'the child turn waits for its release');
+  model.release('cancel');
+  await run.done;
+  assert.ok(run.chunks.some(chunk => chunk.type === 'block-end' && chunk.block.text === ANSWERS.cancel));
+  assert.equal(model.calls, 1);
+});
+
+test('a message whose text only contains a synthetic prompt among other words is still refused', async () => {
+  const model = createDeterministicAdapter(class {});
+  const run = turn(model, [user('Please ' + PROMPTS.cancel)]);
+  await assert.rejects(run.done, /Only exact explicitly synthetic prompts are admitted/);
+  assert.equal(model.calls, 0);
+});
