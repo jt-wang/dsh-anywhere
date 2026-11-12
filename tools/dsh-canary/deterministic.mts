@@ -57,10 +57,15 @@ export function createDeterministicAdapter(Base: typeof LlmAdapter) {
       assert.equal(options.provider, PROVIDER);
       assert.equal(options.model, MODEL);
       assert.equal(options.tools?.length ?? 0, 0, 'Canary must offer zero tools');
-      // 0.2.1-rc.2 may prepend a synthetic runtime-context user message; select the exact prompt.
+      // 0.2.1-rc.2 may prepend a synthetic runtime-context user message; select the exact prompt. 0.2.2-rc.2 appends a
+      // result-delivery guidance text block to a child's first message, so one whole text block may also be the prompt.
       const users = options.messages.filter(message => message.role === 'user');
-      const texts = users.map(message => message.content.filter(block => block.type === 'text').map(block => block.text).join(''));
-      const match = texts.findLastIndex(candidate => (Object.values(PROMPTS) as string[]).includes(candidate) || (this.serve && candidate === ANDROID_PROMPT));
+      const admitted = (candidate: string) => (Object.values(PROMPTS) as string[]).includes(candidate) || (this.serve && candidate === ANDROID_PROMPT);
+      const promptOf = (message: (typeof users)[number]) => {
+        const blocks = message.content.filter(block => block.type === 'text').map(block => block.text);
+        return [blocks.join(''), ...blocks].find(admitted) ?? blocks.join('');
+      };
+      const match = users.findLastIndex(message => admitted(promptOf(message)));
       // When a child finishes, DSH sends its parent a user message with source `subagent-settled` (a runtime-context
       // message may follow it), and the parent runs a turn to read it. Answer at once: replaying the parent's own
       // earlier prompt instead would hold that turn on a release that already happened, and it would stay running.
@@ -80,7 +85,7 @@ export function createDeterministicAdapter(Base: typeof LlmAdapter) {
         return;
       }
       const user = match === -1 ? undefined : users[match];
-      const text = user?.content.filter(block => block.type === 'text').map(block => block.text).join('') ?? '';
+      const text = user ? promptOf(user) : '';
       const kind = (Object.entries(PROMPTS).find(([, prompt]) => prompt === text)?.[0]) as Kind | undefined;
       assert.ok(kind !== undefined || this.serve && text === ANDROID_PROMPT, 'Only exact explicitly synthetic prompts are admitted');
       const key = kind ?? 'serve';

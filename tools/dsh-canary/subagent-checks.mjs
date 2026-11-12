@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PROMPTS } from './deterministic.mts';
+import { activationSpec } from './activation-spec.mjs';
 async function waitActive(deterministic, kind, run) {
   // The preceding controller checks have already used these prompt kinds;
   // started[] is historical, whereas controls identifies a currently held turn.
@@ -77,7 +78,7 @@ export async function subagentChecks(runtime, loader, projectRoot, cwd, observe 
     parent = await ctx.agents.create({ sessionId: `session-subagent-parent-${randomUUID()}`, meta: { cwd }, agentOptions: ctx.agentDefaultModel.currentSelection() });
     const startChild = async (provider, parentAgent, prompt, signal) => {
       if (typeof ctx.subagents.start === 'function') return ctx.subagents.start(provider, { parent: parentAgent, signal, prompt });
-      const receipt = await ctx.subagents.startActivation({ provider, label: 'canary-' + provider, request: { parent: parentAgent, maxDepth: 4, prompt }, signal });
+      const receipt = await ctx.subagents.startActivation(activationSpec({ provider, label: 'canary-' + provider, parent: parentAgent, maxDepth: 4, prompt, signal }));
       const childAgent = ctx.agents.get(receipt.childId);
       assert.ok(childAgent, 'started child agent must be live');
       // receipt.result settles once the child has closed and DSH has sent its parent the finished notice.
