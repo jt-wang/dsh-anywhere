@@ -58,7 +58,7 @@ jobs:
 
   host-macos:
     name: Companion / macOS / live Tailcat pairing
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 25
     env:
       GOTOOLCHAIN: go1.27.3
@@ -87,15 +87,6 @@ jobs:
           HELPERS_ONLY=1 tools/build-tailcat.sh
           file host/dist/tailcat/dsh-tailcat-host-darwin-arm64
           codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64
-      - name: Put OpenSSL 3 first on PATH (the image's openssl is LibreSSL)
-        shell: bash
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: '1'
-        run: |
-          prefix="$(brew --prefix openssl@3)"
-          [ -x "$prefix/bin/openssl" ] || brew install openssl@3
-          "$prefix/bin/openssl" version | grep '^OpenSSL 3\.'
-          echo "$prefix/bin" >> "$GITHUB_PATH"
       - name: Build and test the companion (real dns-sd Bonjour)
         working-directory: host
         run: |
@@ -147,7 +138,7 @@ jobs:
 
   app:
     name: Phone app / NSH tests and check
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 40
     steps:
       - name: Check out source

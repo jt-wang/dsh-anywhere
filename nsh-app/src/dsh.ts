@@ -66,8 +66,9 @@ export class Dsh {
   async companion<T = any>(method: string, args: Record<string, unknown>): Promise<T> { return this.call<T>(`${this.origin}/companion/${method}`, method, args) }
 
   /** The computer as the companion describes it (host/src/server.ts GET /v1/capabilities): its name (`computerName`,
-   * else the companion's configured `hostName`) and the companion's and DSH's versions. */
-  async computer(): Promise<{ name: string; companionVersion: string; dshVersion: string }> {
+   * else the companion's configured `hostName`), the companion's and DSH's versions, and whether the companion has the
+   * Progress page's calls (`capabilities.progress`; an older companion leaves it out). */
+  async computer(): Promise<{ name: string; companionVersion: string; dshVersion: string; progress: boolean }> {
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new DshError('timeout', 'The computer did not answer')), this.io.rpcMs ?? 20_000) })
     let res: Response
@@ -77,28 +78,35 @@ export class Dsh {
     if (!res.ok) throw new DshError(`http/${res.status}`, `HTTP ${res.status}`)
     const v = (await res.json()) as Record<string, unknown>
     const text = (x: unknown) => (typeof x === 'string' ? x : '')
-    return { name: text(v.computerName) || text(v.hostName), companionVersion: text(v.hostVersion), dshVersion: text(v.upstreamVersion) }
+    const caps = v.capabilities && typeof v.capabilities === 'object' ? v.capabilities as Record<string, unknown> : {}
+    return { name: text(v.computerName) || text(v.hostName), companionVersion: text(v.hostVersion), dshVersion: text(v.upstreamVersion), progress: caps.progress === true }
   }
 
   private async call<T>(url: string, method: string, args: Record<string, unknown>): Promise<T> {
     const rpcId = nextId()
+    // Given up after rpcMs, reply body included; the request is cancelled then, so the computer stops the work it was
+    // doing for it (a Progress list).
+    const cancel = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new DshError('timeout', 'The computer did not answer')), this.io.rpcMs ?? 20_000) })
-    let res: Response
+    const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { cancel.abort(); reject(new DshError('timeout', 'The computer did not answer')) }, this.io.rpcMs ?? 20_000) })
     try {
-      res = await Promise.race([(this.io.fetch ?? fetch)(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.key}` },
-        body: JSON.stringify({ type: 'client-request', rpcId, method, payload: { args } }),
-      } as RequestInit), timeout])
-    } catch (e) { this.failed(); throw e instanceof DshError ? e : new DshError('network', 'Can’t reach your computer') } finally { clearTimeout(timer) }
-    this.worked()
-    if (res.status === 401) throw new DshError('unauthorized', 'The computer did not accept this phone')
-    if (!res.ok) throw new DshError(`http/${res.status}`, `HTTP ${res.status}`)
-    const body = /^\s*multipart\//i.test(res.headers?.get?.('content-type') ?? '') ? await withBytes(res) : await res.json()
-    const result = body?.result
-    if (result?.ok === true) return result.value as T
-    throw new DshError(result?.error?.code ?? 'unknown', result?.error?.message ?? '')
+      let res: Response
+      try {
+        res = await Promise.race([(this.io.fetch ?? fetch)(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${this.key}` },
+          body: JSON.stringify({ type: 'client-request', rpcId, method, payload: { args } }),
+          signal: cancel.signal,
+        } as RequestInit), timeout])
+      } catch (e) { this.failed(); throw e instanceof DshError ? e : new DshError('network', 'Can’t reach your computer') }
+      this.worked()
+      if (res.status === 401) throw new DshError('unauthorized', 'The computer did not accept this phone')
+      if (!res.ok) throw new DshError(`http/${res.status}`, `HTTP ${res.status}`)
+      const body = await Promise.race([/^\s*multipart\//i.test(res.headers?.get?.('content-type') ?? '') ? withBytes(res) : res.json(), timeout])
+      const result = body?.result
+      if (result?.ok === true) return result.value as T
+      throw new DshError(result?.error?.code ?? 'unknown', result?.error?.message ?? '')
+    } finally { clearTimeout(timer) }
   }
 
   /** Opens a logical stream on the shared socket; returns its cancel. Reopened after every reconnect. */

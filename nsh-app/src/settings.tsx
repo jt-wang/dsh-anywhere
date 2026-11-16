@@ -8,6 +8,7 @@ import { appActive, connection, dsh, PRIVACY_URL, trying, unlink } from './state
 import { language, S, type Language } from './strings.ts'
 import { notifyPrefs, setLanguage, setNotify, setTheme, theme, type NotifyPrefs, type Theme } from './prefs.ts'
 import { Icon } from './ui.tsx'
+import { ProgressSetting } from './progress.tsx'
 
 function Group(props: { children?: JSX.Element | JSX.Element[] }) { return <View class="rounded-[14px] bg-card border border-border overflow-hidden">{props.children}</View> }
 function Label(props: { text: string }) { return <Text class="px-2 pt-5 pb-[6px] text-muted-foreground text-[13px] font-medium">{props.text}</Text> }
@@ -27,7 +28,7 @@ const LANGUAGES: { id: Language; name: () => string }[] = [
 const THEMES: { id: Theme; name: () => string }[] = [{ id: 'system', name: () => S.themeSystem }, { id: 'light', name: () => S.themeLight }, { id: 'dark', name: () => S.themeDark }]
 
 export function SettingsPage() {
-  const computer = signal<{ name: string; companionVersion: string; dshVersion: string } | undefined>(undefined)
+  const computer = signal<{ name: string; companionVersion: string; dshVersion: string; progress: boolean } | undefined>(undefined)
   const granted = signal<boolean | undefined>(undefined)
   const load = () => dsh().computer().then((c) => computer.set(c), () => {})
   // Direct or through a relay: the tunnel asks the computer (link.path; a direct path can come a little later).
@@ -122,6 +123,11 @@ export function SettingsPage() {
         {toggle('banners', S.notifyBanners)}
         {toggle('background', S.notifyBackground, platform.os === 'android' ? S.notifyBackgroundHint : undefined)}
       </Group>
+
+      <If when={computer()?.progress && !trying()}>
+        <Label text={S.progress.settingsTitle} />
+        <ProgressSetting />
+      </If>
 
       <View role="link" testID="settings-privacy" onPress={() => { openUrl(PRIVACY_URL).catch(() => {}) }} class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center active:bg-secondary">
         <Text class="flex-1 text-foreground text-[15px]">{S.privacy}</Text>

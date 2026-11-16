@@ -25,6 +25,9 @@ import { isCompatibleDshVersion } from './compatibility.ts';
 import { setupTailcat } from './setup-tailcat.ts';
 import { defaultConfigPath, legacyCompanionActive, runningDshVersion } from './zero-config.ts';
 import type { ProfileFacts } from './zero-config.ts';
+import progressPlugin from './progress-plugin.ts';
+import type { ProgressPluginConfig, ProgressService } from './progress-plugin.ts';
+import type { DshLlmStream } from './progress-dsh.ts';
 
 /** Configuration is deliberately explicit and owner-local, never supplied by a mobile client. */
 /** `generativeUi`: give every DSH agent the show_interface tool (ui-modules.ts); off unless the profile block sets it.
@@ -50,7 +53,7 @@ export interface CompanionContext {
   fileUploads?: DshAdapterOptions['fileUploads'];
   attachments?: DshAdapterOptions['attachments'];
   userQuestions?: QuestionServices;
-  llm?: { resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<{ inputModalities?: readonly string[] }> };
+  llm?: { resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<{ inputModalities?: readonly string[] }> } & Partial<DshLlmStream>;
   /** Inspected live state only, never used to authorize cwd or promote a Session. */
   sessions?: { get(id: string): LiveSession | undefined; list(): LiveSession[] };
   agents?: { get(id: string): LiveAgent | undefined; list(): LiveAgent[] };
@@ -60,7 +63,9 @@ export interface CompanionContext {
   get?<K extends 'workspaceRegistry' | 'sessions' | 'agents' | 'sessionPersistence' | 'fileUploads' | 'attachments' | 'userQuestions' | 'llm' | 'profileContext'>(name: K): ({ workspaceRegistry: DshWorkspaceRegistry; sessions: NonNullable<CompanionContext['sessions']>; agents: NonNullable<CompanionContext['agents']>; sessionPersistence: NonNullable<CompanionContext['sessionPersistence']>; fileUploads: NonNullable<CompanionContext['fileUploads']>; attachments: NonNullable<CompanionContext['attachments']>; userQuestions: QuestionServices; llm: NonNullable<CompanionContext['llm']>; profileContext: ProfileFacts })[K] | undefined;
   on(name: string, listener: (...args: any[]) => any, options?: { global: boolean; prepend?: boolean }): () => unknown;
   /** Optional dynamic injection: the admin UI exists only when a Host Connection provides /api. */
-  inject?(names: string[], callback: (ctx: CompanionContext & { connection?: HostConnection; webServer?: HostWebServer; tools?: { register(tool: unknown): () => unknown } }) => (() => unknown) | undefined): unknown;
+  inject?(names: string[], callback: (ctx: CompanionContext & { connection?: HostConnection; webServer?: HostWebServer; tools?: { register(tool: unknown): () => unknown }; progress?: ProgressService }) => (() => unknown) | undefined): unknown;
+  /** Mounts a child plugin; it is unloaded with the companion. */
+  plugin?(plugin: typeof progressPlugin, config: ProgressPluginConfig): { dispose(): unknown };
 }
 export const name = 'dsh-mobile-companion';
 export const version = HOST_VERSION;
@@ -110,6 +115,7 @@ export async function apply(ctx: CompanionContext, input: Config | BundleConfig 
   const config: Config = bundled ? { ...(input ?? {}), configPath: defaultConfigPath(), dshVersion: '' } : input as Config;
   let adapter: Awaited<ReturnType<typeof createDshAdapter>> | undefined;
   let questions: ReturnType<typeof createQuestionBridge> | undefined;
+  let progressFiber: { dispose(): unknown } | undefined;
   const logDir = 'configPath' in config && typeof config.configPath === 'string' && isAbsolute(config.configPath) ? dirname(config.configPath) : undefined;
   const log = logDir ? lifecycleLog(logDir) : () => {};
   log('starting', HOST_VERSION);
@@ -172,13 +178,18 @@ export async function apply(ctx: CompanionContext, input: Config | BundleConfig 
         return runningSubagentCounts(registry.list(), store.list());
       } } : {}) });
     const configPath = 'configPath' in config && typeof config.configPath === 'string' ? config.configPath : undefined;
+    // The Progress page: its own plugin (progress-plugin.ts), mounted from this bundle, provides the `progress` service;
+    // the phone's calls use it while it is there.
+    let progress: ProgressService | undefined;
+    progressFiber = ctx.plugin?.(progressPlugin, configPath && isAbsolute(configPath) ? { dir: join(dirname(configPath), 'progress') } : {});
+    ctx.inject?.(['progress'], progressCtx => { progress = progressCtx.progress; return () => { progress = undefined; }; });
     // A configured NSH is required, not preferred: building with another version gives the phone modules it cannot run.
     const nsh = config.nsh !== undefined ? (existsSync(config.nsh) ? config.nsh : undefined)
       : [process.env.NSH_BIN, join(homedir(), '.local/bin/nsh'), join(homedir(), '.nsh/bin/nsh'), '/opt/homebrew/bin/nsh', '/usr/local/bin/nsh'].find(path => path && existsSync(path));
     const ui = config.generativeUi && configPath && nsh ? createUiModules({ dir: join(dirname(configPath), 'ui'), nsh }) : undefined;
     // DSH's own protocol for the owner's phone, under /dsh on this server once DSH's web server is known (below).
     let dshRelay: DshRelay | undefined;
-    const host = await startHostServer({ config: hostConfig, adapter, workspaceSource, dsh: () => dshRelay });
+    const host = await startHostServer({ config: hostConfig, adapter, workspaceSource, dsh: () => dshRelay, progress: () => progress });
     if (configPath) ctx.inject?.(['connection'], connCtx => {
       const connection = connCtx.connection;
       if (!connection?.fetch?.register) return undefined;
@@ -203,12 +214,12 @@ export async function apply(ctx: CompanionContext, input: Config | BundleConfig 
     return async () => {
       if (closed) return; closed = true;
       log('stopping', HOST_VERSION);
-      questions?.close(); adapter!.dispose();
+      questions?.close(); adapter!.dispose(); await progressFiber?.dispose();
       try { await host.close(); } catch { log('failed', HOST_VERSION, 'close'); throw new HostError('unavailable'); }
       log('stopped', HOST_VERSION);
     };
   } catch (error) {
-    questions?.close(); adapter?.dispose();
+    questions?.close(); adapter?.dispose(); await Promise.resolve(progressFiber?.dispose()).catch(() => {});
     const failure = error instanceof HostError ? error : new HostError('invalid_config');
     log('failed', HOST_VERSION, failure.code);
     throw failure;

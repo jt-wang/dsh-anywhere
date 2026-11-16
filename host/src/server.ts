@@ -29,6 +29,7 @@ import { STEP_KINDS, STEP_STATUSES, TOOL_NAME, windowMessages } from './step-pre
 import { createFolders, FolderError } from './folders.ts';
 import { homedir } from 'node:os';
 import { computerName } from './computer-name.ts';
+import type { ProgressService } from './progress-plugin.ts';
 /** The computer's name for the phone's Settings, looked up once. */
 let naming: Promise<string> | undefined;
 
@@ -49,6 +50,9 @@ export interface HostServerOptions {
   dsh?: () => DshRelay | undefined;
   /** Test-only stand-in for the owner's home folder, the top of the phone's folder picker (folders.ts). */
   folderHome?: string;
+  /** The `progress` service while the Progress plugin provides it (progress-plugin.ts), asked on every call; while it
+   * returns nothing the companion has no progress calls and no `progress` flag. */
+  progress?: () => ProgressService | undefined;
 }
 export interface MobileHostServer {
   readonly server: HttpServer | HttpsServer;
@@ -60,12 +64,15 @@ export interface MobileHostServer {
   close(): Promise<void>;
 }
 const BODY_LIMIT = 64 * 1024;
-/** The companion's own calls under /dsh/companion, in DSH's call envelope: argument keys, which are required, and whether
- * the call changes the computer (then the device needs execute as well as read, for every workspace). */
-const COMPANION_CALLS: Record<string, { keys: string[]; required: string[]; execute: boolean }> = {
-  'folders/list': { keys: ['path'], required: [], execute: false },
-  'folders/check': { keys: ['path'], required: ['path'], execute: false },
-  'folders/create': { keys: ['path', 'name'], required: ['path', 'name'], execute: true },
+/** The companion's own calls under /dsh/companion, in DSH's call envelope: argument keys and their types, which are
+ * required, and whether the call changes the computer (then the device needs execute as well as read, for every
+ * workspace; `progress/settings` changes it only when it is given a value). */
+const COMPANION_CALLS: Record<string, { keys: Record<string, 'string' | 'boolean'>; required: string[]; execute: boolean | 'with-args' }> = {
+  'folders/list': { keys: { path: 'string' }, required: [], execute: false },
+  'folders/check': { keys: { path: 'string' }, required: ['path'], execute: false },
+  'folders/create': { keys: { path: 'string', name: 'string' }, required: ['path', 'name'], execute: true },
+  'progress/list': { keys: {}, required: [], execute: false },
+  'progress/settings': { keys: { judge: 'boolean', language: 'string' }, required: [], execute: 'with-args' },
 };
 
 class RateLimiter {
@@ -594,22 +601,27 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
    * granted every workspace: read to list and check, execute too to create. */
   async function companionCall(device: AuthorizedDevice, req: IncomingMessage, res: ServerResponse, url: URL, signal: AbortSignal): Promise<void> {
     const method = url.pathname.slice('/companion/'.length), spec = COMPANION_CALLS[method];
-    if (req.method !== 'POST' || !spec || url.search) throw new HostError('not_found');
+    if (req.method !== 'POST' || !spec || url.search || (method.startsWith('progress/') && !options.progress?.())) throw new HostError('not_found');
     limits.take(`device:${device.deviceId}`, 120);
     const { readWorkspaceIds, executeWorkspaceIds } = freshDevice(device.deviceId).grants;
-    if (!readWorkspaceIds.includes('*') || (spec.execute && !executeWorkspaceIds.includes('*'))) throw new HostError('forbidden');
+    if (!readWorkspaceIds.includes('*') || (spec.execute === true && !executeWorkspaceIds.includes('*'))) throw new HostError('forbidden');
     const body = await bodyJson(req, signal); keys(body, ['type', 'rpcId', 'method', 'payload']);
     const payload = body.payload as Record<string, unknown> | null, rpcId = body.rpcId;
     if (body.type !== 'client-request' || body.method !== method || typeof rpcId !== 'string' || rpcId.length > 128 || !payload || typeof payload !== 'object' || Array.isArray(payload)) throw new HostError('invalid_request');
     keys(payload, ['args']);
     const args = payload.args as Record<string, unknown> | null;
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new HostError('invalid_request');
-    keys(args, spec.keys, spec.required);
-    if (Object.values(args).some(value => typeof value !== 'string' || value.length > 4096)) throw new HostError('invalid_request');
+    keys(args, Object.keys(spec.keys), spec.required);
+    if (Object.entries(args).some(([key, value]) => typeof value !== spec.keys[key] || (typeof value === 'string' && value.length > 4096))) throw new HostError('invalid_request');
+    if (spec.execute === 'with-args' && Object.keys(args).length && !executeWorkspaceIds.includes('*')) throw new HostError('forbidden');
     const path = args.path as string | undefined;
     let value: unknown;
     try {
-      value = method === 'folders/list' ? await folders.list(path, signal) : method === 'folders/check' ? await folders.check(path!) : await folders.create(path!, args.name as string);
+      const progress = method.startsWith('progress/') ? options.progress?.() : undefined;
+      if (method.startsWith('progress/') && !progress) throw new HostError('not_found');
+      value = method === 'progress/list' ? await progress!.list(signal)
+        : method === 'progress/settings' ? (Object.keys(args).length ? await progress!.configure(args as { judge?: boolean; language?: string }) : progress!.settings())
+        : method === 'folders/list' ? await folders.list(path, signal) : method === 'folders/check' ? await folders.check(path!) : await folders.create(path!, args.name as string);
     } catch (error) {
       if (!(error instanceof FolderError)) throw error;
       signal.throwIfAborted();
@@ -704,7 +716,7 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
       sendJson(res, 200, { items: workspaces.filter(workspace => allowsWorkspace(current.grants.readWorkspaceIds, workspace.id)).map(workspace => ({ id: workspace.id, name: workspace.name, canExecute: allowsWorkspace(current.grants.executeWorkspaceIds, workspace.id) })) }); return;
     }
     if (req.method === 'GET' && url.pathname === '/v1/capabilities') {
-      sendJson(res, 200, { protocolVersion: 1, hostVersion: HOST_VERSION, hostName: config.hostName, computerName: await (naming ??= computerName()), upstreamVersion: adapter.upstreamVersion, capabilities: { sessions: true, textPrompt: true, cancel: true, liveSnapshots: true, questionSkip: false, fileDownload: false, ...(adapter.phoneCapabilities?.() ?? { attachments: false, questions: false, steer: false, queue: false, rename: false, models: false }), approvals: false, push: false, notifications: !!notifications }, notificationCapabilities: { version: 1, coverage: notifications?.coverage ?? 'degraded', feed: !!notifications, unifiedPush: false, retentionMs: 604800000 } }); return;
+      sendJson(res, 200, { protocolVersion: 1, hostVersion: HOST_VERSION, hostName: config.hostName, computerName: await (naming ??= computerName()), upstreamVersion: adapter.upstreamVersion, capabilities: { sessions: true, textPrompt: true, cancel: true, liveSnapshots: true, questionSkip: false, fileDownload: false, ...(adapter.phoneCapabilities?.() ?? { attachments: false, questions: false, steer: false, queue: false, rename: false, models: false }), approvals: false, push: false, notifications: !!notifications, ...(options.progress?.() ? { progress: true } : {}) }, notificationCapabilities: { version: 1, coverage: notifications?.coverage ?? 'degraded', feed: !!notifications, unifiedPush: false, retentionMs: 604800000 } }); return;
     }
     if (req.method === 'GET' && url.pathname === '/v1/models') {
       if (!adapter.models) throw new HostError('unavailable');

@@ -43,7 +43,7 @@ let requestCounter = 0
 /** A child chat: a subagent of `parentSessionId`, read and continued through its parent, as Desktop opens it. */
 export interface ChildOf { parentSessionId: string; subagent: Subagent }
 
-export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => void; child?: ChildOf; onOpenChild?: (child: Child) => void; activity?: ChatActivity; where?: { title: string; path: string } }) {
+export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => void; child?: ChildOf; onOpenChild?: (child: Child) => void; activity?: ChatActivity; where?: { title: string; path: string }; at?: string }) {
   const child = props.child
   const composer = child ? composerOf(child.subagent.mode) : 'compose'
   const fold = new Fold()
@@ -115,7 +115,8 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   let first = true
   // It shows once it is there, as v0's app does, instead of flashing the top of the chat first.
   const placed = signal(false)
-  effect(() => { if (first && rows().length) { first = false; setTimeout(() => { list?.scrollToEnd({ animated: false }); setTimeout(() => placed.set(true), 32) }, 30) } })
+  // Opened from Progress at a job: its first message at the top; a job older than the loaded messages, at the oldest loaded.
+  effect(() => { if (first && rows().length) { first = false; setTimeout(() => { const i = props.at ? items().findIndex((x) => x.kind === 'user' && x.id === props.at) : -1; if (props.at) list?.scrollToIndex({ index: Math.max(i, 0), animated: false, viewPosition: 0 }); else list?.scrollToEnd({ animated: false }); setTimeout(() => placed.set(true), 32) }, 30) } })
   effect(() => { if (loaded() && !rows().length) placed.set(true) })
   effect(() => { if (keyboardFrame().height > 0 && atBottom()) setTimeout(() => list?.scrollToEnd({ animated: true }), 80) })
   const toEnd = () => { list?.scrollToEnd({ animated: true }); atBottom.set(true) }

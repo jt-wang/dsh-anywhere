@@ -118,6 +118,22 @@ test('when connecting keeps failing, the phone is asked once to rebuild its link
   dsh.close()
 })
 
+// When the phone gives up, it cancels the request, so the computer stops the list it was running for it.
+test('a call the phone gives up on is cancelled, and a reply body that stalls is given up too', async () => {
+  const signals: AbortSignal[] = []
+  const never = (_: unknown, init: any) => { signals.push(init.signal); return new Promise<never>(() => {}) }
+  const dsh = new Dsh('http://h', 'k', { fetch: never as any, socket: (u) => new FakeSocket(u), rpcMs: 30 })
+  let code = ''
+  try { await dsh.companion('progress/list', {}) } catch (e) { code = (e as { code?: string }).code ?? '' }
+  expect(code).toBe('timeout')
+  expect(signals[0]?.aborted).toBe(true)
+  const stalls = (_: unknown, init: any) => { signals.push(init.signal); return Promise.resolve({ ok: true, status: 200, headers: { get: () => 'application/json' }, json: () => new Promise(() => {}) }) }
+  const slow = new Dsh('http://h', 'k', { fetch: stalls as any, socket: (u) => new FakeSocket(u), rpcMs: 30 })
+  code = ''
+  const settled = await Promise.race([slow.companion('progress/list', {}).then(() => 'answered', e => { code = (e as { code?: string }).code ?? ''; return 'failed' }), new Promise(r => setTimeout(() => r('stuck'), 500))])
+  expect([settled, code, signals[1]?.aborted]).toEqual(['failed', 'timeout', true])
+})
+
 test('a call the computer never answers fails with a timeout instead of waiting forever', async () => {
   const dsh = new Dsh('http://h', 'k', { fetch: () => new Promise(() => {}), socket: (u) => new FakeSocket(u), rpcMs: 30 })
   let code = ''
@@ -165,7 +181,7 @@ test('the computer\'s own description comes from the companion beside DSH, with 
   const calls: { url: string; init: any }[] = []
   const fetchImpl = async (url: any, init: any) => { calls.push({ url, init }); return { ok: true, status: 200, json: async () => ({ hostName: 'Studio', hostVersion: '0.7.13', upstreamVersion: '0.2.1-rc.3' }) } as any }
   const dsh = new Dsh('http://127.0.0.1:19446/dsh', 'k3y', { fetch: fetchImpl, socket: (u) => new FakeSocket(u) })
-  expect(await dsh.computer()).toEqual({ name: 'Studio', companionVersion: '0.7.13', dshVersion: '0.2.1-rc.3' })
+  expect(await dsh.computer()).toEqual({ name: 'Studio', companionVersion: '0.7.13', dshVersion: '0.2.1-rc.3', progress: false })
   expect(calls[0]!.url).toBe('http://127.0.0.1:19446/v1/capabilities')
   expect([calls[0]!.init.method ?? 'GET', calls[0]!.init.headers.authorization]).toEqual(['GET', 'Bearer k3y'])
 })
@@ -192,4 +208,12 @@ test('says when the next try is, and that none is coming once held; trying now l
   sockets[2]!.close()
   expect(typeof at.at(-1)).toBe('number')
   dsh.close()
+})
+
+// A companion with the Progress page's calls says so with capabilities.progress (host/src/server.ts); an older one leaves it out.
+test('the computer says whether its companion has the Progress page', async () => {
+  const answer = (body: unknown) => new Dsh('http://127.0.0.1:19446/dsh', 'k3y', { fetch: (async () => ({ ok: true, status: 200, json: async () => body })) as any, socket: (u) => new FakeSocket(u) })
+  expect((await answer({ hostName: 'Studio', capabilities: { progress: true } }).computer()).progress).toBe(true)
+  expect((await answer({ hostName: 'Studio', capabilities: { sessions: true } }).computer()).progress).toBe(false)
+  expect((await answer({ hostName: 'Studio', capabilities: { progress: 'yes' } }).computer()).progress).toBe(false)
 })
