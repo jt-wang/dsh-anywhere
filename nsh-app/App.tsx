@@ -8,6 +8,7 @@ import { SessionsScreen, type Summary } from './src/sessions.tsx'
 import { ChatScreen, type ChildOf } from './src/chat.tsx'
 import { SchedulesScreen } from './src/schedules.tsx'
 import { SettingsPage } from './src/settings.tsx'
+import { HomeTabs, markSeen, progressAvailable, ProgressFeed, ProgressScreen, ProjectPage } from './src/progress.tsx'
 import { loadPrefs } from './src/prefs.ts'
 import { forkChat, RenameSheet } from './src/manage.tsx'
 import { readable, S } from './src/strings.ts'
@@ -25,7 +26,7 @@ import './assets/fonts/Geist-Medium.ttf'
 import './assets/fonts/Geist-SemiBold.ttf'
 import './assets/fonts/GeistMono-Regular.ttf'
 
-type Route = { name: 'sessions' } | { name: 'schedules' } | { name: 'settings' } | { name: 'chat'; session: Summary; child?: ChildOf } | { name: 'trajectory'; session: Summary } | { name: 'details'; session: Summary }
+type Route = { name: 'sessions' } | { name: 'project'; id: string; title: string } | { name: 'schedules' } | { name: 'settings' } | { name: 'chat'; session: Summary; child?: ChildOf; at?: string } | { name: 'trajectory'; session: Summary } | { name: 'details'; session: Summary }
   | { name: 'files'; session: Summary; path: string; file?: FileEntry } // a folder ('' the workspace root) or, with `file`, one file
   | { name: 'terminals'; session: Summary } | { name: 'terminal'; session: Summary; target: TerminalTarget; title?: string }
 const HEADER = 'bg-background text-foreground tint-foreground'
@@ -107,6 +108,10 @@ function App() {
   let menuClosed = 0 // a press on ⋯ while the menu is open closes it as a press outside; it must not reopen it
   effect(() => { nav.routes(); setTimeout(() => Keyboard.dismiss(), 0) }) // the keyboard belongs to the page that asked for it
   const terminalMenu = signal(false)
+  const tab = signal<'chats' | 'progress'>('chats')
+  effect(() => { if (progressAvailable() === false) tab.set('chats') })
+  const openJob = (j: { sessionId: string; chatTitle: string; messageId?: string; index: number }) =>
+    nav.push({ name: 'chat', session: { sessionId: j.sessionId, title: titles()[j.sessionId] ?? j.chatTitle, updatedAt: 0, running: false }, ...(j.index > 1 && j.messageId ? { at: j.messageId } : {}) })
   const page = (route: Route) => route.name === 'terminals'
     ? <NavPage title={S.terminals} headerClass={HEADER} class="bg-background">
         <TerminalsPage sessionId={route.session.sessionId} onOpen={(target, title) => nav.push({ name: 'terminal', session: route.session, target, title })} />
@@ -124,15 +129,21 @@ function App() {
     ? <NavPage title={S.schedules} headerClass={HEADER} class="bg-background"><SchedulesScreen /></NavPage>
     : route.name === 'settings'
     ? <NavPage title={S.settings} headerClass={HEADER} class="bg-background"><SettingsPage /></NavPage>
+    : route.name === 'project'
+    ? <NavPage title={route.title} headerClass={HEADER} class="bg-background"><ProjectPage projectId={route.id} onOpen={openJob} /></NavPage>
     : route.name === 'sessions'
     ? <NavPage title={S.chats} headerClass={HEADER} class="bg-background"
+        headerTitle={progressAvailable() ? <HomeTabs tab={tab} onTab={(t) => tab.set(t)} /> : undefined}
         headerRight={<View class="flex-row items-center">
-          <IconButton name="compose" label={S.newChat} testID="new-chat" onPress={() => newChat.set(true)} />
+          <IconButton name="compose" label={S.newChat} testID="new-chat" onPress={() => { tab.set('chats'); newChat.set(true) }} />
           <IconButton name="more" label={S.more} testID="more" onPress={() => { if (Date.now() - menuClosed > 300) menu.set(true) }} />
         </View>}>
         <View class="flex-1">
           <If when={trying()}><TryBanner /></If>
-          <SessionsScreen onOpen={(session) => nav.push({ name: 'chat', session })} newChat={newChat} onNewChatClosed={() => newChat.set(false)} />
+          <View class="flex-1" style={{ display: tab() === 'chats' ? 'flex' : 'none' }}>
+            <SessionsScreen onOpen={(session) => nav.push({ name: 'chat', session })} newChat={newChat} onNewChatClosed={() => newChat.set(false)} />
+          </View>
+          <If when={tab() === 'progress'}><ProgressScreen onProject={(p) => nav.push({ name: 'project', id: p.id, title: p.title })} onOpen={openJob} /></If>
           <HeaderMenu open={menu} onClose={() => { menuClosed = Date.now(); menu.set(false) }} actions={[{ id: 'schedules', label: S.schedules, icon: 'clock' }, { id: 'settings', label: S.settings, icon: 'sliders' }]}
             onChoose={(id) => { if (id === 'schedules') nav.push({ name: 'schedules' }); else if (id === 'settings') nav.push({ name: 'settings' }) }} />
         </View>
@@ -149,7 +160,7 @@ function App() {
           <IconButton name="more" label={S.more} testID="chat-more" onPress={() => { if (Date.now() - menuClosed > 300) chatMenu.set(true) }} />
         </View>}>
         <View class="flex-1">
-          <ChatScreen sessionId={route.session.sessionId} child={route.child} activity={activity} where={route.session.project && route.session.cwd ? { title: route.session.project, path: route.session.cwd } : undefined} onTitle={(t) => { if (!route.child && titles()[route.session.sessionId] !== t) titles.update((m) => ({ ...m, [route.session.sessionId]: t })) }}
+          <ChatScreen sessionId={route.session.sessionId} child={route.child} {...(route.at ? { at: route.at } : {})} activity={activity} where={route.session.project && route.session.cwd ? { title: route.session.project, path: route.session.cwd } : undefined} onTitle={(t) => { if (!route.child && titles()[route.session.sessionId] !== t) titles.update((m) => ({ ...m, [route.session.sessionId]: t })) }}
             onOpenChild={(c) => nav.push({ name: 'chat', session: { ...route.session, sessionId: c.id, title: c.name, running: c.running }, child: { parentSessionId: route.session.sessionId, subagent: c } })} />
           <If when={notice()}><Text testID="chat-notice" class="absolute top-2 left-4 right-4 rounded-[10px] bg-popover border border-border px-3 py-2 text-foreground text-[13px] shadow-md">{notice()}</Text></If>
           <HeaderMenu open={chatMenu} onClose={() => { menuClosed = Date.now(); chatMenu.set(false) }}
@@ -175,6 +186,9 @@ function App() {
     nav.popToRoot()
     nav.push({ name: 'chat', session: { sessionId, title: titles()[sessionId] ?? title, updatedAt: 0, running: false } })
   }
+  // A chat that was on screen: its finished jobs are no longer for you to check (marked on leaving too, for what finished while it was open).
+  let shown: string | undefined
+  effect(() => { const v = visible(); if (shown && shown !== v) markSeen(shown); if (v) markSeen(v); shown = v })
   // A new link may be another computer: back to its chats.
   let lastLink: string | undefined
   effect(() => { const key = settings()?.key; if (lastLink && key && key !== lastLink) nav.popToRoot(); lastLink = key })
@@ -184,6 +198,7 @@ function App() {
         {/* One for each link: a new one replaces the connection, and every stream a screen holds closes with the old. */}
         <Each of={settings() ? [settings()!.key] : []}>{() => (
           <>
+            <ProgressFeed />
             <NavStack state={nav} class="flex-1">{(route) => page(route)}</NavStack>
             {/* On the sample nothing is news: the notice stays in sight, and no notification is asked for. */}
             <If when={!trying()}>

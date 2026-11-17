@@ -1,0 +1,43 @@
+diff --git a/crates/nsh-platform-ios/src/press.rs b/crates/nsh-platform-ios/src/press.rs
+index 8a0dba76..163b9e5c 100644
+--- a/crates/nsh-platform-ios/src/press.rs
++++ b/crates/nsh-platform-ios/src/press.rs
+@@ -6,6 +6,8 @@
+ //! It stays in the possible state while tracking and only recognizes on
+ //! release, so scroll views and pans on the same touches win whenever they
+ //! start first; it then fails and reports `onPressUp`.
++//! A handled press wins over window taps, so a header button does not also
++//! trigger the window's scroll-to-top interaction.
+ 
+ use std::cell::Cell;
+ 
+@@ -189,8 +191,10 @@ define_class!(
+ 
+         #[unsafe(method(canPreventGestureRecognizer:))]
+         fn can_prevent(&self, other: &UIGestureRecognizer) -> bool {
++            // A handled press must also stop the window's top-edge tap;
++            // otherwise a header button and scroll-to-top can both fire.
+             // Never block scroll views or pans: they start before a press ends.
+-            other.isKindOfClass(PressRecognizer::class())
++            other.isKindOfClass(PressRecognizer::class()) || is_window_tap(other)
+         }
+     }
+ );
+diff --git a/docs/dev/pitfalls.md b/docs/dev/pitfalls.md
+index 8474b86a..072f83cb 100644
+--- a/docs/dev/pitfalls.md
++++ b/docs/dev/pitfalls.md
+@@ -233,7 +233,12 @@ Things that were found the hard way. Read the section of the area you change bef
+   recognizer over the top 64 pt, `cancelsTouchesInView`, never simultaneous, action disabled) recognized first and
+   prevented every press there, so a navigation bar's back button did nothing (seen on an iPhone foldable simulator; a
+   real tap through XCUITest reproduced it). `PressRecognizer` is not preventable by tap recognizers on a `UIWindow`
+-  (`press.rs`, `is_window_tap`); edge-gesture gates are not taps and still cancel presses.
++  (`press.rs`, `is_window_tap`). It also prevents those window taps when a handled press recognizes: without the
++  reverse arbitration, an XCUITest coordinate tap on DSH's header opened its menu and scrolled a long chat back to
++  the top (iPhone Duo, iOS 27.1 / 24A94425, SDK 27.2). The same menu opened from the body kept its position. After
++  adding the reverse arbitration, the header opened the menu with every shared message's Y coordinate unchanged.
++  Scroll views, pans and edge-gesture gates are not window taps and still cancel presses; an unhandled touch does
++  not recognize a press.
+ - **iOS, a hardware keyboard's keys** reach the first responder as presses (`pressesBegan:withEvent:`) before
+   UIKit's text system acts on them: a text input that does not call `super` for a press neither moves its caret,
+   inserts a line break nor types it, and must not call `super` for that key's release either. A held key's press

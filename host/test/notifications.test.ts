@@ -437,3 +437,22 @@ test('missing cursor has no completion backlog; narrowed grants hide retained en
   f.state.replaceDeviceGrants(f.device.deviceId, { readWorkspaceIds: [], executeWorkspaceIds: [] });
   assert.equal((await f.feed.page(f.device.deviceId, f.head)).items.length, 0);
 });
+
+test('close aborts a read in flight: the signal the source was given is aborted', { timeout: 5000 }, async t => {
+  // Reads have a 10 s limit as written; close() must not wait for it.
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-notifications-'));
+  const state = new HostState(join(dir, 'state.sqlite'));
+  t.after(() => { state.close(); rmSync(dir, { recursive: true, force: true }); });
+  const device = state.consumePairing(state.createPairing({ readWorkspaceIds: ['alpha'], executeWorkspaceIds: [] }).pairingToken, 'Synthetic phone');
+  let given: AbortSignal | undefined;
+  const feed = new NotificationFeed(state, {
+    subscribe() { return () => {}; },
+    async evidence() { return { sessionId: 'chat', workspaceId: 'alpha', cursor: -1, pending: false, completed: [] }; },
+    list(signal: AbortSignal) { given = signal; return new Promise<never>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })); },
+  });
+  await feed.start();
+  feed.putSettings(device.deviceId, { expectedRevision: 0, enabled: true, projects: [], chats: [] });
+  while (!given) await new Promise(r => setImmediate(r));
+  await feed.close();
+  assert.equal(given.aborted, true);
+});

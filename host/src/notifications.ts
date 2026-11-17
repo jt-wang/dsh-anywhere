@@ -87,8 +87,9 @@ export class NotificationFeed {
   private batch: Map<string, Journal> | undefined;
   private readonly emissions = new Map<string, { count: number; until: number }>();
   private readonly baselineBudgetMs: number;
-  constructor(state: HostState, source: NotificationSources, baselineBudgetMs = 10_000) {
-    this.baselineBudgetMs = baselineBudgetMs;
+  private readonly readMs: number;
+  constructor(state: HostState, source: NotificationSources, baselineBudgetMs = 10_000, readMs = 10_000) {
+    this.baselineBudgetMs = baselineBudgetMs; this.readMs = readMs;
     this.state = state; this.source = source;
     this.key = state.readNotificationState<string>('cursor-key') ?? randomBytes(32).toString('base64url');
     state.writeNotificationState('cursor-key', this.key);
@@ -121,7 +122,7 @@ export class NotificationFeed {
     this.work = this.work.then(async () => {
       if (activation.signal.aborted) return;
       const pendingBefore = this.pendingCut();
-      const budget = AbortSignal.any([this.lifetime.signal, activation.signal, AbortSignal.timeout(this.baselineBudgetMs)]);
+      const scope = this.scope(this.baselineBudgetMs, activation.signal), budget = scope.signal;
       try {
         const sessions = await this.source.list(budget);
         budget.throwIfAborted();
@@ -145,11 +146,20 @@ export class NotificationFeed {
         this.state.writeNotificationState('producer', this.watermarks);
         this.coverage = this.coverage === 'degraded' ? 'degraded' : 'ready'; this.changed();
       } catch { if (!activation.signal.aborted) { this.degrade('baseline_failed'); this.resetJournals(); } }
-      finally { if (this.activation === activation && !activation.signal.aborted) { this.baselineReady = true; this.initializing = false; this.schedule(); } }
+      finally { scope.end(); if (this.activation === activation && !activation.signal.aborted) { this.baselineReady = true; this.initializing = false; this.schedule(); } }
     });
   }
   private pendingCut(): string { return JSON.stringify(Object.entries(this.watermarks).filter(([, s]) => s.attentionId).map(([id, s]) => [id, s.attentionId]).sort(([a], [b]) => a!.localeCompare(b!))); }
-  private signal(producer = true): AbortSignal { return AbortSignal.any([this.lifetime.signal, ...(producer && this.activation ? [this.activation.signal] : []), AbortSignal.timeout(10_000)]); }
+  // A signal that aborts after `ms`, when the feed closes or when one of `follow` aborts. end() when the read is done takes
+  // it off those long-lived signals: combined with them through AbortSignal.any, every read's signal stayed reachable on
+  // Node 24.13.1, about 2 KB a notification page and 4 KB a check, never freed (measured 2026-11-14).
+  private scope(ms: number, ...follow: (AbortSignal | undefined)[]): { signal: AbortSignal; end: () => void } {
+    const own = new AbortController(), sources = [this.lifetime.signal, ...follow.filter((s): s is AbortSignal => !!s)];
+    const stop = () => own.abort(sources.find(s => s.aborted)?.reason);
+    const end = () => { for (const s of sources) s.removeEventListener('abort', stop); };
+    if (sources.some(s => s.aborted)) stop(); else for (const s of sources) s.addEventListener('abort', stop, { once: true });
+    return { signal: AbortSignal.any([own.signal, AbortSignal.timeout(ms)]), end };
+  }
   private schedule(): void {
     if (this.initializing || this.lifetime.signal.aborted || !this.activated) return;
     // Only I/O overlaps. Each lane retains its envelope until settlement so a
@@ -188,7 +198,7 @@ export class NotificationFeed {
     do { await this.work; await Promise.all(this.lanes.values()); }
     while ((this.initializing || this.lanes.size || this.queue.length) && !this.lifetime.signal.aborted);
   }
-  private async lookup(id: string, signal = this.signal()): Promise<{ id: string; workspaceId: string; running?: boolean } | undefined> {
+  private async lookup(id: string, signal: AbortSignal): Promise<{ id: string; workspaceId: string; running?: boolean } | undefined> {
     return this.source.lookup ? this.source.lookup(id, signal) : (await this.source.list(signal)).find(s => s.id === id);
   }
   private async accept(id: string, event: NotificationSource, proofs: Map<string, NotificationEvidence>): Promise<void> {
@@ -206,7 +216,9 @@ export class NotificationFeed {
     // Only relevant events pay for fresh membership/permission authority. Excluded
     // sessions never introduce producer watermarks or gaps in the ordinary feed.
     const activation = this.activation;
-    const listed = await this.lookup(id);
+    const read = this.scope(this.readMs, activation?.signal);
+    let listed: Awaited<ReturnType<NotificationFeed['lookup']>>;
+    try { listed = await this.lookup(id, read.signal); } finally { read.end(); }
     if (activation !== this.activation || activation?.signal.aborted) return;
     if (!listed) { proofs.delete(id); this.skipped.delete(id); return; }
     const old = this.watermarks[id];
@@ -217,7 +229,8 @@ export class NotificationFeed {
     if (!old && Object.keys(this.watermarks).length >= 10000) { this.degrade('watermark_limit'); return; }
     let proof = proofs.get(id);
     if (!proof || proof.workspaceId !== listed.workspaceId || proof.cursor < event.seq || (this.source.evidenceCurrent && !this.source.evidenceCurrent(proof))) {
-      proof = await this.source.evidence(id, this.signal(), listed);
+      const reading = this.scope(this.readMs, this.activation?.signal);
+      try { proof = await this.source.evidence(id, reading.signal, listed); } finally { reading.end(); }
       if (proof.sessionId === id && proof.workspaceId === listed.workspaceId && proof.cursor >= event.seq) {
         if (proofs.size >= 256 && !proofs.has(id)) proofs.delete(proofs.keys().next().value!);
         proofs.set(id, proof);
@@ -252,7 +265,9 @@ export class NotificationFeed {
     const activation = this.activation;
     const revision = this.coverageRevision;
     const beforeList = new Map(Object.entries(this.watermarks));
-    const sessions = await this.source.list(this.signal());
+    const listing = this.scope(this.readMs, activation?.signal);
+    let sessions: Awaited<ReturnType<NotificationSources['list']>>;
+    try { sessions = await this.source.list(listing.signal); } finally { listing.end(); }
     if (activation !== this.activation || activation?.signal.aborted || this.lifetime.signal.aborted) return;
     if (sessions.length > 10000) { this.degrade('session_limit'); return; }
     const visible = new Set(sessions.map(s => s.id));
@@ -278,47 +293,49 @@ export class NotificationFeed {
       const id = this.lazyIdle.shift()!; this.lazyIdle.push(id);
       if ((this.lazyRetry.get(id)?.after ?? 0) <= pass) lazy.push(id);
     }
-    const budget = AbortSignal.any([this.lifetime.signal, ...(activation ? [activation.signal] : []), AbortSignal.timeout(10_000)]);
-    const byId = new Map(sessions.map(s => [s.id, s]));
-    const ids = new Set([...lazy, ...sessions.filter(s => s.running || this.watermarks[s.id]?.attentionId).map(s => s.id)]);
-    for (const id of ids) {
-      const session = byId.get(id);
-      if (!session) { this.lazyRetry.delete(id); continue; }
-      const observedSeq = this.watermarks[id]?.seq;
-      let proof: NotificationEvidence;
-      try {
-        budget.throwIfAborted();
-        proof = await this.source.evidence(id, budget, session);
-        budget.throwIfAborted();
-        if (proof.valid === false || proof.sessionId !== id || proof.workspaceId !== session.workspaceId || (this.source.evidenceCurrent && !this.source.evidenceCurrent(proof))) throw new HostError('unavailable');
-      } catch {
-        if (activation?.signal.aborted || this.lifetime.signal.aborted) return;
-        this.degrade('reconcile_proof_failed'); this.retryLazy(id, pass);
-        if (budget.aborted) break; // Unprobed IDs are still in the rotated queue.
-        continue;
+    const scope = this.scope(this.readMs, activation?.signal), budget = scope.signal;
+    try {
+      const byId = new Map(sessions.map(s => [s.id, s]));
+      const ids = new Set([...lazy, ...sessions.filter(s => s.running || this.watermarks[s.id]?.attentionId).map(s => s.id)]);
+      for (const id of ids) {
+        const session = byId.get(id);
+        if (!session) { this.lazyRetry.delete(id); continue; }
+        const observedSeq = this.watermarks[id]?.seq;
+        let proof: NotificationEvidence;
+        try {
+          budget.throwIfAborted();
+          proof = await this.source.evidence(id, budget, session);
+          budget.throwIfAborted();
+          if (proof.valid === false || proof.sessionId !== id || proof.workspaceId !== session.workspaceId || (this.source.evidenceCurrent && !this.source.evidenceCurrent(proof))) throw new HostError('unavailable');
+        } catch {
+          if (activation?.signal.aborted || this.lifetime.signal.aborted) return;
+          this.degrade('reconcile_proof_failed'); this.retryLazy(id, pass);
+          if (budget.aborted) break; // Unprobed IDs are still in the rotated queue.
+          continue;
+        }
+        if (activation !== this.activation || activation?.signal.aborted || this.lifetime.signal.aborted) return;
+        const old = this.watermarks[id];
+        // A live lane committed while this recovery read was in flight. Its newer
+        // pending episode owns the cut; do not replay stale attention over it.
+        if (old?.seq !== observedSeq || this.queue.some(e => e.id === id)) continue;
+        if (!old && Object.keys(this.watermarks).length >= 10000) { this.degrade('watermark_limit'); this.retryLazy(id, pass); continue; }
+        this.lazyRetry.delete(id); this.recoveryPending.delete(id);
+        const attentionId = proof.pending ? old?.attentionId ?? randomUUID() : undefined;
+        if (proof.pending && !old?.attentionId) this.emit(proof, { seq: proof.cursor, time: Date.now(), type: 'tool/call' }, 'attention-needed', attentionId);
+        if (old?.attentionId && !proof.pending) this.emit(proof, { seq: proof.cursor, time: Date.now(), type: 'tool/result' }, 'attention-cleared', old.attentionId);
+        // Reconciliation owns pending state, not live event admission. In particular
+        // its snapshot can already contain a terminal still waiting in our queue.
+        const queued = this.queue.filter(e => e.id === session.id).map(e => e.event.seq);
+        const seq = old?.seq ?? (queued.length ? Math.min(...queued) - 1 : proof.cursor);
+        this.watermarks[session.id] = { seq, ...(attentionId ? { attentionId } : {}) };
+        const skipped = this.skipped.get(session.id);
+        if (skipped && skipped.last <= seq) this.skipped.delete(session.id);
+        else if (skipped && skipped.first <= seq) skipped.first = seq + 1;
       }
-      if (activation !== this.activation || activation?.signal.aborted || this.lifetime.signal.aborted) return;
-      const old = this.watermarks[id];
-      // A live lane committed while this recovery read was in flight. Its newer
-      // pending episode owns the cut; do not replay stale attention over it.
-      if (old?.seq !== observedSeq || this.queue.some(e => e.id === id)) continue;
-      if (!old && Object.keys(this.watermarks).length >= 10000) { this.degrade('watermark_limit'); this.retryLazy(id, pass); continue; }
-      this.lazyRetry.delete(id); this.recoveryPending.delete(id);
-      const attentionId = proof.pending ? old?.attentionId ?? randomUUID() : undefined;
-      if (proof.pending && !old?.attentionId) this.emit(proof, { seq: proof.cursor, time: Date.now(), type: 'tool/call' }, 'attention-needed', attentionId);
-      if (old?.attentionId && !proof.pending) this.emit(proof, { seq: proof.cursor, time: Date.now(), type: 'tool/result' }, 'attention-cleared', old.attentionId);
-      // Reconciliation owns pending state, not live event admission. In particular
-      // its snapshot can already contain a terminal still waiting in our queue.
-      const queued = this.queue.filter(e => e.id === session.id).map(e => e.event.seq);
-      const seq = old?.seq ?? (queued.length ? Math.min(...queued) - 1 : proof.cursor);
-      this.watermarks[session.id] = { seq, ...(attentionId ? { attentionId } : {}) };
-      const skipped = this.skipped.get(session.id);
-      if (skipped && skipped.last <= seq) this.skipped.delete(session.id);
-      else if (skipped && skipped.first <= seq) skipped.first = seq + 1;
-    }
-    this.state.writeNotificationState('producer', this.watermarks);
-    if (!this.baselineReady) { this.baselineReady = true; this.degrade('baseline_incomplete'); }
-    if (this.coverage === 'degraded' && revision === this.coverageRevision && !this.recoveryScan && !this.recoveryPending.size && !this.lazyRetry.size && !this.overflow && !this.queue.length && !budget.aborted) { this.coverage = 'ready'; this.changed(); }
+      this.state.writeNotificationState('producer', this.watermarks);
+      if (!this.baselineReady) { this.baselineReady = true; this.degrade('baseline_incomplete'); }
+      if (this.coverage === 'degraded' && revision === this.coverageRevision && !this.recoveryScan && !this.recoveryPending.size && !this.lazyRetry.size && !this.overflow && !this.queue.length && !budget.aborted) { this.coverage = 'ready'; this.changed(); }
+    } finally { scope.end(); }
   }
   private retryLazy(id: string, pass: number): void {
     const failures = Math.min((this.lazyRetry.get(id)?.failures ?? 0) + 1, 4);
@@ -413,44 +430,46 @@ export class NotificationFeed {
     const ceiling = initial.sequence;
     // Read lifetime is independent of producer activation. Disable must still
     // deliver its v1 reset, including for legacy sources that honor cancellation.
-    const readSignal = AbortSignal.any([this.signal(false), ...(signal ? [signal] : [])]);
-    readSignal.throwIfAborted();
-    const ids = initial.settings.enabled ? [...new Set([...initial.items.map(e => e.sessionId), ...(initial.attentionSessions ?? []), ...Object.keys(this.watermarks).filter(id => this.watermarks[id]?.attentionId)])] : [];
-    const found: { id: string; workspaceId: string; running?: boolean }[] = [];
-    let index = 0;
-    const list = !initial.settings.enabled ? found : this.source.lookup ? (await Promise.all(Array.from({ length: Math.min(16, ids.length) }, async () => {
-      while (index < ids.length) { readSignal.throwIfAborted(); const listed = await this.lookup(ids[index++]!, readSignal); if (listed) found.push(listed); }
-    })), found) : await this.source.list(readSignal);
-    // Listing yields: never overwrite producer writes with a pre-await journal copy.
-    readSignal.throwIfAborted();
-    if (this.source.lookupCurrent && list.some(s => !this.source.lookupCurrent!(s))) throw new HostError('unavailable');
-    const j = this.journal(deviceId);
-    j.items = j.items.filter(e => e.occurredAt > Date.now() - RETENTION); this.save(deviceId, j);
-    let resetRequired = !cut || cut[0] !== j.epoch || cut[1] > j.sequence || cut[1] < (j.items[0]?.sequence ?? j.sequence + 1) - 1;
-    const allowed = new Map(list.map(s => [s.id, s.workspaceId]));
-    const device = this.state.getDevice(deviceId); if (!device) throw new HostError('unauthorized');
-    const scope = createHash('sha256').update(JSON.stringify([device.grants.readWorkspaceIds, j.settings])).digest('hex');
-    const currentAttention = Object.keys(this.watermarks).filter(id => !!this.watermarks[id]?.attentionId && allowed.has(id) && allowsWorkspace(device.grants.readWorkspaceIds, allowed.get(id)!));
-    if ((j.scope && j.scope !== scope) || j.attentionSessions?.some(id => !allowed.has(id) || !allowsWorkspace(device.grants.readWorkspaceIds, allowed.get(id)!))) { j.epoch = randomUUID(); resetRequired = true; }
-    j.scope = scope; j.attentionSessions = currentAttention.slice(0,1000);
-    j.items = j.items.filter(e => e.occurredAt > Date.now() - RETENTION); this.save(deviceId, j);
-    // A commit during point lookups is left for the coalesced next page; never
-    // advance its cursor without having checked that session's authority.
-    const candidates = resetRequired ? [] : j.items.filter(e => e.sequence > cut![1] && e.sequence <= ceiling);
-    let sequence = resetRequired ? Math.min(ceiling, j.sequence) : cut![1], examined = 0;
-    const items: NotificationEvent[] = [];
-    for (const e of candidates) {
-      if (examined++ >= 400 || items.length >= limit) break;
-      sequence = e.sequence;
-      if (e.occurredAt <= Date.now() - RETENTION || allowed.get(e.sessionId) !== e.workspaceId || !allowsWorkspace(device.grants.readWorkspaceIds, e.workspaceId)) continue;
-      items.push(e);
-    }
-    // Reset is a current-state cut, not history replay. Phone cancels its old attention alerts.
-    const pending = resetRequired && j.settings.enabled ? Object.entries(this.watermarks).filter(([id, s]) => s.attentionId && allowed.has(id) && allowsWorkspace(device.grants.readWorkspaceIds, allowed.get(id)!) && (j.settings.chats.find(c => c.sessionId === id)?.enabled ?? j.settings.projects.find(p => p.workspaceId === allowed.get(id))?.enabled ?? true)).slice(0,1000).map(([sessionId, s]) => ({ sessionId, workspaceId: allowed.get(sessionId)!, attentionId: s.attentionId! })) : [];
-    const page = { version: 1, epoch: j.epoch, items, pending, nextCursor: this.cursor(deviceId, j.epoch, sequence), hasMore: sequence < j.sequence, resetRequired, coverage: this.coverage };
-    if (currentAttention.length > 1000) { this.degrade('attention_limit'); page.coverage = 'degraded'; }
-    if (Buffer.byteLength(JSON.stringify(page)) > 128 * 1024 - 512) throw new HostError('payload_too_large');
-    return page;
+    const read = this.scope(this.readMs, signal), readSignal = read.signal;
+    try {
+      readSignal.throwIfAborted();
+      const ids = initial.settings.enabled ? [...new Set([...initial.items.map(e => e.sessionId), ...(initial.attentionSessions ?? []), ...Object.keys(this.watermarks).filter(id => this.watermarks[id]?.attentionId)])] : [];
+      const found: { id: string; workspaceId: string; running?: boolean }[] = [];
+      let index = 0;
+      const list = !initial.settings.enabled ? found : this.source.lookup ? (await Promise.all(Array.from({ length: Math.min(16, ids.length) }, async () => {
+        while (index < ids.length) { readSignal.throwIfAborted(); const listed = await this.lookup(ids[index++]!, readSignal); if (listed) found.push(listed); }
+      })), found) : await this.source.list(readSignal);
+      // Listing yields: never overwrite producer writes with a pre-await journal copy.
+      readSignal.throwIfAborted();
+      if (this.source.lookupCurrent && list.some(s => !this.source.lookupCurrent!(s))) throw new HostError('unavailable');
+      const j = this.journal(deviceId);
+      j.items = j.items.filter(e => e.occurredAt > Date.now() - RETENTION); this.save(deviceId, j);
+      let resetRequired = !cut || cut[0] !== j.epoch || cut[1] > j.sequence || cut[1] < (j.items[0]?.sequence ?? j.sequence + 1) - 1;
+      const allowed = new Map(list.map(s => [s.id, s.workspaceId]));
+      const device = this.state.getDevice(deviceId); if (!device) throw new HostError('unauthorized');
+      const scope = createHash('sha256').update(JSON.stringify([device.grants.readWorkspaceIds, j.settings])).digest('hex');
+      const currentAttention = Object.keys(this.watermarks).filter(id => !!this.watermarks[id]?.attentionId && allowed.has(id) && allowsWorkspace(device.grants.readWorkspaceIds, allowed.get(id)!));
+      if ((j.scope && j.scope !== scope) || j.attentionSessions?.some(id => !allowed.has(id) || !allowsWorkspace(device.grants.readWorkspaceIds, allowed.get(id)!))) { j.epoch = randomUUID(); resetRequired = true; }
+      j.scope = scope; j.attentionSessions = currentAttention.slice(0,1000);
+      j.items = j.items.filter(e => e.occurredAt > Date.now() - RETENTION); this.save(deviceId, j);
+      // A commit during point lookups is left for the coalesced next page; never
+      // advance its cursor without having checked that session's authority.
+      const candidates = resetRequired ? [] : j.items.filter(e => e.sequence > cut![1] && e.sequence <= ceiling);
+      let sequence = resetRequired ? Math.min(ceiling, j.sequence) : cut![1], examined = 0;
+      const items: NotificationEvent[] = [];
+      for (const e of candidates) {
+        if (examined++ >= 400 || items.length >= limit) break;
+        sequence = e.sequence;
+        if (e.occurredAt <= Date.now() - RETENTION || allowed.get(e.sessionId) !== e.workspaceId || !allowsWorkspace(device.grants.readWorkspaceIds, e.workspaceId)) continue;
+        items.push(e);
+      }
+      // Reset is a current-state cut, not history replay. Phone cancels its old attention alerts.
+      const pending = resetRequired && j.settings.enabled ? Object.entries(this.watermarks).filter(([id, s]) => s.attentionId && allowed.has(id) && allowsWorkspace(device.grants.readWorkspaceIds, allowed.get(id)!) && (j.settings.chats.find(c => c.sessionId === id)?.enabled ?? j.settings.projects.find(p => p.workspaceId === allowed.get(id))?.enabled ?? true)).slice(0,1000).map(([sessionId, s]) => ({ sessionId, workspaceId: allowed.get(sessionId)!, attentionId: s.attentionId! })) : [];
+      const page = { version: 1, epoch: j.epoch, items, pending, nextCursor: this.cursor(deviceId, j.epoch, sequence), hasMore: sequence < j.sequence, resetRequired, coverage: this.coverage };
+      if (currentAttention.length > 1000) { this.degrade('attention_limit'); page.coverage = 'degraded'; }
+      if (Buffer.byteLength(JSON.stringify(page)) > 128 * 1024 - 512) throw new HostError('payload_too_large');
+      return page;
+    } finally { read.end(); }
   }
   async close(): Promise<void> { this.lifetime.abort(); this.listeners.clear(); this.dispose?.(); if (this.timer) clearInterval(this.timer); await this.work; await Promise.all(this.lanes.values()); }
 }

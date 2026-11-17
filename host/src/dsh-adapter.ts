@@ -577,7 +577,8 @@ export class DshAdapter implements HostAdapter {
         // Header stat is membership authority, not a cached catalog or phone index.
         try {
           const revision = this.lifecycleToken(id);
-          const { workspaceId, view } = await this.pointScope(id, this.signal(signal));
+          const scope = this.scope(signal);
+          const { workspaceId, view } = await this.pointScope(id, scope.signal).finally(scope.end);
           this.checkLifecycle(id, revision);
           const listed = { id, workspaceId }; bindings.set(listed, { view, revision }); return listed;
         } catch (error) { if (error instanceof HostError && error.code === 'not_found') return undefined; throw error; }
@@ -586,7 +587,8 @@ export class DshAdapter implements HostAdapter {
         return !!binding && binding.revision === this.lifecycles.get(listed.id) && !this.lifetime.signal.aborted && (!this.source.isCurrent || this.source.isCurrent(binding.view)) && !this.source.archivedSessionIds().has(listed.id);
       } } : {}), evidence: async (id, signal, listed) => {
       const lifecycle = this.lifecycleToken(id);
-      const { transcript, view } = await this.open(id, this.signal(signal), undefined, listed ? { ...listed, running: listed.running ?? false, title: '', updatedAt: 0 } : undefined);
+      const scope = this.scope(signal);
+      const { transcript, view } = await this.open(id, scope.signal, undefined, listed ? { ...listed, running: listed.running ?? false, title: '', updatedAt: 0 } : undefined).finally(scope.end);
       this.checkLifecycle(id, lifecycle);
       const proof = transcript.notificationEvidence(); this.evidenceScopes.set(proof, { view, revision: this.evidenceRevision, lifecycle }); return proof;
     }, evidenceCurrent: proof => {
@@ -600,7 +602,14 @@ export class DshAdapter implements HostAdapter {
     for (const [id, flight] of this.openingFlights) this.detachOpening(id, flight);
     this.history.clear(); this.historyBytes = 0;
   }
-  private signal(signal: AbortSignal): AbortSignal { return AbortSignal.any([signal, this.lifetime.signal]); }
+  /** The caller's signal, aborted also when the adapter is disposed, until `end()`. Combining `this.lifetime.signal`
+   * itself through AbortSignal.any kept every combined signal reachable for as long as the adapter lived: about 0.18 KB
+   * a call on Node 24.13.1, never freed (test/dsh-adapter-memory.test.ts). */
+  private scope(signal: AbortSignal): { signal: AbortSignal; end: () => void } {
+    const own = new AbortController(), stop = () => own.abort(this.lifetime.signal.reason);
+    if (this.lifetime.signal.aborted) stop(); else this.lifetime.signal.addEventListener('abort', stop, { once: true });
+    return { signal: AbortSignal.any([signal, own.signal]), end: () => this.lifetime.signal.removeEventListener('abort', stop) };
+  }
   private async workspaceMap(): Promise<{ workspaces: ReadonlyMap<string, CanonicalWorkspace>; view: readonly WorkspaceConfig[] }> {
     const view = await this.source.list();
     const signature = JSON.stringify(view);
@@ -652,38 +661,44 @@ export class DshAdapter implements HostAdapter {
     return { row, session: this.toSession(row, workspace), view };
   }
   async listPresets(signal: AbortSignal): Promise<Preset[]> {
-    const active = this.signal(signal); active.throwIfAborted();
-    if (!this.options.agentPresets) return [];
-    const roster = await this.options.agentPresets.remoteExportList();
-    active.throwIfAborted();
-    return roster.presets.filter((item) => item.broken === undefined).map((item) => ({ id: item.id, name: item.name || item.id }));
+    const scope = this.scope(signal), active = scope.signal;
+    try {
+      active.throwIfAborted();
+      if (!this.options.agentPresets) return [];
+      const roster = await this.options.agentPresets.remoteExportList();
+      active.throwIfAborted();
+      return roster.presets.filter((item) => item.broken === undefined).map((item) => ({ id: item.id, name: item.name || item.id }));
+    } finally { scope.end(); }
   }
   async listSessions(signal: AbortSignal): Promise<HostSession[]> {
-    const active = this.signal(signal);
-    active.throwIfAborted();
-    const rows = await this.options.sessionController.list({}, active);
-    const { workspaces, view } = await this.workspaceMap(), archived = this.source.archivedSessionIds();
-    const sessions: HostSession[] = [];
-    // Fresh per request: a junction retarget must not combine new metadata with
-    // an old authorization binding. Many sessions share a cwd, so deduplicate
-    // only within this bounded list operation, never across requests.
-    const paths = new Map<string, Promise<string | undefined>>();
-    for (const row of rows.items) {
-      if (row.origin === 'subagent' || archived.has(row.sessionId)) continue;
-      const workspace = await this.workspace(row.cwd, workspaces, paths);
-      if (workspace) sessions.push(this.toSession(row, workspace));
-    }
-    active.throwIfAborted();
-    this.checkCurrent(view);
-    const visible = new Set(sessions.map(session => session.id));
-    for (const id of this.history.keys()) if (!visible.has(id)) this.evictHistory(id);
-    for (const [id, flight] of this.historyFlights) if (!visible.has(id)) this.detachHistory(id, flight);
-    const counts = this.options.runningSubagentCounts?.();
-    if (counts) for (const session of sessions) session.runningSubagents = counts.get(session.id) ?? 0;
-    return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    const scope = this.scope(signal), active = scope.signal;
+    try {
+      active.throwIfAborted();
+      const rows = await this.options.sessionController.list({}, active);
+      const { workspaces, view } = await this.workspaceMap(), archived = this.source.archivedSessionIds();
+      const sessions: HostSession[] = [];
+      // Fresh per request: a junction retarget must not combine new metadata with
+      // an old authorization binding. Many sessions share a cwd, so deduplicate
+      // only within this bounded list operation, never across requests.
+      const paths = new Map<string, Promise<string | undefined>>();
+      for (const row of rows.items) {
+        if (row.origin === 'subagent' || archived.has(row.sessionId)) continue;
+        const workspace = await this.workspace(row.cwd, workspaces, paths);
+        if (workspace) sessions.push(this.toSession(row, workspace));
+      }
+      active.throwIfAborted();
+      this.checkCurrent(view);
+      const visible = new Set(sessions.map(session => session.id));
+      for (const id of this.history.keys()) if (!visible.has(id)) this.evictHistory(id);
+      for (const [id, flight] of this.historyFlights) if (!visible.has(id)) this.detachHistory(id, flight);
+      const counts = this.options.runningSubagentCounts?.();
+      if (counts) for (const session of sessions) session.runningSubagents = counts.get(session.id) ?? 0;
+      return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    } finally { scope.end(); }
   }
   async sessionScope(sessionId: string, signal: AbortSignal): Promise<string> {
-    return (await this.pointScope(sessionId, this.signal(signal))).workspaceId;
+    const scope = this.scope(signal);
+    return (await this.pointScope(sessionId, scope.signal).finally(scope.end)).workspaceId;
   }
   private async pointScope(sessionId: string, active: AbortSignal): Promise<{ workspaceId: string; view: readonly WorkspaceConfig[]; revision: object }> {
     const revision = this.lifecycleToken(sessionId);
@@ -703,7 +718,8 @@ export class DshAdapter implements HostAdapter {
     return { workspaceId: workspace.id, view, revision };
   }
   async snapshot(sessionId: string, signal: AbortSignal): Promise<HostSnapshot> {
-    const { transcript, view } = await this.open(sessionId, this.signal(signal));
+    const scope = this.scope(signal);
+    const { transcript, view } = await this.open(sessionId, scope.signal).finally(scope.end);
     this.checkCurrent(view, sessionId);
     return this.phoneSnapshot(transcript);
   }
@@ -770,7 +786,8 @@ export class DshAdapter implements HostAdapter {
         this.releaseCapacity(this.openingCapacity);
         for (const waiter of [...owned.waiters]) waiter(frame, error);
       };
-      void this.readOpening(sessionId, this.signal(owned.controller.signal)).then(frame => finish(frame), reason => finish(undefined, { reason }));
+      const scope = this.scope(owned.controller.signal);
+      void this.readOpening(sessionId, scope.signal).finally(scope.end).then(frame => finish(frame), reason => finish(undefined, { reason }));
     }
     return waiting;
   }
@@ -856,7 +873,8 @@ export class DshAdapter implements HostAdapter {
       for (const waiter of [...flight.waiters]) waiter(error);
     };
     // One completion handler per flight, not per waiter; aborted waiters release registrations immediately.
-    void this.recoverHistory(session, frame, view, this.signal(flight.controller.signal)).then(value => { transcript = value; finish(); }, reason => finish({ reason }));
+    const scope = this.scope(flight.controller.signal);
+    void this.recoverHistory(session, frame, view, scope.signal).finally(scope.end).then(value => { transcript = value; finish(); }, reason => finish({ reason }));
     await waiting;
     return transcript;
   }
@@ -923,7 +941,7 @@ export class DshAdapter implements HostAdapter {
     return transcript;
   }
   async *watch(sessionId: string, signal: AbortSignal): AsyncIterable<HostSnapshot> {
-    const active = this.signal(signal);
+    const scope = this.scope(signal), active = scope.signal;
     const pollMs = this.options.pollIntervalMs ?? 1000;
     const throttleMs = this.options.throttleMs ?? 250; // at most ~4 streaming frames per second
     let transcript: Transcript | undefined;
@@ -931,22 +949,24 @@ export class DshAdapter implements HostAdapter {
     let resync = false;
     let wake: () => void = () => {};
     let queue: DshObservation[] = [];
-    const unsubscribe = this.options.events?.subscribe(sessionId, (observation) => {
-      if (active.aborted) return;
-      if (!transcript) {
-        if (queue.length < 500) queue.push(observation); else resync = true;
-      } else {
-        try { const before = transcript.cursor; transcript.accept(observation); if (observation.type === 'event' && transcript.cursor > before) phoneProjections.get(transcript)?.event(observation.event); } catch { transcript.markGap(); }
-        resync ||= transcript.needsResync;
-        changed = true;
-      }
-      wake();
-    });
+    let unsubscribe: (() => void) | undefined;
     let lastPublished = 0;
     let lastOpened = Date.now();
     let nextPoll = lastOpened + pollMs;
     let lastValue = '';
     try {
+      // Inside try: a subscription that throws still ends the scope in finally.
+      unsubscribe = this.options.events?.subscribe(sessionId, (observation) => {
+        if (active.aborted) return;
+        if (!transcript) {
+          if (queue.length < 500) queue.push(observation); else resync = true;
+        } else {
+          try { const before = transcript.cursor; transcript.accept(observation); if (observation.type === 'event' && transcript.cursor > before) phoneProjections.get(transcript)?.event(observation.event); } catch { transcript.markGap(); }
+          resync ||= transcript.needsResync;
+          changed = true;
+        }
+        wake();
+      });
       const initialView = await this.open(sessionId, active);
       this.checkCurrent(initialView.view, sessionId);
       transcript = initialView.transcript;
@@ -988,27 +1008,30 @@ export class DshAdapter implements HostAdapter {
         await waitForWake((callback) => { wake = callback; }, Math.min(remaining, Math.max(1, nextPoll - Date.now())), active);
       }
     } catch (error) { if (!active.aborted) throw error; }
-    finally { unsubscribe?.(); wake = () => {}; queue = []; }
+    finally { unsubscribe?.(); wake = () => {}; queue = []; scope.end(); }
   }
   async createSession(input: { workspaceId: string; presetId?: string; requestId: string }, signal: AbortSignal, expectedWorkspaceId: string): Promise<{ sessionId: string }> {
-    const active = this.signal(signal); active.throwIfAborted();
-    if (!isUuid(input.requestId)) throw new HostError('invalid_request');
-    if (!expectedWorkspaceId || input.workspaceId !== expectedWorkspaceId) throw new HostError('not_found');
-    if (input.presetId !== undefined && !(await this.listPresets(active)).some((item) => item.id === input.presetId)) throw new HostError('invalid_request');
-    // Resolve the owner source AFTER asynchronous preset preparation, at admission.
-    const view = await this.source.list();
-    const workspace = view.find((item) => item.id === expectedWorkspaceId);
-    if (!workspace) throw new HostError('not_found');
+    const scope = this.scope(signal), active = scope.signal;
     try {
-      const path = await (this.options.realpath ?? realpath)(workspace.path);
-      if (workspacePathKey(path) !== workspacePathKey(workspace.path) || !(await stat(path)).isDirectory()) throw new Error();
-    } catch { throw new HostError('not_found'); }
-    active.throwIfAborted();
-    this.checkCurrent(view);
-    // rc.2 attaches a new session to the sidebar ONLY on its workspaceId lane.
-    // Explicit mobile IDs are not DSH IDs and must retain the legacy cwd lane.
-    const target = this.source.kind === 'dsh-registry' ? { workspaceId: workspace.id } : { cwd: workspace.path };
-    return this.options.sessionController.create({ ...target, sessionId: `session-${input.requestId.toLowerCase()}`, ...(input.presetId !== undefined ? { agentPreset: input.presetId } : {}) });
+      active.throwIfAborted();
+      if (!isUuid(input.requestId)) throw new HostError('invalid_request');
+      if (!expectedWorkspaceId || input.workspaceId !== expectedWorkspaceId) throw new HostError('not_found');
+      if (input.presetId !== undefined && !(await this.listPresets(active)).some((item) => item.id === input.presetId)) throw new HostError('invalid_request');
+      // Resolve the owner source AFTER asynchronous preset preparation, at admission.
+      const view = await this.source.list();
+      const workspace = view.find((item) => item.id === expectedWorkspaceId);
+      if (!workspace) throw new HostError('not_found');
+      try {
+        const path = await (this.options.realpath ?? realpath)(workspace.path);
+        if (workspacePathKey(path) !== workspacePathKey(workspace.path) || !(await stat(path)).isDirectory()) throw new Error();
+      } catch { throw new HostError('not_found'); }
+      active.throwIfAborted();
+      this.checkCurrent(view);
+      // rc.2 attaches a new session to the sidebar ONLY on its workspaceId lane.
+      // Explicit mobile IDs are not DSH IDs and must retain the legacy cwd lane.
+      const target = this.source.kind === 'dsh-registry' ? { workspaceId: workspace.id } : { cwd: workspace.path };
+      return this.options.sessionController.create({ ...target, sessionId: `session-${input.requestId.toLowerCase()}`, ...(input.presetId !== undefined ? { agentPreset: input.presetId } : {}) });
+    } finally { scope.end(); }
   }
   private phoneSnapshot(transcript: Transcript): HostSnapshot {
     const snapshot = transcript.phoneSnapshot();
@@ -1032,198 +1055,214 @@ export class DshAdapter implements HostAdapter {
     return { steer: true, queue: !!c.updateQueue, rename: !!c.rename, models: !!c.modelCatalog && !!c.selectModel, questions: !!this.options.questionBridge && !!this.options.answerContinued, questionSkip: !!this.options.questionBridge && !!this.options.answerContinued, fileDownload: !!this.options.attachments?.readFileStream, attachments: !!this.options.fileUploads && !!this.options.attachments && !!c.attachment };
   }
   async models(signal: AbortSignal): Promise<ModelCatalog> {
-    const active = this.signal(signal), c = this.options.sessionController;
-    if (!c.modelCatalog) throw new HostError('unavailable');
-    const catalog = await c.modelCatalog(); active.throwIfAborted();
-    const items: ModelCatalog['items'] = [];
-    for (const group of catalog.groups) for (const model of group.models) {
-      if (items.length >= 1000) throw new HostError('payload_too_large');
-      let supportsImages: boolean | null = null;
-      if (this.options.modelInfo) { try { const info = await this.options.modelInfo(group.id, model.id, active); supportsImages = info.inputModalities ? info.inputModalities.includes('image') : null; } catch { active.throwIfAborted(); } }
-      items.push({ provider: group.id, id: model.id, name: model.name, supportsImages, ...(model.reasoning ? { reasoningEfforts: model.reasoning.efforts.map(e => ({ id: e.id, name: e.name })) } : {}) });
-    }
-    return { items, default: catalog.default };
+    const scope = this.scope(signal), active = scope.signal, c = this.options.sessionController;
+    try {
+      if (!c.modelCatalog) throw new HostError('unavailable');
+      const catalog = await c.modelCatalog(); active.throwIfAborted();
+      const items: ModelCatalog['items'] = [];
+      for (const group of catalog.groups) for (const model of group.models) {
+        if (items.length >= 1000) throw new HostError('payload_too_large');
+        let supportsImages: boolean | null = null;
+        if (this.options.modelInfo) { try { const info = await this.options.modelInfo(group.id, model.id, active); supportsImages = info.inputModalities ? info.inputModalities.includes('image') : null; } catch { active.throwIfAborted(); } }
+        items.push({ provider: group.id, id: model.id, name: model.name, supportsImages, ...(model.reasoning ? { reasoningEfforts: model.reasoning.efforts.map(e => ({ id: e.id, name: e.name })) } : {}) });
+      }
+      return { items, default: catalog.default };
+    } finally { scope.end(); }
   }
   async mutateSession(sessionId: string, mutation: SessionMutation, signal: AbortSignal, expectedWorkspaceId: string): Promise<void> {
-    const active = this.signal(signal), c = this.options.sessionController;
-    const { view } = await this.permitted(sessionId, active, expectedWorkspaceId);
-    active.throwIfAborted(); this.checkCurrent(view, sessionId);
+    const scope = this.scope(signal), active = scope.signal, c = this.options.sessionController;
     try {
-      switch (mutation.kind) {
-        case 'queue': if (!c.updateQueue) throw new HostError('unavailable'); await c.updateQueue({ sessionId, itemId: mutation.itemId, action: { kind: mutation.action } }); break;
-        case 'rename': if (!c.rename) throw new HostError('unavailable'); await c.rename({ sessionId, title: mutation.title }); break;
-        case 'model': {
-          if (!c.selectModel) throw new HostError('unavailable');
-          const catalog = await this.models(active), model = catalog.items.find(m => m.id === mutation.model && m.provider === mutation.provider);
-          if (!model || (mutation.reasoningEffort !== undefined && !model.reasoningEfforts?.some(e => e.id === mutation.reasoningEffort))) throw new HostError('invalid_request');
-          await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
-          await c.selectModel({ sessionId, provider: mutation.provider, model: mutation.model, ...(mutation.reasoningEffort ? { reasoningEffort: mutation.reasoningEffort } : {}) }); break;
+      const { view } = await this.permitted(sessionId, active, expectedWorkspaceId);
+      active.throwIfAborted(); this.checkCurrent(view, sessionId);
+      try {
+        switch (mutation.kind) {
+          case 'queue': if (!c.updateQueue) throw new HostError('unavailable'); await c.updateQueue({ sessionId, itemId: mutation.itemId, action: { kind: mutation.action } }); break;
+          case 'rename': if (!c.rename) throw new HostError('unavailable'); await c.rename({ sessionId, title: mutation.title }); break;
+          case 'model': {
+            if (!c.selectModel) throw new HostError('unavailable');
+            const catalog = await this.models(active), model = catalog.items.find(m => m.id === mutation.model && m.provider === mutation.provider);
+            if (!model || (mutation.reasoningEffort !== undefined && !model.reasoningEfforts?.some(e => e.id === mutation.reasoningEffort))) throw new HostError('invalid_request');
+            await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
+            await c.selectModel({ sessionId, provider: mutation.provider, model: mutation.model, ...(mutation.reasoningEffort ? { reasoningEffort: mutation.reasoningEffort } : {}) }); break;
+          }
+          case 'answer': {
+            const snapshot = await this.snapshot(sessionId, active), pending = snapshot.pendingQuestions?.find(q => q.callId === mutation.callId);
+            if (!pending) throw new HostError('question_expired'); const answer = mutationAnswer(mutation, pending); validateAnswer(pending, answer);
+            await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
+            if (this.options.questionBridge?.answer(sessionId, mutation.callId, answer)) return;
+            if (pending.state !== 'continued' || !await this.options.answerContinued?.(sessionId, mutation.callId, answer)) throw new HostError('question_expired');
+          }
         }
-        case 'answer': {
-          const snapshot = await this.snapshot(sessionId, active), pending = snapshot.pendingQuestions?.find(q => q.callId === mutation.callId);
-          if (!pending) throw new HostError('question_expired'); const answer = mutationAnswer(mutation, pending); validateAnswer(pending, answer);
-          await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
-          if (this.options.questionBridge?.answer(sessionId, mutation.callId, answer)) return;
-          if (pending.state !== 'continued' || !await this.options.answerContinued?.(sessionId, mutation.callId, answer)) throw new HostError('question_expired');
-        }
-      }
-    } catch (error) { throw phoneError(error); }
+      } catch (error) { throw phoneError(error); }
+    } finally { scope.end(); }
   }
   private readonly fileReservations = new WeakMap<FileUploadReservation, { sessionId: string; slots: object[]; budget: Map<object, { sessionId: string; receiptId?: string }> }>();
   async reserveFileUploads(sessionId: string, count: number, signal: AbortSignal, expectedWorkspaceId: string): Promise<FileUploadReservation> {
-    const active = this.signal(signal), service = this.options.fileUploads;
-    if (!service || !Number.isSafeInteger(count) || count < 1 || count > 20) throw new HostError('invalid_request');
-    await this.permitted(sessionId, active, expectedWorkspaceId);
-    const budget = receiptBudget(service);
-    // At most 64 reservations and 64 scopes. Unknown/failed resolve never
-    // proves retirement, so retain its quota; never refresh transcript history.
-    if (service.resolve && this.options.sessionController.resolveAgent) {
-      for (const id of new Set([...budget.values()].filter(e => e.receiptId).map(e => e.sessionId))) {
-        active.throwIfAborted();
-        try {
-          const resolved = await this.options.sessionController.resolveAgent(id);
-          if ('error' in resolved) continue;
-          for (const [key, entry] of budget) if (entry.sessionId === id && entry.receiptId && service.resolve(resolved.agent, entry.receiptId) === undefined) budget.delete(key);
-        } catch { active.throwIfAborted(); }
+    const scope = this.scope(signal), active = scope.signal, service = this.options.fileUploads;
+    try {
+      if (!service || !Number.isSafeInteger(count) || count < 1 || count > 20) throw new HostError('invalid_request');
+      await this.permitted(sessionId, active, expectedWorkspaceId);
+      const budget = receiptBudget(service);
+      // At most 64 reservations and 64 scopes. Unknown/failed resolve never
+      // proves retirement, so retain its quota; never refresh transcript history.
+      if (service.resolve && this.options.sessionController.resolveAgent) {
+        for (const id of new Set([...budget.values()].filter(e => e.receiptId).map(e => e.sessionId))) {
+          active.throwIfAborted();
+          try {
+            const resolved = await this.options.sessionController.resolveAgent(id);
+            if ('error' in resolved) continue;
+            for (const [key, entry] of budget) if (entry.sessionId === id && entry.receiptId && service.resolve(resolved.agent, entry.receiptId) === undefined) budget.delete(key);
+          } catch { active.throwIfAborted(); }
+        }
       }
-    }
-    active.throwIfAborted(); await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted();
-    if (budget.size + count > 64 || [...budget.values()].filter(e => e.sessionId === sessionId).length + count > 20) throw new HostError('rate_limited');
-    const slots = Array.from({ length: count }, () => { const slot = { sessionId }; budget!.set(slot, slot); return slot; });
-    const token: FileUploadReservation = { release: () => { for (const slot of slots) budget!.delete(slot); slots.length = 0; this.fileReservations.delete(token); } };
-    this.fileReservations.set(token, { sessionId, slots, budget }); return token;
+      active.throwIfAborted(); await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted();
+      if (budget.size + count > 64 || [...budget.values()].filter(e => e.sessionId === sessionId).length + count > 20) throw new HostError('rate_limited');
+      const slots = Array.from({ length: count }, () => { const slot = { sessionId }; budget!.set(slot, slot); return slot; });
+      const token: FileUploadReservation = { release: () => { for (const slot of slots) budget!.delete(slot); slots.length = 0; this.fileReservations.delete(token); } };
+      this.fileReservations.set(token, { sessionId, slots, budget }); return token;
+    } finally { scope.end(); }
   }
   async upload(sessionId: string, input: { data: AsyncIterable<Uint8Array>; size: number; mime: string; name: string; reservation?: FileUploadReservation }, signal: AbortSignal, expectedWorkspaceId: string): Promise<UploadedAttachment> {
-    const active = this.signal(signal);
-    if (!this.phoneCapabilities().attachments || input.size > UPLOAD_LIMIT) throw new HostError('payload_too_large');
-    const { view } = await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
+    const scope = this.scope(signal), active = scope.signal;
     try {
-      if (IMAGE_MIMES.includes(input.mime as ImageMime)) {
-        const chunks: Buffer[] = []; let size = 0;
-        for await (const chunk of input.data) { active.throwIfAborted(); size += chunk.length; if (size > input.size || size > UPLOAD_LIMIT) throw new HostError('payload_too_large'); chunks.push(Buffer.from(chunk)); }
-        if (size !== input.size) throw new HostError('invalid_request');
-        const data = Buffer.concat(chunks);
-        await this.options.attachments!.validateImage({ data, mediaType: input.mime as ImageMime, name: input.name });
-        await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
-        return { ref: { id: createHash('sha256').update(data).digest('hex'), name: input.name, size, mime: input.mime, kind: 'image' }, upstream: { type: 'image', mediaType: input.mime as ImageMime, data: data.toString('base64'), name: input.name } };
-      }
-      const service = this.options.fileUploads!;
-      const token = input.reservation ?? await this.reserveFileUploads(sessionId, 1, active, expectedWorkspaceId);
-      const reserved = this.fileReservations.get(token);
-      if (!reserved || reserved.sessionId !== sessionId || !reserved.slots.length) throw new HostError('invalid_request');
-      const key = reserved.slots.shift()!, budget = reserved.budget;
-      const reservation = budget.get(key)!;
-      if (!input.reservation) token.release();
-      // The inspected service stores only after reading the source. No byte
-      // delivered (and no completed empty source) proves it never reached storage.
-      let reachedDsh = false;
-      const data = (async function* () {
-        for await (const chunk of input.data) { if (chunk.byteLength) reachedDsh = true; yield chunk; }
-        if (input.size === 0) reachedDsh = true;
-      })();
-      let result: Awaited<ReturnType<typeof service.uploadStream>>;
-      try { result = await service.uploadStream({ sessionId, data, signal: active, name: input.name }); }
-      catch (error) { if (!reachedDsh) budget.delete(key); throw error; }
-      reservation.receiptId = result.receiptId;
-      // DSH file refs omit MIME. Keep bounded passive metadata through hot reload;
-      // older/evicted refs still use the safe extension fallback.
-      const mimes = fileMimes(service);
-      mimes.delete(result.file.attachmentId); mimes.set(result.file.attachmentId, safeFileMime(result.file.name, input.mime));
-      while (mimes.size > 4096) mimes.delete(mimes.keys().next().value!);
-      return { ref: { id: result.file.attachmentId, name: result.file.name, size: result.file.bytes, mime: input.mime, kind: 'file' }, upstream: { type: 'file', receiptId: result.receiptId } };
-    } catch (error) { throw phoneError(error); }
+      if (!this.phoneCapabilities().attachments || input.size > UPLOAD_LIMIT) throw new HostError('payload_too_large');
+      const { view } = await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
+      try {
+        if (IMAGE_MIMES.includes(input.mime as ImageMime)) {
+          const chunks: Buffer[] = []; let size = 0;
+          for await (const chunk of input.data) { active.throwIfAborted(); size += chunk.length; if (size > input.size || size > UPLOAD_LIMIT) throw new HostError('payload_too_large'); chunks.push(Buffer.from(chunk)); }
+          if (size !== input.size) throw new HostError('invalid_request');
+          const data = Buffer.concat(chunks);
+          await this.options.attachments!.validateImage({ data, mediaType: input.mime as ImageMime, name: input.name });
+          await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
+          return { ref: { id: createHash('sha256').update(data).digest('hex'), name: input.name, size, mime: input.mime, kind: 'image' }, upstream: { type: 'image', mediaType: input.mime as ImageMime, data: data.toString('base64'), name: input.name } };
+        }
+        const service = this.options.fileUploads!;
+        const token = input.reservation ?? await this.reserveFileUploads(sessionId, 1, active, expectedWorkspaceId);
+        const reserved = this.fileReservations.get(token);
+        if (!reserved || reserved.sessionId !== sessionId || !reserved.slots.length) throw new HostError('invalid_request');
+        const key = reserved.slots.shift()!, budget = reserved.budget;
+        const reservation = budget.get(key)!;
+        if (!input.reservation) token.release();
+        // The inspected service stores only after reading the source. No byte
+        // delivered (and no completed empty source) proves it never reached storage.
+        let reachedDsh = false;
+        const data = (async function* () {
+          for await (const chunk of input.data) { if (chunk.byteLength) reachedDsh = true; yield chunk; }
+          if (input.size === 0) reachedDsh = true;
+        })();
+        let result: Awaited<ReturnType<typeof service.uploadStream>>;
+        try { result = await service.uploadStream({ sessionId, data, signal: active, name: input.name }); }
+        catch (error) { if (!reachedDsh) budget.delete(key); throw error; }
+        reservation.receiptId = result.receiptId;
+        // DSH file refs omit MIME. Keep bounded passive metadata through hot reload;
+        // older/evicted refs still use the safe extension fallback.
+        const mimes = fileMimes(service);
+        mimes.delete(result.file.attachmentId); mimes.set(result.file.attachmentId, safeFileMime(result.file.name, input.mime));
+        while (mimes.size > 4096) mimes.delete(mimes.keys().next().value!);
+        return { ref: { id: result.file.attachmentId, name: result.file.name, size: result.file.bytes, mime: input.mime, kind: 'file' }, upstream: { type: 'file', receiptId: result.receiptId } };
+      } catch (error) { throw phoneError(error); }
+    } finally { scope.end(); }
   }
   async file(sessionId: string, attachmentId: string, signal: AbortSignal, expectedWorkspaceId: string): Promise<{ data: Uint8Array; ref: AttachmentRef }> {
-    const active = this.signal(signal);
-    if (!this.options.attachments?.readFileStream) throw new HostError('unavailable');
-    const { view } = await this.permitted(sessionId, active, expectedWorkspaceId);
-    // Only a journal-owned message reference is authority, never an upload ID,
-    // a queue occurrence, a supplied filename, or a guessed content hash.
-    const snapshot = await this.snapshot(sessionId, active);
-    const ref = snapshot.messages.slice(-100).flatMap(m => m.attachments ?? []).find(a => a.kind === 'file' && a.id === attachmentId);
-    if (!ref) throw new HostError('not_found');
-    if (!Number.isSafeInteger(ref.size) || ref.size < 0 || ref.size > UPLOAD_LIMIT || !ref.name || /[\\/\x00-\x1f\x7f]/.test(ref.name)) throw new HostError('payload_too_large');
-    const chunks: Buffer[] = []; let size = 0;
+    const scope = this.scope(signal), active = scope.signal;
     try {
-      for await (const chunk of this.options.attachments.readFileStream({ attachmentId: ref.id, name: ref.name, bytes: ref.size }, active)) {
-        active.throwIfAborted(); size += chunk.length;
-        if (size > ref.size || size > UPLOAD_LIMIT) throw new HostError('payload_too_large');
-        chunks.push(Buffer.from(chunk));
-      }
-      if (size !== ref.size) throw new HostError('unavailable');
-      await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
-      return { data: Buffer.concat(chunks), ref };
-    } catch (error) { throw phoneError(error); }
+      if (!this.options.attachments?.readFileStream) throw new HostError('unavailable');
+      const { view } = await this.permitted(sessionId, active, expectedWorkspaceId);
+      // Only a journal-owned message reference is authority, never an upload ID,
+      // a queue occurrence, a supplied filename, or a guessed content hash.
+      const snapshot = await this.snapshot(sessionId, active);
+      const ref = snapshot.messages.slice(-100).flatMap(m => m.attachments ?? []).find(a => a.kind === 'file' && a.id === attachmentId);
+      if (!ref) throw new HostError('not_found');
+      if (!Number.isSafeInteger(ref.size) || ref.size < 0 || ref.size > UPLOAD_LIMIT || !ref.name || /[\\/\x00-\x1f\x7f]/.test(ref.name)) throw new HostError('payload_too_large');
+      const chunks: Buffer[] = []; let size = 0;
+      try {
+        for await (const chunk of this.options.attachments.readFileStream({ attachmentId: ref.id, name: ref.name, bytes: ref.size }, active)) {
+          active.throwIfAborted(); size += chunk.length;
+          if (size > ref.size || size > UPLOAD_LIMIT) throw new HostError('payload_too_large');
+          chunks.push(Buffer.from(chunk));
+        }
+        if (size !== ref.size) throw new HostError('unavailable');
+        await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
+        return { data: Buffer.concat(chunks), ref };
+      } catch (error) { throw phoneError(error); }
+    } finally { scope.end(); }
   }
   async image(sessionId: string, attachmentId: string, signal: AbortSignal, expectedWorkspaceId: string): Promise<{ data: Uint8Array; ref: AttachmentRef }> {
-    const active = this.signal(signal), c = this.options.sessionController;
-    if (!c.attachment) throw new HostError('unavailable');
-    const { view } = await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
-    const opened = await this.open(sessionId, active); this.checkCurrent(opened.view, sessionId);
-    const visible = this.phoneSnapshot(opened.transcript).messages.slice(-100).flatMap(m => m.attachments ?? []).find(a => a.kind === 'image' && a.id === attachmentId);
-    if (!visible) throw new HostError('not_found');
-    if (visible.size > UPLOAD_LIMIT) throw new HostError('payload_too_large');
+    const scope = this.scope(signal), active = scope.signal, c = this.options.sessionController;
     try {
-      const storedRef = phoneProjections.get(opened.transcript)?.imageRef(attachmentId);
-      if (storedRef && this.options.attachments?.readImage) {
-        if (storedRef.bytes !== visible.size || storedRef.mediaType !== visible.mime) throw new HostError('unavailable');
-        const result = await this.options.attachments.readImage(storedRef, active); active.throwIfAborted();
-        if (result.data.byteLength !== visible.size) throw new HostError('unavailable');
+      if (!c.attachment) throw new HostError('unavailable');
+      const { view } = await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
+      const opened = await this.open(sessionId, active); this.checkCurrent(opened.view, sessionId);
+      const visible = this.phoneSnapshot(opened.transcript).messages.slice(-100).flatMap(m => m.attachments ?? []).find(a => a.kind === 'image' && a.id === attachmentId);
+      if (!visible) throw new HostError('not_found');
+      if (visible.size > UPLOAD_LIMIT) throw new HostError('payload_too_large');
+      try {
+        const storedRef = phoneProjections.get(opened.transcript)?.imageRef(attachmentId);
+        if (storedRef && this.options.attachments?.readImage) {
+          if (storedRef.bytes !== visible.size || storedRef.mediaType !== visible.mime) throw new HostError('unavailable');
+          const result = await this.options.attachments.readImage(storedRef, active); active.throwIfAborted();
+          if (result.data.byteLength !== visible.size) throw new HostError('unavailable');
+          await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
+          return { data: result.data, ref: visible };
+        }
+        const result = await c.attachment({ sessionId, attachmentId }); active.throwIfAborted();
+        const a = result.attachment;
+        if (a.attachmentId !== visible.id || a.bytes !== visible.size || a.mediaType !== visible.mime) throw new HostError('unavailable');
+        if (a.bytes > UPLOAD_LIMIT || result.data.length > Math.ceil(UPLOAD_LIMIT / 3) * 4 || !IMAGE_MIMES.includes(a.mediaType)) throw new HostError('payload_too_large');
+        const data = Buffer.from(result.data, 'base64'); if (data.length !== a.bytes) throw new HostError('unavailable');
         await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
-        return { data: result.data, ref: visible };
-      }
-      const result = await c.attachment({ sessionId, attachmentId }); active.throwIfAborted();
-      const a = result.attachment;
-      if (a.attachmentId !== visible.id || a.bytes !== visible.size || a.mediaType !== visible.mime) throw new HostError('unavailable');
-      if (a.bytes > UPLOAD_LIMIT || result.data.length > Math.ceil(UPLOAD_LIMIT / 3) * 4 || !IMAGE_MIMES.includes(a.mediaType)) throw new HostError('payload_too_large');
-      const data = Buffer.from(result.data, 'base64'); if (data.length !== a.bytes) throw new HostError('unavailable');
-      await this.permitted(sessionId, active, expectedWorkspaceId); active.throwIfAborted(); this.checkCurrent(view, sessionId);
-      return { data, ref: { id: a.attachmentId, name: a.name ?? 'image', size: a.bytes, mime: a.mediaType, kind: 'image' } };
-    } catch (error) { throw phoneError(error); }
+        return { data, ref: { id: a.attachmentId, name: a.name ?? 'image', size: a.bytes, mime: a.mediaType, kind: 'image' } };
+      } catch (error) { throw phoneError(error); }
+    } finally { scope.end(); }
   }
   async prompt(sessionId: string, text: string, requestId: string, signal: AbortSignal, expectedWorkspaceId: string, options?: PromptOptions): Promise<void> {
-    const active = this.signal(signal);
-    if (!isUuid(requestId) || typeof text !== 'string' || (!text.trim() && !options?.attachments?.length)) throw new HostError('invalid_request');
-    if (Buffer.byteLength(text, 'utf8') > 32768) throw new HostError('payload_too_large');
-    if (!expectedWorkspaceId) throw new HostError('not_found');
-    // The installed composition has fresh stat + synchronous liveness seams.
-    // Legacy adapters keep their catalog admission; no authority is cached.
-    const point = this.options.sessionHeader && this.options.sessionStatus;
-    const authority = point ? await this.pointScope(sessionId, active) : undefined;
-    const legacy = authority ? undefined : await this.permitted(sessionId, active, expectedWorkspaceId);
-    const view = authority?.view ?? legacy!.view;
-    if (authority) this.checkLifecycle(sessionId, authority.revision);
-    if (authority && authority.workspaceId !== expectedWorkspaceId) throw new HostError('not_found');
-    active.throwIfAborted();
-    this.checkCurrent(view, sessionId);
-    if (options?.delivery === 'steer' && !(point ? this.options.sessionStatus!(sessionId).running : legacy!.row.running)) throw new HostError('conflict');
-    const content = [{ type: 'text' as const, text }, ...(options?.attachments ?? []).map(a => a.upstream)];
+    const scope = this.scope(signal), active = scope.signal;
     try {
-      await this.options.sessionController.prompt({ requestId, sessionId, mode: options?.delivery ?? 'queue', content }, active);
-      // ACK can be a requestId dedup hit before attachment binding. Only public
-      // resolve proving retirement can release this conservative reservation.
-      const service = this.options.fileUploads;
-      if (service?.resolve && this.options.sessionController.resolveAgent) {
-        const resolved = await this.options.sessionController.resolveAgent(sessionId);
-        if ('error' in resolved) return;
-        const budget = receiptBudget(service);
-        const accepted = new Set((options?.attachments ?? []).flatMap(a => a.upstream.type === 'file' ? [a.upstream.receiptId] : []));
-        if (budget) for (const [key, entry] of budget) if (entry.sessionId === sessionId && entry.receiptId && accepted.has(entry.receiptId) && service.resolve(resolved.agent, entry.receiptId) === undefined) budget.delete(key);
-      }
-    } catch (error) { throw phoneError(error); }
+      if (!isUuid(requestId) || typeof text !== 'string' || (!text.trim() && !options?.attachments?.length)) throw new HostError('invalid_request');
+      if (Buffer.byteLength(text, 'utf8') > 32768) throw new HostError('payload_too_large');
+      if (!expectedWorkspaceId) throw new HostError('not_found');
+      // The installed composition has fresh stat + synchronous liveness seams.
+      // Legacy adapters keep their catalog admission; no authority is cached.
+      const point = this.options.sessionHeader && this.options.sessionStatus;
+      const authority = point ? await this.pointScope(sessionId, active) : undefined;
+      const legacy = authority ? undefined : await this.permitted(sessionId, active, expectedWorkspaceId);
+      const view = authority?.view ?? legacy!.view;
+      if (authority) this.checkLifecycle(sessionId, authority.revision);
+      if (authority && authority.workspaceId !== expectedWorkspaceId) throw new HostError('not_found');
+      active.throwIfAborted();
+      this.checkCurrent(view, sessionId);
+      if (options?.delivery === 'steer' && !(point ? this.options.sessionStatus!(sessionId).running : legacy!.row.running)) throw new HostError('conflict');
+      const content = [{ type: 'text' as const, text }, ...(options?.attachments ?? []).map(a => a.upstream)];
+      try {
+        await this.options.sessionController.prompt({ requestId, sessionId, mode: options?.delivery ?? 'queue', content }, active);
+        // ACK can be a requestId dedup hit before attachment binding. Only public
+        // resolve proving retirement can release this conservative reservation.
+        const service = this.options.fileUploads;
+        if (service?.resolve && this.options.sessionController.resolveAgent) {
+          const resolved = await this.options.sessionController.resolveAgent(sessionId);
+          if ('error' in resolved) return;
+          const budget = receiptBudget(service);
+          const accepted = new Set((options?.attachments ?? []).flatMap(a => a.upstream.type === 'file' ? [a.upstream.receiptId] : []));
+          if (budget) for (const [key, entry] of budget) if (entry.sessionId === sessionId && entry.receiptId && accepted.has(entry.receiptId) && service.resolve(resolved.agent, entry.receiptId) === undefined) budget.delete(key);
+        }
+      } catch (error) { throw phoneError(error); }
+    } finally { scope.end(); }
   }
   async cancel(sessionId: string, signal: AbortSignal, expectedCursor: number, expectedWorkspaceId: string): Promise<void> {
-    const active = this.signal(signal);
-    if (!Number.isSafeInteger(expectedCursor) || expectedCursor < -1) throw new HostError('invalid_request');
-    if (!expectedWorkspaceId) throw new HostError('not_found');
-    const { transcript, view } = await this.open(sessionId, active, expectedWorkspaceId);
-    active.throwIfAborted();
-    this.checkCurrent(view, sessionId);
-    const current = transcript.snapshot();
-    if (!current.session.running || current.cursor !== expectedCursor) throw new HostError('conflict');
-    // No await between the conservative freshness guard and the synchronous rc.2
-    // cancellation call. Upstream still offers no atomic target-turn compare.
-    const result = this.options.sessionController.cancel({ sessionId });
-    if (object(result)?.accepted !== true) throw new HostError('unavailable');
+    const scope = this.scope(signal), active = scope.signal;
+    try {
+      if (!Number.isSafeInteger(expectedCursor) || expectedCursor < -1) throw new HostError('invalid_request');
+      if (!expectedWorkspaceId) throw new HostError('not_found');
+      const { transcript, view } = await this.open(sessionId, active, expectedWorkspaceId);
+      active.throwIfAborted();
+      this.checkCurrent(view, sessionId);
+      const current = transcript.snapshot();
+      if (!current.session.running || current.cursor !== expectedCursor) throw new HostError('conflict');
+      // No await between the conservative freshness guard and the synchronous rc.2
+      // cancellation call. Upstream still offers no atomic target-turn compare.
+      const result = this.options.sessionController.cancel({ sessionId });
+      if (object(result)?.accepted !== true) throw new HostError('unavailable');
+    } finally { scope.end(); }
   }
 }

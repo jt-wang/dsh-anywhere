@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
+import { getEventListeners } from 'node:events';
 import plugin from '../src/plugin.ts';
 import { test } from 'node:test';
 import { createDshAdapter } from '../src/dsh-adapter.ts';
@@ -159,6 +160,31 @@ for (const reason of ['last-waiter', 'lifecycle', 'adapter'] as const) test(`an 
     const fresh = await adapter.snapshot('session-fixture', new AbortController().signal);
     assert.equal(fresh.messages.at(-1)!.text, 'The authoritative answer.'); assert.equal(openings, 2);
   }
+});
+
+test('dispose aborts a call in flight: the signal DSH was given is aborted', { timeout: 5000 }, async t => {
+  const h = await harness(t), entered = Promise.withResolvers<void>();
+  let given: AbortSignal | undefined;
+  const adapter = await createDshAdapter({ dshVersion: '0.2.0-rc.2', workspaces: [{ id: 'alpha', name: 'Alpha', path: h.alpha }], sessionController: { ...h.controller,
+    async list(_request: unknown, signal: AbortSignal) { given = signal; entered.resolve(); await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); signal.throwIfAborted(); return { items: [] }; } } });
+  t.after(async () => { adapter.dispose(); });
+  const listing = adapter.listSessions(new AbortController().signal);
+  await entered.promise;
+  adapter.dispose();
+  await assert.rejects(listing, { name: 'AbortError' }); assert.equal(given!.aborted, true);
+});
+
+test('a watch whose event subscription throws leaves nothing on the adapter', async t => {
+  // Each call hooks the adapter's lifetime signal until it ends; a watch that fails before its first frame must
+  // unhook too, or every failed watch keeps one listener and its closure until the adapter is disposed.
+  const h = await harness(t);
+  const adapter = await createDshAdapter({ dshVersion: '0.2.0-rc.2', workspaces: [{ id: 'alpha', name: 'Alpha', path: h.alpha }], sessionController: h.controller,
+    events: { subscribe() { throw new Error('subscription refused'); } } });
+  t.after(async () => { adapter.dispose(); });
+  const lifetime = (adapter as unknown as { lifetime: AbortController }).lifetime.signal;
+  const before = getEventListeners(lifetime, 'abort').length;
+  await assert.rejects(adapter.watch('chat', new AbortController().signal)[Symbol.asyncIterator]().next(), /subscription refused/);
+  assert.equal(getEventListeners(lifetime, 'abort').length, before);
 });
 
 test('coalesced openings enforce sixty-four waiters and sixteen active-session slots', async t => {

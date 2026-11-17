@@ -1,0 +1,149 @@
+name: TestFlight
+
+"on":
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact default-branch commit to build (must equal this workflow run SHA)
+        required: true
+        type: string
+      version:
+        description: App version, major.minor.patch
+        required: true
+        type: string
+      build:
+        description: New positive App Store Connect build number
+        required: true
+        type: string
+      upload:
+        description: Validate with Apple and upload to TestFlight after the local IPA checks
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-testflight
+  cancel-in-progress: false
+
+env:
+  DSH_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  DSH_SOURCE_SHA: ${{ inputs.source_sha }}
+  DSH_VERSION: ${{ inputs.version }}
+  DSH_BUILD: ${{ inputs.build }}
+  DSH_UPLOAD: ${{ inputs.upload }}
+  NSH_COMMIT: 7b3031fb7c9b93b0dee65f48a227bcf15d2bda38
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require the default branch and exact requested source
+        run: python3 nsh-app/ios/testflight_ci.py gate
+
+  archive:
+    needs: gate
+    if: >-
+      github.repository == 'jt-wang/dsh-anywhere' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      inputs.source_sha == github.sha
+    environment: apple-release
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Fail before building if configuration is missing
+        run: python3 nsh-app/ios/testflight_ci.py preflight
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_P12_BASE64 }}
+          IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          ASC_KEY_ID: ${{ inputs.upload && secrets.ASC_KEY_ID || '' }}
+          ASC_ISSUER_ID: ${{ inputs.upload && secrets.ASC_ISSUER_ID || '' }}
+          ASC_PRIVATE_KEY_P8: ${{ inputs.upload && secrets.ASC_PRIVATE_KEY_P8 || '' }}
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Prepare XcodeGen on the hosted runner
+        id: xcodegen
+        shell: bash
+        env:
+          XCODEGEN_VERSION: '2.45.4'
+          XCODEGEN_SHA256: '090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef'
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(uname -m)" = arm64
+          curl -sfL -o "$RUNNER_TEMP/xcodegen.zip" "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          xcodegen=$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen -perm -u+x -print -quit)
+          test -n "$xcodegen"
+          "$xcodegen" --version
+          dirname "$xcodegen" >> "$GITHUB_PATH"
+      - name: Build the pinned NSH SDK on the hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          command -v xcodegen
+          command -v cargo
+          command -v rustup
+          xcodebuild -version
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          git init -q "$RUNNER_TEMP/nsh"
+          git -C "$RUNNER_TEMP/nsh" fetch -q --depth 1 https://github.com/longbridge/nsh.git "$NSH_COMMIT"
+          git -C "$RUNNER_TEMP/nsh" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/nsh" rev-parse HEAD)" = "$NSH_COMMIT"
+          git -C "$RUNNER_TEMP/nsh" apply --check "$GITHUB_WORKSPACE/nsh-app/ios/nsh-window-tap.patch"
+          git -C "$RUNNER_TEMP/nsh" apply "$GITHUB_WORKSPACE/nsh-app/ios/nsh-window-tap.patch"
+          export RUSTFLAGS="--remap-path-prefix=$HOME=/build --remap-path-prefix=$RUNNER_TEMP=/tmp"
+          cd "$RUNNER_TEMP/nsh"
+          cargo build --locked --release -p nsh-cli
+          export NSH_SOURCE="$RUNNER_TEMP/nsh"
+          python3 "$GITHUB_WORKSPACE/nsh-app/ios/runtime_sdk.py" prepare "$RUNNER_TEMP/dsh-runtime.json"
+      - name: Build Tailcat without signing credentials
+        shell: bash
+        run: IOS_ONLY=1 tools/build-tailcat.sh
+      - name: Sign, archive and check IPA (no Apple API)
+        id: archive
+        run: python3 nsh-app/ios/testflight_ci.py archive
+        env:
+          NSH_SOURCE: ${{ runner.temp }}/nsh
+          DSH_NSH_RECEIPT: ${{ runner.temp }}/dsh-runtime.json
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_P12_BASE64 }}
+          IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+      - name: Validate with Apple, then upload (explicit opt-in)
+        if: inputs.upload == true
+        run: python3 nsh-app/ios/testflight_ci.py upload
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_P8: ${{ secrets.ASC_PRIVATE_KEY_P8 }}
+      - name: Retain only the checked IPA and status
+        if: always() && steps.archive.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dsh-testflight-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/dsh-testflight/export/DSH.ipa
+            ${{ runner.temp }}/dsh-testflight/summary.json
+          if-no-files-found: error
+          retention-days: 7

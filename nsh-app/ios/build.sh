@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds ios/build/DSH.app: the NSH app bundle plus NSH's iOS runtime and the Tailcat client inside the native shell.
-#   NSH_SOURCE   an NSH checkout (as android/build.sh) where `cargo xtask ios-embed --no-catalyst --no-dev` has built
-#                dist/nsh/embed/ios/NativeShell.xcframework, and `cargo build --release -p nsh-cli` the nsh CLI
+#   NSH_SOURCE   a separate NSH checkout at the pinned revision below, with nsh-window-tap.patch applied
+#                and `cargo build --release -p nsh-cli` completed; local builds prepare and verify the SDK
+#   DSH_NSH_RECEIPT  consume a verified SDK from this workflow run without rebuilding (required by CI)
 #   DEVICE=1     build for a phone, signed automatically with your own Apple team; needs DSH_TEAM and DSH_BUNDLE_PREFIX,
 #                from the environment or ios/signing.env (see signing.env.example); default: the simulator
 #   ARCHIVE=1    archive and export ios/build/export/DSH.ipa for App Store Connect, signed by hand: needs DSH_TEAM and
@@ -28,8 +29,15 @@ command -v xcodegen >/dev/null || { echo "xcodegen is required (brew install xco
 NSH_BIN="$NSH_SOURCE/target/release/nsh"
 [ -x "$NSH_BIN" ] || { echo "no nsh CLI at \$NSH_SOURCE/target/release/nsh: run cargo build --release -p nsh-cli there" >&2; exit 2; }
 mkdir -p "$IOS/Frameworks" "$IOS/build"
+receipt="${DSH_NSH_RECEIPT:-$IOS/build/nsh-runtime.json}"
+if [ -z "${DSH_NSH_RECEIPT:-}" ]; then
+  [ "${GITHUB_ACTIONS:-}" != true ] || { echo "CI requires its prepared SDK receipt" >&2; exit 2; }
+  python3 "$IOS/runtime_sdk.py" prepare "$receipt"
+fi
+python3 "$IOS/runtime_sdk.py" verify "$receipt"
 rm -rf "$IOS/Frameworks/NativeShell.xcframework"
 cp -R "$NSH_SOURCE/dist/nsh/embed/ios/NativeShell.xcframework" "$IOS/Frameworks/"
+python3 "$IOS/runtime_sdk.py" verify "$receipt" "$IOS/Frameworks/NativeShell.xcframework"
 [ -d "$IOS/Frameworks/Dshtailcat.xcframework" ] || IOS_ONLY=1 "$ROOT/../tools/build-tailcat.sh"
 echo "NSH from source: $("$NSH_BIN" --version)"
 rm -rf "$IOS/build/nsh"

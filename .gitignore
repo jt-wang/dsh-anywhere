@@ -34,6 +34,8 @@ coverage/
 
 # Local acceptance artifacts
 artifacts/
+.amp/in/
+.amp/portals/
 .impeccable/
 docs/private/
 deploy/relay/image-receipt.json
