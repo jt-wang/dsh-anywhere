@@ -1,0 +1,108 @@
+name: Android release
+
+"on":
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact main commit to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-android-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'jt-wang/dsh-anywhere' && github.ref == 'refs/heads/main' && inputs.source_sha == github.sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      NSH_COMMIT: 7b3031fb7c9b93b0dee65f48a227bcf15d2bda38
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Prepare Android SDK and native compiler
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libclang-dev libssl-dev cmake
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "NSH_SOURCE=$RUNNER_TEMP/nsh" >> "$GITHUB_ENV"
+          echo "NSH_HOME=$RUNNER_TEMP/nsh-dist" >> "$GITHUB_ENV"
+          rustup target add aarch64-linux-android
+      - name: Build the pinned NSH runtime without signing secrets
+        shell: bash
+        run: |
+          git init -q "$NSH_SOURCE"
+          git -C "$NSH_SOURCE" fetch -q --depth 1 https://github.com/longbridge/nsh.git "$NSH_COMMIT"
+          git -C "$NSH_SOURCE" checkout -q --detach FETCH_HEAD
+          export RUSTFLAGS="--remap-path-prefix=$HOME=/build --remap-path-prefix=$RUNNER_TEMP=/tmp"
+          export CFLAGS_aarch64_linux_android="-ffile-prefix-map=$NSH_SOURCE=/nsh -ffile-prefix-map=$HOME=/build"
+          cargo build --manifest-path "$NSH_SOURCE/Cargo.toml" --locked --release -p nsh-cli
+          (cd "$NSH_SOURCE" && cargo xtask android --release --abi arm64-v8a)
+          # build.sh replaces all Java classes and native libraries in this AAR with the pinned build above.
+          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.3.0/nsh-embed-android.zip -o "$RUNNER_TEMP/nsh-android.zip"
+          echo "adc5c71e547c9901462208b50630548b3ae618b53555c581937a1d5c4e05eda6  $RUNNER_TEMP/nsh-android.zip" | sha256sum -c -
+          mkdir -p "$NSH_HOME/embed/android"
+          unzip -j "$RUNNER_TEMP/nsh-android.zip" '*/nsh.aar' -d "$NSH_HOME/embed/android"
+      - name: Build Tailcat, app and shell tests without signing secrets
+        shell: bash
+        run: |
+          AAR_ONLY=1 tools/build-tailcat.sh
+          nsh-app/android/build.sh
+          node nsh-app/android/app/src/test/make-fixtures.ts nsh-app/android/app/src/test/resources
+          (cd nsh-app/android && ./gradlew --no-daemon --console=plain testReleaseUnitTest)
+      - name: Sign and verify the release APK
+        shell: bash
+        env:
+          RELEASE_KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
+          RELEASE_PASSWORD: ${{ secrets.ANDROID_RELEASE_PASSWORD }}
+          RELEASE_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+        run: |
+          test -n "$RELEASE_KEYSTORE" && test -n "$RELEASE_PASSWORD" && test -n "$RELEASE_ALIAS"
+          key="$RUNNER_TEMP/dsh-release.p12"
+          trap 'rm -f "$key" "$RUNNER_TEMP/aligned.apk"' EXIT
+          (umask 077; printf '%s' "$RELEASE_KEYSTORE" | base64 --decode > "$key")
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          mkdir -p "$RUNNER_TEMP/dsh-android"
+          apk="$RUNNER_TEMP/dsh-android/dsh-anywhere.apk"
+          "$tools/zipalign" -P 16 -f 4 nsh-app/android/build/DSH.apk "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$key" --ks-type PKCS12 --ks-key-alias "$RELEASE_ALIAS" --ks-pass env:RELEASE_PASSWORD --key-pass env:RELEASE_PASSWORD --out "$apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/dsh-android/signature.txt"
+          grep -Fq 'Signer #1 certificate SHA-256 digest: 79e1973f3974bd24fc0825be751a9b834187fe71a21fd308cc78fa6e358333fb' "$RUNNER_TEMP/dsh-android/signature.txt"
+          "$tools/zipalign" -c -P 16 4 "$apk"
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/dsh-android/badging.txt"
+          python3 - <<'PY'
+          import json, os, pathlib
+          app = json.loads(pathlib.Path('nsh-app/nsh.json').read_text())
+          output = pathlib.Path(os.environ['RUNNER_TEMP']) / 'dsh-android'
+          expected = f"package: name='{app['id']}' versionCode='{app['build']}' versionName='{app['version']}'"
+          assert (output / 'badging.txt').read_text().startswith(expected)
+          (output / 'source.txt').write_text(os.environ['GITHUB_SHA'] + '\n')
+          PY
+          (cd "$RUNNER_TEMP/dsh-android" && sha256sum dsh-anywhere.apk > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dsh-android-${{ github.run_id }}
+          path: ${{ runner.temp }}/dsh-android/
+          if-no-files-found: error
+          retention-days: 7

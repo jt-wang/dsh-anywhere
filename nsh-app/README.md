@@ -39,6 +39,11 @@ The Tailcat library comes from `tools/build-tailcat.sh` (into `android/app/libs/
 and `DSH_ANDROID_KEYSTORE_PASSWORD` holds its password. An APK signed with another key cannot update one already
 installed, so every APK you hand out must come from the same release key; keep the key and its password backed up.
 
+The public repository's `Android release` workflow builds this NSH shell on Linux from an exact main commit.
+It uses `ANDROID_RELEASE_KEYSTORE`, `ANDROID_RELEASE_PASSWORD` and `ANDROID_RELEASE_KEY_ALIAS` only for the final
+signing step, verifies the certificate against the previously shipped APK, and retains the APK as a run artifact.
+The version and build come from `nsh.json`; dispatch with `gh workflow run android-release.yml --ref main -f source_sha=<commit>`.
+
 ```sh
 keytool -genkeypair -alias release -keyalg RSA -keysize 4096 -validity 10000 -storetype PKCS12 \
   -keystore release.p12 -dname "CN=Your app"     # once; keep release.p12 outside the repository
@@ -46,8 +51,10 @@ keytool -genkeypair -alias release -keyalg RSA -keysize 4096 -validity 10000 -st
 
 iOS needs Xcode and xcodegen. The runtime fix in `ios/nsh-window-tap.patch` is based on
 `jt-wang/nsh` revision `7b3031fb7c9b93b0dee65f48a227bcf15d2bda38`. Apply it in a separate NSH source checkout
-before building the app. It prevents a header press from also triggering the window's scroll-to-top
-tap; the app's JS callbacks do not need remapping. Local `ios/build.sh` runs prepare the patched SDK before
+before building the app. It gives a handled header press priority over system taps on both `UIWindow` and
+`UINavigationBar`. On iPhone 17 Pro Max / iOS 27.2, the system tap is on the navigation bar: the old window-only
+patch let buttons highlight but swallowed the press before its JS callback. The same arbitration also prevents
+an unwanted scroll-to-top; the app's JS callbacks do not need remapping. Local `ios/build.sh` runs prepare the patched SDK before
 copying it. CI prepares it without signing credentials, then supplies `DSH_NSH_RECEIPT`; the app build verifies
 the run identity, revision, patch and framework file hashes instead of compiling again. Missing or mismatched
 receipts stop the build. Cargo's compilation cache is retained.
@@ -70,6 +77,14 @@ home creation and menus, chat menus and reading position, send, approvals, quest
 run `xcodebuild test -project ios/DSH.xcodeproj -scheme DSH -destination 'platform=iOS Simulator,id=<UUID>' -only-testing:DSHUITests/HeaderButtonsTests`
 on a fresh, unpaired simulator. These are native simulator checks, not acceptance of a physical iPhone, the
 TestFlight package, or a live DSH host. Keep both iOS 26.1 and the affected iOS 27.x in the acceptance matrix.
+
+Navigation-bar fix validation (2026-11-17): all 13 tests passed on iPhone 17 Pro Max / iOS 27.2 (24B8117),
+iPhone Duo / iOS 27.1 (24A94425), and iPhone 17 Pro Max / iOS 26.1 (23B86). The app, tests and both runtime slices
+were built with Xcode 27.2 (27B52), SDK 27.2; Xcode 26.1.1 (17B100) drove the 26.1 run without rebuilding.
+Swapping back to the window-only SDK on 27.2 made the same home-menu, new-chat and chat-reading-position tests
+fail because their menus/sheet never appeared. No diagnostic instrumentation is needed in the candidate.
+The unsigned Release device build also links the navigation-bar check into both PressRecognizer arbitration
+methods. The remaining device acceptance target is iPhone 17 Pro Max / iOS 27.2.1 with a newly distributed build.
 
 The iOS Tailcat framework comes from `IOS_ONLY=1 tools/build-tailcat.sh` (into `ios/Frameworks/`).
 

@@ -1,43 +1,91 @@
 diff --git a/crates/nsh-platform-ios/src/press.rs b/crates/nsh-platform-ios/src/press.rs
-index 8a0dba76..163b9e5c 100644
+index 8a0dba7..3452da3 100644
 --- a/crates/nsh-platform-ios/src/press.rs
 +++ b/crates/nsh-platform-ios/src/press.rs
 @@ -6,6 +6,8 @@
  //! It stays in the possible state while tracking and only recognizes on
  //! release, so scroll views and pans on the same touches win whenever they
  //! start first; it then fails and reports `onPressUp`.
-+//! A handled press wins over window taps, so a header button does not also
-+//! trigger the window's scroll-to-top interaction.
++//! A handled press wins over window and navigation-bar taps, so a header
++//! button opens its action without also triggering scroll-to-top.
  
  use std::cell::Cell;
  
-@@ -189,8 +191,10 @@ define_class!(
+@@ -18,8 +20,8 @@ use objc2::{
+ use objc2_core_foundation::CGPoint;
+ use objc2_foundation::{NSObject, NSObjectProtocol, NSSet};
+ use objc2_ui_kit::{
+-    UIControl, UIEvent, UIGestureRecognizer, UIGestureRecognizerState, UIScrollView,
+-    UITapGestureRecognizer, UITouch, UIView, UIWindow,
++    UIControl, UIEvent, UIGestureRecognizer, UIGestureRecognizerState, UINavigationBar,
++    UIScrollView, UITapGestureRecognizer, UITouch, UIView, UIWindow,
+ };
+ 
+ use crate::{target::EventTarget, text_view::TextView};
+@@ -179,18 +181,20 @@ define_class!(
+ 
+         #[unsafe(method(canBePreventedByGestureRecognizer:))]
+         fn can_be_prevented(&self, other: &UIGestureRecognizer) -> bool {
+-            // Taps UIKit attaches to the window skip `UIControl`s, and a
++            // Taps UIKit attaches to the window or navigation bar skip `UIControl`s, and a
+             // press stands in for one: on iOS 26+ the window's top-edge tap
+             // interaction (`_UIDoubleTapInteraction`, top 64 pt, cancels
+             // touches, never simultaneous) would otherwise swallow every
+             // press near the top, such as a navigation bar's back button.
+-            !is_window_tap(other)
++            !is_window_or_navigation_bar_tap(other)
+         }
  
          #[unsafe(method(canPreventGestureRecognizer:))]
          fn can_prevent(&self, other: &UIGestureRecognizer) -> bool {
-+            // A handled press must also stop the window's top-edge tap;
++            // A handled press must also stop the window or navigation-bar tap;
 +            // otherwise a header button and scroll-to-top can both fire.
              // Never block scroll views or pans: they start before a press ends.
 -            other.isKindOfClass(PressRecognizer::class())
-+            other.isKindOfClass(PressRecognizer::class()) || is_window_tap(other)
++            other.isKindOfClass(PressRecognizer::class()) || is_window_or_navigation_bar_tap(other)
          }
      }
  );
+@@ -352,14 +356,14 @@ impl PressRecognizer {
+     }
+ }
+ 
+-/// A tap recognizer UIKit attaches to a window (the top-edge tap
+-/// interaction, keyboard dismissal): it ignores controls, so it must not
++/// A tap recognizer UIKit attaches to a window or navigation bar (the top-edge
++/// tap interaction, keyboard dismissal): it ignores controls, so it must not
+ /// prevent a press either. Edge-gesture gates are not taps and still do.
+-fn is_window_tap(recognizer: &UIGestureRecognizer) -> bool {
++fn is_window_or_navigation_bar_tap(recognizer: &UIGestureRecognizer) -> bool {
+     recognizer.isKindOfClass(UITapGestureRecognizer::class())
+-        && recognizer
+-            .view()
+-            .is_some_and(|view| view.isKindOfClass(UIWindow::class()))
++        && recognizer.view().is_some_and(|view| {
++            view.isKindOfClass(UIWindow::class()) || view.isKindOfClass(UINavigationBar::class())
++        })
+ }
+ 
+ fn inside_scroll_view(view: &UIView) -> bool {
 diff --git a/docs/dev/pitfalls.md b/docs/dev/pitfalls.md
-index 8474b86a..072f83cb 100644
+index 8474b86..ace29bd 100644
 --- a/docs/dev/pitfalls.md
 +++ b/docs/dev/pitfalls.md
-@@ -233,7 +233,12 @@ Things that were found the hard way. Read the section of the area you change bef
+@@ -233,7 +233,16 @@ Things that were found the hard way. Read the section of the area you change bef
    recognizer over the top 64 pt, `cancelsTouchesInView`, never simultaneous, action disabled) recognized first and
    prevented every press there, so a navigation bar's back button did nothing (seen on an iPhone foldable simulator; a
    real tap through XCUITest reproduced it). `PressRecognizer` is not preventable by tap recognizers on a `UIWindow`
 -  (`press.rs`, `is_window_tap`); edge-gesture gates are not taps and still cancel presses.
-+  (`press.rs`, `is_window_tap`). It also prevents those window taps when a handled press recognizes: without the
++  (`press.rs`, `is_window_or_navigation_bar_tap`). It also prevents those window taps when a handled press recognizes: without the
 +  reverse arbitration, an XCUITest coordinate tap on DSH's header opened its menu and scrolled a long chat back to
 +  the top (iPhone Duo, iOS 27.1 / 24A94425, SDK 27.2). The same menu opened from the body kept its position. After
 +  adding the reverse arbitration, the header opened the menu with every shared message's Y coordinate unchanged.
 +  Scroll views, pans and edge-gesture gates are not window taps and still cancel presses; an unhandled touch does
 +  not recognize a press.
++  On iPhone 17 Pro Max / iOS 27.2 (24B8117), the same system tap is attached to `UINavigationBar` instead:
++  native coordinate taps highlighted DSH's header buttons but never dispatched Press or opened their menus.
++  The trace showed the navigation-bar tap recognizing while PressRecognizer did not. Apply the same arbitration
++  to tap recognizers on `UINavigationBar`, using public view classes rather than the private recognizer's name.
  - **iOS, a hardware keyboard's keys** reach the first responder as presses (`pressesBegan:withEvent:`) before
    UIKit's text system acts on them: a text input that does not call `super` for a press neither moves its caret,
    inserts a line break nor types it, and must not call `super` for that key's release either. A held key's press
