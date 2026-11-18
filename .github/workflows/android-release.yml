@@ -67,8 +67,10 @@ jobs:
       - name: Build Tailcat, app and shell tests without signing secrets
         shell: bash
         run: |
+          npm ci --prefix host
           AAR_ONLY=1 tools/build-tailcat.sh
           nsh-app/android/build.sh
+          mkdir -p nsh-app/android/app/src/test/resources
           node nsh-app/android/app/src/test/make-fixtures.ts nsh-app/android/app/src/test/resources
           (cd nsh-app/android && ./gradlew --no-daemon --console=plain testReleaseUnitTest)
       - name: Sign and verify the release APK

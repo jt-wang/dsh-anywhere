@@ -90,6 +90,8 @@ jobs:
       - name: Build and test the companion (real dns-sd Bonjour)
         working-directory: host
         run: |
+          export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+          openssl version
           npm ci
           npm ci --prefix ../relay
           npm run build
