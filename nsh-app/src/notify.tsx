@@ -3,7 +3,7 @@
 // phone's own notification (the shell's notify.*), whose tap opens that chat. While the app is away and a chat still
 // runs, the shell keeps watching (notify.watch; on Android a foreground service with an ongoing notification).
 // The chats and their running state come from DSH's chat list (session/list), the waiting from $events (state.ts).
-import { cleanup, effect, host, signal, Storage, Text, View, safeAreaInsets } from 'nsh'
+import { cleanup, effect, host, signal, Storage, Text, untracked, View, safeAreaInsets } from 'nsh'
 import { alertsBetween, placeOf, type Alert, type Seen } from './attention.ts'
 import type { Request } from './events.ts'
 import { toolLabel } from './fold.ts'
@@ -24,6 +24,8 @@ export interface AttentionIo {
    * both times, and DSH's "started" can come before the list shows the chat running. */
   ran?: Map<string, 'running' | 'finished'>
   everyMs?: number
+  online?: () => boolean
+  watching?: (running: boolean) => void
   /** How long after a chat stops its answer's preview is read again (DSH writes it when the turn ends). */
   settleMs?: number
 }
@@ -37,6 +39,11 @@ export function createAttention(io: AttentionIo, app: { active: () => boolean; v
   let chats: ChatSummary[] | undefined
   let before: Map<string, Seen> | undefined
   let watching = ''
+  const working = signal(false)
+  let stopped = false
+  let polling: Promise<void> | undefined
+  let again = false
+  const settles = new Set<ReturnType<typeof setTimeout>>()
   let bannerTimer: ReturnType<typeof setTimeout> | undefined
   let asked: boolean | undefined
   Storage.getItem(ASKED).then((v) => { asked = v === '1' }, () => { asked = false })
@@ -55,11 +62,14 @@ export function createAttention(io: AttentionIo, app: { active: () => boolean; v
     // The words: the question, what went wrong, or the answer's own first lines. DSH writes that preview when the
     // turn ends, just after the chat stops running, so an answer waits for a second look at the list.
     if (a.kind === 'answer') {
-      setTimeout(async () => {
+      const timer = setTimeout(async () => {
+        settles.delete(timer)
+        if (stopped || io.online?.() === false || (!app.active() && !notifyPrefs().background)) return
         let preview = ''
         try { preview = (await io.list()).find((c) => c.sessionId === a.sessionId)?.preview ?? '' } catch {}
-        deliver('answer', a, preview)
+        if (!stopped) deliver('answer', a, preview)
       }, io.settleMs ?? 1500)
+      settles.add(timer)
       return
     }
     const said = a.kind === 'decision' ? words(io.requests(a.sessionId)[0]) : (io.errors?.get(a.sessionId) ?? '').split('\n')[0]!.slice(0, 200)
@@ -103,16 +113,33 @@ export function createAttention(io: AttentionIo, app: { active: () => boolean; v
     // Away with chats running: the shell keeps watching and says what it watches.
     // An agent that waits on the person is not working: the ongoing notification says who waits.
     const running = chats.filter((c) => c.running), held = running.filter((c) => waiting.has(c.sessionId))
+    working.set(running.length > 0)
+    io.watching?.(running.length > 0 && notifyPrefs().background)
     let want = !running.length ? '' : JSON.stringify(held.length
       ? { title: S.needsDecision, body: held.map((c) => c.title).join(S.listSep) }
       : { title: S.watchingTitle(running.length), body: running.length === 1 ? running[0]!.title : S.watchingBody })
     if (!notifyPrefs().background) want = ''
     if (want !== watching) { watching = want; call('notify.watch', want ? JSON.parse(want) : null) }
   }
-  const poll = async () => { try { chats = await io.list(); look() } catch {} }
-  poll()
-  const timer = setInterval(poll, io.everyMs ?? 4000)
-  cleanup(() => { clearInterval(timer); clearTimeout(bannerTimer) })
+  const poll = (): Promise<void> => {
+    if (stopped || io.online?.() === false || (!app.active() && !notifyPrefs().background)) return Promise.resolve()
+    if (polling) { again = true; return polling }
+    polling = (async () => { try { const next = await io.list(); if (!stopped) { chats = next; look() } } catch {} })()
+      .finally(() => { polling = undefined; if (again) { again = false; void poll() } })
+    return polling
+  }
+  effect(() => {
+    if (io.online?.() === false) return
+    if (app.active() || !chats) untracked(poll)
+  })
+  effect(() => {
+    const active = app.active()
+    if (io.online?.() === false || (!active && (!notifyPrefs().background || !working()))) return
+    const timer = setInterval(poll, active ? io.everyMs ?? 30_000 : 60_000)
+    cleanup(() => clearInterval(timer))
+  })
+  effect(() => { notifyPrefs(); untracked(look) })
+  cleanup(() => { stopped = true; clearTimeout(bannerTimer); settles.forEach(clearTimeout); io.watching?.(false) })
   /** The chat came on screen: its notification and banner have done their job. */
   effect(() => {
     const v = app.visible(); if (!v) return
@@ -154,7 +181,7 @@ export function Attention(props: { io: AttentionIo; asks: () => unknown; news: (
   const active = followAppState()
   const a = createAttention(props.io, { active, visible: props.visible })
   effect(() => { props.asks(); a.look() }) // a question asked or answered: news without waiting for the next look
-  effect(() => { if (props.news()) a.poll() }) // DSH says a chat started or stopped: look at the list now
+  effect(() => { if (props.news()) untracked(a.poll) }) // DSH says a chat started or stopped: look at the list now
   const opened = (host.params as { open?: unknown } | undefined)?.open
   if (typeof opened === 'string' && opened) props.open(opened, '')
   try { cleanup(host.on('notify.open', (v) => { const id = (v as { id?: unknown } | undefined)?.id; if (typeof id === 'string' && id) props.open(id, a.titleOf(id)) })) } catch {}

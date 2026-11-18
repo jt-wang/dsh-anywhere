@@ -7,6 +7,7 @@
 //   link.path    → { route: direct | relay | unknown, relay? } how the tunnel reaches the computer now
 // Pairing follows docs/TAILCAT.md: the QR opens a short-lived pairing node; POST /pair with its proof and this phone's
 // durable Tailcat key returns invitation v4; then the normal node, pinned TLS (Bridge) and POST /v1/pairings.
+import CryptoKit
 import DSHKit
 import Dshtailcat
 import NativeShell
@@ -99,7 +100,8 @@ final class Link {
             let clientKey = link["clientKey"] as? String
         else { return ["paired": false] }
         let port = try Link.connect(try Invite.invitation(invitation), clientKey: clientKey)
-        return ["paired": true, "origin": "http://127.0.0.1:\(port)/dsh", "token": token]
+        let cacheId = SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
+        return ["paired": true, "origin": "http://127.0.0.1:\(port)/dsh", "token": token, "cacheId": cacheId]
     }
 
     private func pair(_ text: String) throws -> [String: Any] {

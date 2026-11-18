@@ -9,7 +9,7 @@ import { detailsOf, tokens } from './details.ts'
 import { isLive, sections, type Job } from './jobs.ts'
 import type { Todo } from './fold.ts'
 import type { Child } from './subagents.ts'
-import { dsh } from './state.ts'
+import { dsh, pollForeground } from './state.ts'
 import { S } from './strings.ts'
 import { chooseAction, haptic, Chevron, Icon, IconButton, LiveDot } from './ui.tsx'
 
@@ -36,12 +36,10 @@ function setFold(on: boolean) { fold.set(on); (on ? Storage.removeItem(FOLD) : S
 
 const read = (a: ChatActivity): Activity => ({ todos: a.todos(), jobs: a.jobs(), children: a.children(), context: a.context(), goal: a.goal() })
 
-/** The chat's context use (Desktop's meter) and goal, from session/projections, read again every 8 s while the chat is open. */
+/** The chat's context use (Desktop's meter) and goal, with a 30 s foreground fallback. */
 export function followDetails(sessionId: string, a: ChatActivity) {
   const load = () => dsh().rpc('session/projections', { request: { sessionId } }).then((v) => { const d = detailsOf(v); a.context.set(d.context); a.goal.set(d.goal) }, () => {})
-  load()
-  const timer = setInterval(load, 8000)
-  cleanup(() => clearInterval(timer))
+  pollForeground(load)
 }
 
 export function ActivityButton(props: { activity: ChatActivity }) {

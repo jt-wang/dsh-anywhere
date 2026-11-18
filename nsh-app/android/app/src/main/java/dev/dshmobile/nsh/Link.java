@@ -21,6 +21,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -104,6 +105,10 @@ final class Link {
         out.put("paired", true);
         out.put("origin", "http://127.0.0.1:" + port + "/dsh");
         out.put("token", link.getString("token"));
+        StringBuilder cacheId = new StringBuilder();
+        for (byte b : MessageDigest.getInstance("SHA-256").digest(link.getString("token").getBytes(StandardCharsets.UTF_8)))
+            cacheId.append(String.format(java.util.Locale.ROOT, "%02x", b & 0xff));
+        out.put("cacheId", cacheId.toString());
         return out;
     }
 

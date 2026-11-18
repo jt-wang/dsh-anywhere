@@ -9,6 +9,10 @@ const counts = (todos: Todo[]) => { const done = todos.filter((t) => t.status ==
 const JA_UNITS: Record<ScheduleUnit, string> = { day: '日', hour: '時間', minute: '分', second: '秒' }
 
 export const JA: Strings = {
+  savedCopy: (at: string) => `保存済みコピー · ${at}。動作状況は変わっている場合があります。`,
+  cacheFailed: 'スマートフォンに保存できませんでした。現在の画面は引き続き表示できます。',
+  noSavedChats: 'このスマートフォンにはまだチャットが保存されていません。パソコンに接続して読み込んでください。',
+  noSavedHistory: 'このチャットはまだ保存されていません。接続して履歴を読み込んでください。',
   think: '思考', chats: 'チャット', newChat: '新しいチャット', untitled: '新しいチャット', message: 'DSH にメッセージ', send: '送信', sending: '送信中…', sendingSlow: '送信中です。パソコンからまだ応答がありません', delivered: '配信済み', deliveredIdle: '配信済みです。エージェントはまだ作業を始めていません', queued: 'キュー待ち', notSent: '未送信です。タップして再試行',
   privacy: 'プライバシー', tryIt: { entry: 'サンプルデータで試す', banner: 'サンプルデータはこのスマートフォンの中だけにあり、どこにも送信されません。', leave: 'パソコンとペアリング', exit: 'サンプルを終了', computer: 'サンプルのパソコン', model: 'サンプルのモデル', onPhone: 'このスマートフォンのサンプルデータ', noAttach: 'ファイルを添付するには、パソコンとペアリングしてください。', workspace: 'サンプルプロジェクト', fixTitle: '失敗するログインテストを修正', fixAsk: 'ログインテストが失敗します。直してもらえますか？', fixAnswer: 'テストが古いエラーメッセージを待っていました。更新したので、24 件のテストはすべて成功します。', deleteTitle: '古いビルドフォルダを削除', deleteAsk: '古いビルドフォルダを削除してください。', deleteReason: 'フォルダ build/old を削除', deleteAnswer: '完了しました。古いビルドフォルダは削除しました。', deleteRejected: 'わかりました。フォルダはそのままにしました。', nameTitle: 'リリース名を決める', nameAsk: '次のリリースの名前を一緒に考えてください。', nameQuestion: 'どの名前がいいですか？', nameOptions: ['港', '灯り', '草原'], nameAnswer: (name: string) => `いい選択です。リリース名は今後 ${name} です。`, reply: 'これはサンプルの回答です。実際のアプリでは、メッセージはパソコンのエージェントに届き、その回答がここに表示されます。', taskTitle: '依存関係を確認', taskPrompt: '古い依存関係を探して一覧にしてください。', readme: '# サンプルプロジェクト\n\nDSH Anywhere を試すための小さなプロジェクトです。\n' },
   linkTitle: 'パソコンとペアリング', linkHow: 'Mac で DSH を開いて DSH Anywhere のペアリングコードを表示し、このスマートフォンでスキャンしてください。',

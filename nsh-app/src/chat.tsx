@@ -5,11 +5,11 @@ import { BlankChat } from './blankchat.tsx'
 import { cleanup, computed, createMotion, effect, Image, untracked, keyboardFrame, LayoutAnimation, List, safeAreaInsets, signal, Text, View, type InputRef, type ListRef } from 'nsh'
 import { Input, TextView } from 'nsh/base'
 import { doneTitle, Fold, headline, keepUnchanged, liveText, toolLabel, turnEnds, type Attached, type Entry, type LiveLine, type Row, type Step, type Todo } from './fold.ts'
-import { connection, dsh, interfaceError, openInterface } from './state.ts'
+import { appActive, connection, dsh, interfaceError, offlineCache, openInterface } from './state.ts'
 import { readable, S } from './strings.ts'
 import { ModelPicker } from './picker.tsx'
 import { Asks } from './asks.tsx'
-import { ConnectionBar } from './status.tsx'
+import { ConnectionBar, SavedCopy } from './status.tsx'
 import { haptic, Chevron, Icon, IconButton, LiveDot } from './ui.tsx'
 import { appear, FRESH_MS, rise, STANDARD } from './motion.ts'
 import { copyText, messageMenu } from './copy.tsx'
@@ -46,13 +46,19 @@ export interface ChildOf { parentSessionId: string; subagent: Subagent }
 export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => void; child?: ChildOf; onOpenChild?: (child: Child) => void; activity?: ChatActivity; where?: { title: string; path: string }; at?: string }) {
   const child = props.child
   const composer = child ? composerOf(child.subagent.mode) : 'compose'
+  const cache = offlineCache()
+  const saved = cache?.chat(props.sessionId)
+  const copiedAt = signal(saved?.at ?? 0)
+  const live = signal(false)
+  effect(() => { if (connection() !== 'online') live.set(false) })
   const fold = new Fold()
-  const rows = signal<Row[]>([])
+  const rows = signal<Row[]>(saved?.rows ?? [])
   const running = signal(false)
   const model = signal<Selection | undefined>(undefined)
-  const loaded = signal(false)
+  const loaded = signal(Boolean(saved?.at))
   const error = signal('')
-  const draft = signal('')
+  const draft = signal(saved?.draft ?? '')
+  effect(() => { cache?.draft(props.sessionId, draft()) })
   const attached = signal<Draft[]>([])
   const uploading = signal(false)
   const outbox = signal<Outgoing[]>([])
@@ -86,6 +92,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   let list: ListRef | undefined
   let input: InputRef | undefined
   let scheduled = false
+  let flushTimer: ReturnType<typeof setTimeout> | undefined
   const arrivedAs = new Map<string, string>() // a sent message's row → the outgoing id its cell keeps
   const bornAt = new Map<string, number>() // when a row first showed; the rows of the opening snapshot count as old
   const fresh = (id: string) => Date.now() - (bornAt.get(id) ?? 0) < FRESH_MS
@@ -98,6 +105,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
     for (const r of fold.rows()) if (!bornAt.has(r.id)) bornAt.set(r.id, now)
     showLine(fold.live())
     rows.set(keepUnchanged(rows(), fold.rows())); running.set(fold.running); model.set(fold.model); inbox.set(fold.inbox); todos.set(fold.todos); if (fold.subagents !== subagents()) subagents.set(fold.subagents); if (fold.title) props.onTitle(fold.title); loaded.set(true)
+    live.set(true); copiedAt.set(Date.now()); cache?.history(props.sessionId, rows())
     const s = settle(outbox(), rows())
     for (const [row, id] of s.arrived) { arrivedAs.set(row, id); outbox().find((o) => o.id === id)?.drafts.forEach(forget) }
     if (s.outbox !== outbox()) outbox.set(s.outbox)
@@ -105,9 +113,13 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
     for (const id of s.started) pin(id)
   }
   const stop = dsh().stream('session/follow', { request: { address: child ? addressOf(child.parentSessionId, child.subagent) : { kind: 'session', sessionId: props.sessionId }, assistantStream: true, maxMessages: 100 } },
-    (frame) => { fold.apply(frame); error.set(''); if (!scheduled) { scheduled = true; setTimeout(flush, 60) } },
+    (frame) => { fold.apply(frame); error.set(''); if (!scheduled) { scheduled = true; flushTimer = setTimeout(flush, 60) } },
     (e) => error.set(readable(e)))
   cleanup(stop)
+  cleanup(() => { clearTimeout(flushTimer); if (scheduled) flush(); cache?.flush() })
+  effect(() => {
+    if (!appActive()) untracked(() => { clearTimeout(flushTimer); if (scheduled) flush(); cache?.flush() })
+  })
 
   // Opened at the end. A sent message and its reply stay at the end, right above the composer, while they fit on
   // screen (followsEnd); a reply longer than the screen goes on below the sent message, which stays at the top, and
@@ -238,6 +250,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   return (
     <View class="flex-1 bg-background pb-[env(keyboard-inset-height)]">
       <ConnectionBar />
+      <SavedCopy at={!live() || connection() !== 'online' ? copiedAt() : 0} failed={cache?.failed() ?? false} />
       <View class="flex-1" onTouchStart={() => { if (todosOpen()) todosOpen.set(false) }}>
       <List ref={list} each={items()} keyExtractor={(r) => r.id} estimatedItemSize={48} testID="thread" style={{ flex: 1, opacity: placed() ? 1 : 0 }} class="transition-opacity duration-150" scrollbar={false}
         onLayout={(e) => viewport.set(e.bounds.size.height)}
@@ -255,6 +268,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
       </View>
       <If when={props.where && loaded() && !items().length}><BlankChat title={props.where!.title} path={props.where!.path} /></If>
       <If when={!loaded() && !error() && connection() !== 'offline'}><View class="absolute inset-0 items-center justify-center pointer-events-none"><Text class="text-muted-foreground text-[15px]">{S.connecting}</Text></View></If>
+      <If when={!loaded() && connection() === 'offline'}><View class="absolute inset-0 items-center justify-center px-6 pointer-events-none"><Text class="text-muted-foreground text-[15px] text-center">{S.noSavedHistory}</Text></View></If>
       <If when={(error() || interfaceError()) && connection() !== 'offline'}>
         <View class="mx-4 mb-1 rounded-[10px] bg-secondary px-3 py-2"><Text class="text-muted-foreground text-[13px] leading-[18px] line-clamp-2">{error() || interfaceError()}</Text></View>
       </If>

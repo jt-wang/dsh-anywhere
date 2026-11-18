@@ -3,19 +3,15 @@
 // read every 5 s while the chat has children (the chat list's poll).
 import { cleanup, Keyboard, computed, effect, signal, Scroll, Text, View } from 'nsh'
 import { Sheet } from 'nsh/base'
-import { dsh } from './state.ts'
+import { dsh, pollForeground } from './state.ts'
 import { children, opens, type Child, type Subagent } from './subagents.ts'
 import { S } from './strings.ts'
 import { Grabber, haptic, Chevron, Icon, SCRIM, SHEET, sheetBottom, LiveDot } from './ui.tsx'
 
-/** The chat's children with whether each runs, read again every 5 s while the chat has any (the chat list's poll). */
+/** The chat's children with whether each runs, with a 30 s foreground fallback while it has children. */
 export function followChildren(catalog: () => Subagent[]) {
   const listed = signal<unknown>(undefined)
-  let asked = false
-  const load = () => { if (catalog().length) dsh().rpc('session/list', { _request: {} }).then((v) => listed.set(v), () => {}) }
-  const timer = setInterval(load, 5000)
-  cleanup(() => clearInterval(timer))
-  effect(() => { if (catalog().length && !asked) { asked = true; load() } })
+  const load = pollForeground(() => dsh().rpc('session/list', { _request: {} }).then((v) => listed.set(v), () => {}), () => catalog().length > 0)
   return { kids: computed(() => children(catalog(), listed())), load }
 }
 

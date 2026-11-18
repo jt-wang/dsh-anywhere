@@ -49,13 +49,26 @@ function Dot(props: { cause: Cause }) {
   return props.cause === 'trying' ? <LiveDot /> : <View class={`w-[8px] h-[8px] rounded-full ${dotClass[props.cause]}`} />
 }
 
+/** A local copy is useful before reconnecting, but its activity is not a live status. */
+export function SavedCopy(props: { at: number; failed: boolean }) {
+  return <If when={props.at || props.failed}>
+    <Text testID="saved-copy" class="mx-5 mb-2 text-muted-foreground text-[12px] leading-[17px]">
+      {props.failed ? S.cacheFailed : S.savedCopy(new Date(props.at).toLocaleString())}
+    </Text>
+  </If>
+}
+
 /** Under a header. `always` (the chats page) also shows a connection without a problem. */
 export function ConnectionBar(props: { reach?: Reach; always?: boolean }) {
   const r = props.reach ?? live
   const cause = shownCause(r)
   const now = signal(Date.now())
-  const tick = setInterval(() => now.set(Date.now()), 1000)
-  cleanup(() => clearInterval(tick))
+  effect(() => {
+    if (!r.active() || r.connection() === 'online' || r.retryAt() === undefined) return
+    now.set(Date.now())
+    const tick = setInterval(() => now.set(Date.now()), 1000)
+    cleanup(() => clearInterval(tick))
+  })
   const quiet = () => cause() === 'connected'
   const line = () => [titleOf(cause(), r), cause() === 'connected' ? r.routeText() : ''].filter(Boolean).join(' · ')
   const sub = () => retryText(r, cause(), now)

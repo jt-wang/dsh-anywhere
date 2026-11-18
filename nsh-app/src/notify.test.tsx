@@ -29,13 +29,52 @@ async function start(running: { build: boolean; notes: boolean }, active = true,
 }
 const calls = (app: Awaited<ReturnType<typeof start>>, name: string) => app.host.calls().filter((c) => c.name === name).map((c) => c.data)
 
+test('idle foreground falls back at 30 seconds; background and no-network stop polling, resume refreshes immediately', async () => {
+  const app = await start({ build: false, notes: false })
+  const reads = () => app.requests().filter((r) => r.url.endsWith('/api/session/list')).length
+  const initial = reads()
+  await app.clock.runFor(29_000)
+  expect(reads()).toBe(initial)
+  await app.clock.runFor(1_000)
+  expect(reads() - initial).toBe(2) // list and notification fallback, neither at the old 4/5 second cadence
+  await app.host.send('app.state', { active: false })
+  const background = reads()
+  await app.clock.runFor(120_000)
+  expect(reads()).toBe(background)
+  await app.host.send('app.state', { active: true }); await app.clock.runFor(100)
+  expect(reads() > background).toBe(true)
+  await app.host.send('network', { online: false })
+  const offline = reads()
+  await app.clock.runFor(120_000)
+  expect(reads()).toBe(offline)
+})
+
+test('background tasks use a 60 second fallback, and disabling background watch stops it', async () => {
+  const app = await start({ build: true, notes: false })
+  await app.host.send('app.state', { active: false })
+  const reads = () => app.requests().filter((r) => r.url.endsWith('/api/session/list')).length
+  const initial = reads()
+  await app.clock.runFor(59_000)
+  expect(reads()).toBe(initial)
+  await app.clock.runFor(1_100)
+  expect(reads() - initial).toBe(1)
+  await app.host.send('app.state', { active: true })
+  await app.press('id:more'); await app.press('id:menu-settings')
+  await app.press('id:notify-background')
+  expect(calls(app, 'notify.watch').at(-1)).toBe(null)
+  await app.host.send('app.state', { active: false }); await app.clock.runFor(100)
+  const disabled = reads()
+  await app.clock.runFor(120_000)
+  expect(reads()).toBe(disabled)
+})
+
 test('away from the app, a chat that finishes posts the system notification; the watch ends with the last running chat', async () => {
   const running = { build: true, notes: false }
   const app = await start(running, false)
   await app.clock.runFor(4_100)
   expect(calls(app, 'notify.watch').at(-1)).toEqual({ title: 'An agent is working', body: 'Fix the build' })
   running.build = false
-  await app.clock.runFor(4_100)
+  await app.clock.runFor(60_100)
   await app.clock.runFor(1_600) // the answer's preview is read once more
   expect(calls(app, 'notify.show')).toEqual([{ id: 'build', kind: 'answer', title: 'Fix the build', body: 'The build passes again.' }])
   expect(calls(app, 'notify.watch').at(-1)).toBe(null)
@@ -45,9 +84,9 @@ test('away from the app, a chat that finishes posts the system notification; the
 test('in the app, another chat’s answer is a banner, not a notification; its tap opens that chat', async () => {
   const running = { build: true, notes: false }
   const app = await start(running)
-  await app.clock.runFor(4_100)
+  await app.clock.runFor(30_100)
   running.build = false
-  await app.clock.runFor(5_700)
+  await app.clock.runFor(31_700)
   await app.waitFor('id:attention-banner')
   expect(app.shows('text:The build passes again.')).toBe(true)
   expect(calls(app, 'notify.show')).toEqual([])
@@ -62,9 +101,9 @@ test('the chat on screen gets no word when its answer is ready', async () => {
   const app = await start(running)
   await app.press('text:Fix the build')
   await app.waitFor('id:composer')
-  await app.clock.runFor(4_100)
+  await app.clock.runFor(30_100)
   running.build = false
-  await app.clock.runFor(5_700)
+  await app.clock.runFor(31_700)
   expect(app.shows('id:attention-banner')).toBe(false)
   expect(calls(app, 'notify.show')).toEqual([])
 })
@@ -74,14 +113,14 @@ test('the person’s own chat starting to work is when the phone asks, once, whe
   const app = await start(running)
   await app.press('text:Fix the build')
   await app.waitFor('id:composer')
-  await app.clock.runFor(4_100)
+  await app.clock.runFor(30_100)
   expect(calls(app, 'notify.request')).toEqual([])
   running.build = true
-  await app.clock.runFor(4_100)
+  await app.clock.runFor(30_100)
   running.build = false
-  await app.clock.runFor(4_100)
+  await app.clock.runFor(30_100)
   running.build = true
-  await app.clock.runFor(4_100)
+  await app.clock.runFor(30_100)
   expect(calls(app, 'notify.request').length).toBe(1)
 })
 
@@ -102,4 +141,3 @@ test('a notification that started the app opens its chat', async () => {
   })
   await app.waitFor('id:composer')
 })
-

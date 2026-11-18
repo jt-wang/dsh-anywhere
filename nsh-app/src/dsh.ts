@@ -53,11 +53,13 @@ export class Dsh {
   /** When the next try is; undefined while one is under way, or when none is coming (`hold`). */
   onRetryAt: (at: number | undefined) => void = () => {}
   private held = false
+  private foreground = true
+  private retryEnabled = true
 
   constructor(public origin: string, private readonly key: string, private readonly io: { fetch?: typeof fetch; socket?: (url: string) => SocketLike; retryMs?: number; connectMs?: number; rpcMs?: number; onStuck?: () => unknown } = {}) {}
 
   /** Two failures in a row: the link itself may be dead, so the shell rebuilds it (once until something works). */
-  private failed() { if (++this.failures === 2) Promise.resolve(this.io.onStuck?.()).catch(() => {}) }
+  private failed() { if (this.retryEnabled && ++this.failures === 2) Promise.resolve(this.io.onStuck?.()).catch(() => {}) }
   private worked() { this.failures = 0 }
 
   async rpc<T = any>(method: string, args: Record<string, unknown>): Promise<T> { return this.call<T>(`${this.origin}/api/${method}`, method, args) }
@@ -124,7 +126,7 @@ export class Dsh {
     this.streams.set(s.id, s)
     if (this.socket?.readyState === 1) this.sendOpen(s); else this.ensure()
     return {
-      send: (value) => this.streams.get(s.id) === s && this.socket?.readyState === 1 && this.send({ type: 'item', streamId: s.id, value }),
+      send: (value) => this.visible(s) && this.streams.get(s.id) === s && this.socket?.readyState === 1 && this.send({ type: 'item', streamId: s.id, value }),
       stop: () => { if (this.streams.delete(s.id)) this.send({ type: 'cancel', streamId: s.id }) },
     }
   }
@@ -143,12 +145,43 @@ export class Dsh {
     this.ensure()
   }
 
+  /** Keep notifications and the terminal's lifetime hold, but stop display traffic until a fresh snapshot is useful. */
+  setForeground(active: boolean): void {
+    if (this.foreground === active) return
+    this.foreground = active
+    for (const s of [...this.streams.values()]) {
+      if (s.endpoint === '$events' || s.endpoint === 'terminal/retain') continue
+      if (!active) this.send({ type: 'cancel', streamId: s.id })
+      else {
+        this.streams.delete(s.id); s.id = nextId(); this.streams.set(s.id, s)
+        if (this.socket?.readyState === 1) this.sendOpen(s)
+      }
+    }
+  }
+
+  /** No offline or idle-background reconnect loop; an already healthy notification socket stays open. */
+  setRetryEnabled(enabled: boolean): void {
+    if (this.retryEnabled === enabled) return
+    this.retryEnabled = enabled
+    if (enabled) this.ensure()
+    else {
+      clearTimeout(this.retry); this.onRetryAt(undefined)
+      const socket = this.socket
+      if (socket && socket.readyState !== 1) {
+        this.socket = undefined; clearTimeout(this.connecting)
+        socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null
+        try { socket.close() } catch {}
+      }
+    }
+  }
+
   /** No more tries until `retryNow`: trying again can't help, as with a computer that refuses this phone. */
   hold(): void { this.held = true; clearTimeout(this.retry); this.onRetryAt(undefined) }
 
   close(): void { this.closed = true; clearTimeout(this.retry); clearTimeout(this.connecting); this.streams.clear(); this.socket?.close() }
 
-  private sendOpen(s: Stream) { this.send({ type: 'open', streamId: s.id, endpoint: s.endpoint, payload: { args: s.args } }) }
+  private visible(s: Stream) { return this.foreground || s.endpoint === '$events' || s.endpoint === 'terminal/retain' }
+  private sendOpen(s: Stream) { if (this.visible(s)) this.send({ type: 'open', streamId: s.id, endpoint: s.endpoint, payload: { args: s.args } }) }
 
   /** A socket can die before it says so: a failed send drops it, and every stream reopens on the next one. */
   private send(message: unknown): boolean {
@@ -163,14 +196,14 @@ export class Dsh {
     clearTimeout(this.connecting)
     this.failed()
     this.onState('offline')
-    if (this.closed || this.streams.size === 0 || this.held) return
-    const wait = this.io.retryMs ?? Math.min(15_000, 500 * 2 ** this.attempt++)
+    if (this.closed || this.streams.size === 0 || this.held || !this.retryEnabled) return
+    const wait = this.io.retryMs ?? (this.foreground ? Math.min(15_000, 500 * 2 ** this.attempt++) : 60_000)
     clearTimeout(this.retry); this.retry = setTimeout(() => this.ensure(), wait)
     this.onRetryAt(Date.now() + wait)
   }
 
   private ensure() {
-    if (this.closed || this.socket) return
+    if (this.closed || this.held || !this.retryEnabled || this.socket || !this.streams.size) return
     const url = `${this.origin.replace(/^http/, 'ws')}/api/remote.mux?dshm_key=${encodeURIComponent(this.key)}`
     const socket = (this.io.socket ?? ((u: string) => new WebSocket(u) as unknown as SocketLike))(url)
     this.socket = socket
@@ -189,7 +222,7 @@ export class Dsh {
     }
     socket.onmessage = (e) => {
       let m: any; try { m = JSON.parse(e.data) } catch { return }
-      const s = this.streams.get(m?.streamId); if (!s) return
+      const s = this.streams.get(m?.streamId); if (!s || !this.visible(s)) return
       if (m.type === 'item') s.onItem(m.value)
       else if (m.type === 'error') { this.streams.delete(s.id); s.onError?.(new DshError(m.error?.code ?? 'unknown', m.error?.message ?? '')) }
       else if (m.type === 'end') this.streams.delete(s.id)

@@ -3,7 +3,7 @@
 // one piece of work (host/src/progress.ts). Read only: answering and stopping happen in the chat a job opens.
 import { cleanup, effect, locale, Scroll, signal, Text, untracked, View } from 'nsh'
 import { Switch } from 'nsh/base'
-import { appActive, connection, dsh, trying } from './state.ts'
+import { appActive, dsh, pollForeground, trying } from './state.ts'
 import { ago, language, S } from './strings.ts'
 import { ConnectionBar } from './status.tsx'
 import { Icon } from './ui.tsx'
@@ -28,19 +28,17 @@ export function ProgressFeed() {
   let stopped = false
   const ask = async () => {
     if (stopped || trying()) { if (trying()) progressAvailable.set(false); return }
-    try { progressAvailable.set((await dsh().computer()).progress) } catch { if (!stopped) setTimeout(ask, 15_000) }
+    try { progressAvailable.set((await dsh().computer()).progress) } catch { /* next foreground fallback retries */ }
   }
-  // One list at a time: on a slow computer the 5 s refresh would otherwise pile up requests.
+  // One list at a time, including explicit refreshes after a setting changes.
   const load = oneAtATime(async () => {
-    if (stopped || !progressAvailable()) return
+    if (stopped || !appActive() || !progressAvailable()) return
     try { const v = viewOf(await dsh().companion('progress/list', {})); if (!stopped) { if (v) { progressView.set(v); progressError.set('') } else progressError.set(S.progress.failed) } }
     catch { if (!stopped) progressError.set(S.progress.failed) }
   })
   reload = load
-  ask()
-  effect(() => { if (progressAvailable()) untracked(load) })
-  const timer = setInterval(() => { if (appActive() && connection() !== 'offline') load() }, 5000)
-  cleanup(() => { stopped = true; clearInterval(timer); reload = undefined })
+  pollForeground(async () => { if (progressAvailable() === undefined) await ask(); await load() })
+  cleanup(() => { stopped = true; reload = undefined })
   return null
 }
 export const refreshProgress = () => untracked(() => reload?.())

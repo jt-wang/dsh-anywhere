@@ -66,22 +66,29 @@ export function readPageMessage(data: string): PageMessage | undefined {
 /** The app's side of the page: output waits until the page is ready, and writes between two flushes go as one message. */
 export class PageChannel {
   private open = false
+  private active = true
   private queue: ({ t: 'write'; data: string } | { t: 'reset' })[] = []
   private timer: ReturnType<typeof setTimeout> | undefined
   constructor(private post: (message: string) => void) {}
   ready() { this.open = true; this.schedule() }
+  /** A background page keeps its readiness, but drops obsolete output; resume receives a new terminal snapshot. */
+  setActive(active: boolean) {
+    this.active = active
+    if (!active) { this.queue = []; clearTimeout(this.timer); this.timer = undefined }
+  }
   /** The page went away (reloaded or torn down): nothing more is sent until it says ready again. */
   lost() { this.open = false; this.queue = []; clearTimeout(this.timer); this.timer = undefined }
   write(data: string) {
+    if (!this.active) return
     const tail = this.queue.at(-1)
     if (tail?.t === 'write') tail.data += data; else this.queue.push({ t: 'write', data })
     this.schedule()
   }
-  reset() { this.queue.push({ t: 'reset' }); this.schedule() }
-  key(name: BarKey) { if (this.open) this.post(JSON.stringify({ t: 'key', name })) }
-  send(message: { t: 'theme'; dark: boolean } | { t: 'focus' }) { if (this.open) this.post(JSON.stringify(message)) }
+  reset() { if (this.active) { this.queue.push({ t: 'reset' }); this.schedule() } }
+  key(name: BarKey) { if (this.open && this.active) this.post(JSON.stringify({ t: 'key', name })) }
+  send(message: { t: 'theme'; dark: boolean } | { t: 'focus' }) { if (this.open && this.active) this.post(JSON.stringify(message)) }
   private schedule() {
-    if (!this.open || this.timer !== undefined) return
+    if (!this.open || !this.active || this.timer !== undefined) return
     this.timer = setTimeout(() => {
       this.timer = undefined
       const q = this.queue; this.queue = []

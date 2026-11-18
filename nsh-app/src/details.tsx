@@ -1,13 +1,13 @@
 // A chat's details, read-only: the model and effort, plan mode, the preset, context use as Desktop's meter counts
 // it, the tokens spent, the goal and the background jobs. Values come from session/projections, read again every
 // 5 s while the page is open (the chat list's poll); jobs from job/list, which the projections do not carry.
-import { cleanup, signal, Scroll, Text, View, type JSX } from 'nsh'
+import { cleanup, effect, signal, Scroll, Text, View, type JSX } from 'nsh'
 import { presetLabel } from './controls.ts'
 import { detailsOf, tokens, type Details } from './details.ts'
 import { followJobs } from './jobs.tsx'
 import { duration, isLive, sections, type Job } from './jobs.ts'
 import { catalogOf, findModel, type Catalog } from './models.ts'
-import { dsh } from './state.ts'
+import { appActive, dsh, pollForeground } from './state.ts'
 import { readable, S } from './strings.ts'
 import { ConnectionBar } from './status.tsx'
 import { LiveDot } from './ui.tsx'
@@ -23,9 +23,7 @@ export function DetailsPage(props: { sessionId: string }) {
   }
   // Without the catalog the model reads as DSH's id.
   dsh().rpc('session/modelCatalog', {}).then((v) => catalog.set(catalogOf(v)), () => {})
-  load()
-  const timer = setInterval(load, 5000)
-  cleanup(() => clearInterval(timer))
+  pollForeground(load)
   return <DetailsView details={details} catalog={catalog} jobs={jobs} error={error} retry={() => { error.set(''); load() }} />
 }
 
@@ -44,8 +42,12 @@ export function DetailsView(props: { details: () => Details | undefined; catalog
   const usage = () => { const u = d()?.usage; return u ? [{ label: S.usageInput, value: tokens(u.input) }, { label: S.usageCached, value: tokens(u.cacheRead) }, { label: S.usageCacheCreated, value: tokens(u.cacheWrite) }, { label: S.usageOutput, value: tokens(u.output) }] : [] }
   const listed = () => { const s = sections(props.jobs()); return [...s.live, ...s.settled] }
   const now = signal(Date.now())
-  const tick = setInterval(() => { if (props.jobs().some(isLive)) now.set(Date.now()) }, 1000)
-  cleanup(() => clearInterval(tick))
+  effect(() => {
+    if (!appActive() || !props.jobs().some(isLive)) return
+    now.set(Date.now())
+    const tick = setInterval(() => now.set(Date.now()), 1000)
+    cleanup(() => clearInterval(tick))
+  })
   return (
     <View class="flex-1 bg-background">
       <ConnectionBar />

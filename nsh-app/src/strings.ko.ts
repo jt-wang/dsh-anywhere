@@ -11,6 +11,10 @@ const KO_UNITS: Record<ScheduleUnit, string> = { day: '일', hour: '시간', min
 const KO_EVERY_ONE: Record<ScheduleUnit, string> = { day: '매일', hour: '매시간', minute: '매분', second: '매초' }
 
 export const KO: Strings = {
+  savedCopy: (at: string) => `저장된 사본 · ${at}. 실행 상태가 변경되었을 수 있습니다.`,
+  cacheFailed: '휴대폰에 저장하지 못했습니다. 현재 화면은 계속 볼 수 있습니다.',
+  noSavedChats: '휴대폰에 저장된 채팅이 없습니다. 컴퓨터에 연결하여 불러오세요.',
+  noSavedHistory: '아직 저장되지 않은 채팅입니다. 연결하여 기록을 불러오세요.',
   think: '생각', chats: '채팅', newChat: '새 채팅', untitled: '새 채팅', message: 'DSH에 메시지 보내기', send: '보내기', sending: '보내는 중…', sendingSlow: '아직 보내는 중입니다. 컴퓨터가 아직 응답하지 않았습니다', delivered: '전달됨', deliveredIdle: '전달됨. 에이전트가 아직 시작하지 않았습니다', queued: '대기 중', notSent: '보내지 못했습니다. 탭하여 다시 시도하세요',
   privacy: '개인정보 보호', tryIt: { entry: '샘플 데이터로 사용해 보기', banner: '샘플 데이터는 이 휴대폰에만 있으며 어디로도 전송되지 않습니다.', leave: '컴퓨터 연결', exit: '샘플 나가기', computer: '샘플 컴퓨터', model: '샘플 모델', onPhone: '이 휴대폰의 샘플 데이터', noAttach: '파일을 첨부하려면 컴퓨터를 연결하세요.', workspace: '샘플-프로젝트', fixTitle: '실패하는 로그인 테스트 수정', fixAsk: '로그인 테스트가 실패해요. 고쳐 줄 수 있나요?', fixAnswer: '테스트가 예전 오류 메시지를 기다리고 있었습니다. 수정했고 테스트 24개가 모두 통과합니다.', deleteTitle: '오래된 빌드 폴더 삭제', deleteAsk: '오래된 빌드 폴더를 삭제해 주세요.', deleteReason: 'build/old 폴더 삭제', deleteAnswer: '완료했습니다. 오래된 빌드 폴더를 삭제했습니다.', deleteRejected: '알겠습니다. 폴더는 그대로 두었습니다.', nameTitle: '릴리스 이름 정하기', nameAsk: '다음 릴리스 이름을 함께 정해 주세요.', nameQuestion: '어떤 이름이 좋으세요?', nameOptions: ['항구', '등불', '초원'], nameAnswer: (name: string) => `좋은 선택입니다. 이제 릴리스 이름은 ${name}입니다.`, reply: '샘플 답변입니다. 실제 앱에서는 메시지가 컴퓨터의 에이전트로 전달되고 그 답변이 여기에 표시됩니다.', taskTitle: '의존성 확인', taskPrompt: '오래된 의존성을 찾아 목록으로 알려 주세요.', readme: '# 샘플 프로젝트\n\nDSH Anywhere를 사용해 보기 위한 작은 프로젝트입니다.\n' },
   linkTitle: '컴퓨터 연결', linkHow: 'Mac에서 DSH를 열고 DSH Anywhere 페어링 코드를 표시한 다음 이 휴대폰으로 스캔하세요.',

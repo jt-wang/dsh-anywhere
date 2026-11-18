@@ -2,7 +2,7 @@
 // terminal-page.ts) with a key bar for what a phone keyboard lacks. The shell is the computer user's own, outside the
 // agent's sandbox and approvals, and the list says so.
 import { cleanup, colorScheme, effect, fontScale, keyboardFrame, safeAreaInsets, signal, Text, untracked, View, WebView, type JSX, type WebViewRef } from 'nsh'
-import { dsh } from './state.ts'
+import { appActive, dsh, pollForeground } from './state.ts'
 import { readable, S } from './strings.ts'
 import { ConnectionBar } from './status.tsx'
 import type { TerminalInfo } from './terminal.ts'
@@ -18,9 +18,7 @@ export function TerminalsPage(props: { sessionId: string; onOpen: (target: Termi
   const load = async () => {
     try { const v = await dsh().rpc('terminal/list', { sessionId: props.sessionId }); list.set(Array.isArray(v) ? v : []); error.set('') } catch (e) { error.set(readable(e)) }
   }
-  load()
-  const timer = setInterval(load, 5000)
-  cleanup(() => clearInterval(timer))
+  pollForeground(load)
   return (
     <View class="flex-1 bg-background">
       <ConnectionBar />
@@ -61,7 +59,9 @@ export function TerminalsPage(props: { sessionId: string; onOpen: (target: Termi
 /** One terminal; `menu` opens the page's close action (the header's ⋯). */
 export function TerminalPage(props: { sessionId: string; target: TerminalTarget; menu: () => boolean; onMenuClosed: () => void; onClosed: () => void }) {
   let web: WebViewRef | undefined
-  const channel = new PageChannel((m) => web?.postMessage(m))
+  const channel = new PageChannel((m) => { if (appActive()) web?.postMessage(m) })
+  effect(() => channel.setActive(appActive()))
+  cleanup(() => channel.lost())
   const phase = signal<TerminalPhase>('loading')
   const info = signal<TerminalInfo | undefined>(undefined)
   const failure = signal('')
@@ -93,7 +93,8 @@ export function TerminalPage(props: { sessionId: string; target: TerminalTarget;
       channel.ready()
       // A page that loaded again lost its screen: attach anew for a fresh snapshot.
       if (!session) begin(); else session.takeControl()
-    } else if (m.t === 'size') { size = { cols: m.cols, rows: m.rows }; session?.resize(m.cols, m.rows) }
+    } else if (!appActive()) return
+    else if (m.t === 'size') { size = { cols: m.cols, rows: m.rows }; session?.resize(m.cols, m.rows) }
     else if (m.t === 'input') {
       const data = ctrl() ? withCtrl(m.data) : m.data
       ctrl.set(false)

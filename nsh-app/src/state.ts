@@ -1,15 +1,19 @@
 // The link to the owner's computer lives in the native shell (Link.java: Tailcat, pinned TLS, the device token in the
 // Android Keystore). The app only learns the bridge origin and the token to send.
-import { computed, host, signal } from 'nsh'
+import { cleanup, computed, effect, host, signal, untracked } from 'nsh'
 import { Dsh, type ConnectionState, type DshError } from './dsh.ts'
 import { Pending } from './events.ts'
 import type { Check } from './reach.ts'
 import { readable, S } from './strings.ts'
 import { tryComputer, TRY_KEY, TRY_ORIGIN } from './tryit.ts'
+import { OfflineCache } from './cache.ts'
+import { oneAtATime } from './progress.ts'
 
 export interface Settings { origin: string; key: string }
-type LinkState = { paired: false } | { paired: true; origin: string; token: string }
+type LinkState = { paired: false } | { paired: true; origin: string; token: string; cacheId?: string }
 export const settings = signal<Settings | null>(null)
+export const offlineCache = signal<OfflineCache | undefined>(undefined)
+export const refreshLists = signal(0)
 export const loaded = signal(false)
 export const linking = signal(false)
 export const linkError = signal('')
@@ -56,24 +60,55 @@ export function dsh(): Dsh {
       const next = await host.call<LinkState>('link.reset')
       if (next.paired && client === made) { made.origin = next.origin; settings.set({ origin: next.origin, key: next.token }) }
     } })
-    client.onState = (c) => socketState.set(c)
+    client.onState = (c) => { socketState.set(c); if (c === 'online') refreshLists.update((n) => n + 1) }
     client.onRetryAt = (at) => retryAt.set(at)
+    client.setForeground(appActive())
+    client.setRetryEnabled((network() || trying()) && (appActive() || backgroundWatch()))
     stopEvents = client.stream('$events', {}, (frame) => { heard(frame); pending.apply(frame); asks.update((n) => n + 1) })
   }
   return client
 }
-const adopt = (state: LinkState, sample = false) => { trying.set(sample); stopEvents?.(); client?.close(); client = undefined; pending.apply({ type: 'ready', clientId: '' }); asks.update((n) => n + 1); check.set(undefined); retryAt.set(undefined); routeText.set(''); lastLook = 0; settings.set(state.paired ? { origin: state.origin, key: state.token } : null) }
+const adopt = async (state: LinkState, sample = false) => {
+  const old = offlineCache()
+  const identity = state.paired && !sample ? state.cacheId : undefined
+  if (old?.data.identity !== identity) { old?.clear(); offlineCache.set(undefined) }
+  // Native pairing may have been removed while this process was not running.
+  if (!state.paired && !old) await OfflineCache.discard()
+  trying.set(sample); stopEvents?.(); client?.close(); client = undefined
+  pending.apply({ type: 'ready', clientId: '' }); asks.update((n) => n + 1)
+  check.set(undefined); retryAt.set(undefined); routeText.set(''); lastLook = 0
+  if (identity && !offlineCache()) offlineCache.set(await OfflineCache.open(identity))
+  settings.set(state.paired ? { origin: state.origin, key: state.token } : null)
+}
 
 /** Whether the app is on screen (the shell's app.state); true where the shell does not say. */
 export const appActive = signal(true)
+/** Only the notifier's known running tasks need reconnects while the app is away. */
+export const backgroundWatch = signal(false)
+/** Read on entry/resume/reconnect, then at most every 30 s; no timer while hidden or without a network. */
+export function pollForeground(run: () => Promise<unknown>, visible: () => boolean = () => true) {
+  let stopped = false
+  const load = oneAtATime(async () => {
+    if (!stopped && appActive() && (network() || trying()) && visible()) await run()
+  })
+  effect(() => {
+    refreshLists()
+    if (!appActive() || (!network() && !trying()) || !visible()) return
+    untracked(load)
+    const timer = setInterval(load, 30_000)
+    cleanup(() => clearInterval(timer))
+  })
+  cleanup(() => { stopped = true })
+  return load
+}
 /** The person asked to try the computer again now. */
-export function reconnect() { client?.retryNow(); lastLook = 0 }
+export function reconnect() { client?.retryNow(); lastLook = 0; refreshLists.update((n) => n + 1) }
 
 // While the connection fails: which part answers. While it works: how long an answer takes and how it goes. Only on screen.
 const FAILING_MS = 15_000, WORKING_MS = 30_000, GRACE_MS = 3_000
-let lastLook = 0, looking = false, failingSince = 0
+let lastLook = 0, looking = false
 async function look() {
-  if (looking || !settings() || trying()) return
+  if (looking || !appActive() || !network() || !settings() || trying()) return
   looking = true; lastLook = Date.now()
   try {
     if (connection() === 'online') {
@@ -87,25 +122,33 @@ async function look() {
       if (d.error) return
       check.set({ relay: d.relay, computer: d.computer, ...(d.computer === 'reachable' ? { access: await askComputer() } : {}) })
     }
-    if (check()?.access === 'refused') client?.hold()
+    if (check()?.access === 'refused') { client?.hold(); offlineCache()?.clear(); offlineCache.set(undefined) }
   } catch { /* a shell without link.diagnose: the state stays as it is */ } finally { looking = false }
 }
 async function askComputer(): Promise<NonNullable<Check['access']>> {
   try { await dsh().computer(); return 'ok' } catch (e) { return (e as DshError).code === 'unauthorized' ? 'refused' : 'failed' }
 }
 function watchReach() {
-  setInterval(() => {
+  effect(() => {
     if (!appActive() || !network() || !settings()) return
-    const now = Date.now()
-    if (connection() === 'online') failingSince = 0; else if (!failingSince) failingSince = now
-    if (failingSince && now - failingSince < GRACE_MS) return
-    if (now - lastLook >= (failingSince ? FAILING_MS : WORKING_MS)) look()
-  }, 1000)
+    const online = connection() === 'online'
+    let timer: ReturnType<typeof setTimeout>
+    const tick = () => {
+      untracked(look)
+      timer = setTimeout(tick, online ? WORKING_MS : FAILING_MS)
+    }
+    timer = setTimeout(tick, online ? Math.max(0, WORKING_MS - (Date.now() - lastLook)) : GRACE_MS)
+    cleanup(() => clearTimeout(timer))
+  })
+  effect(() => {
+    const foreground = appActive(), retry = (network() || trying()) && (foreground || backgroundWatch())
+    untracked(() => { client?.setForeground(foreground); client?.setRetryEnabled(retry) })
+  })
 }
 
 export async function boot() {
   watchReach()
-  try { adopt(await host.call<LinkState>('link.state')) } catch (e) { linkError.set(readable(e)) }
+  try { await adopt(await host.call<LinkState>('link.state')) } catch (e) { linkError.set(readable(e)) }
   loaded.set(true)
   // opened from a pairing QR or link (dshm1:…), now or while running
   const pending = (host.params as { pair?: string } | undefined)?.pair
@@ -116,13 +159,13 @@ export async function boot() {
   // Back on screen: try the computer now. A connection that died while the app was away would otherwise wait for the
   // next retry, up to 15 seconds later.
   const onScreen = (v: unknown) => (v as { active?: boolean } | undefined)?.active !== false
-  try { host.on('app.state', (data) => { appActive.set(onScreen(data)); if (appActive()) reconnect() }) } catch {}
+  try { host.on('app.state', (data) => { appActive.set(onScreen(data)); if (appActive()) reconnect(); else offlineCache()?.flush() }) } catch {}
   host.call('app.state').then((v) => appActive.set(onScreen(v)), () => {})
   try { host.on('pair', (data) => { const text = (data as { text?: string } | undefined)?.text; if (text) pairWith(text) }) } catch {}
 }
 export async function pairWith(text: string) {
   linking.set(true); linkError.set('')
-  try { adopt(await host.call<LinkState>('link.pair', { text })) } catch (e) { linkError.set(readable(e)) } finally { linking.set(false) }
+  try { await adopt(await host.call<LinkState>('link.pair', { text })) } catch (e) { linkError.set(readable(e)) } finally { linking.set(false) }
 }
 export async function scan() {
   let text: string

@@ -1,14 +1,15 @@
 // The chat list, as DSH Desktop's sidebar shows it: chats under their workspaces (workspace/follow), pinned first,
 // archived hidden, a "+" to start a chat in a workspace. Subagent and blank chats stay out of the list.
-import { cleanup, createAnimatedValue, effect, LayoutAnimation, List, PanResponder, signal, Text, View } from 'nsh'
+import { cleanup, createAnimatedValue, effect, LayoutAnimation, List, PanResponder, signal, Text, untracked, View } from 'nsh'
 import { Input } from 'nsh/base'
 import { chatAction, chatMenu, RenameSheet, type ChatAction } from './manage.tsx'
 import { dragTo, release, swipeThresholds } from './swipe.ts'
 import { DECELERATE } from './motion.ts'
 import { Chevron, haptic, Icon, IconButton, LiveDot } from './ui.tsx'
-import { ConnectionBar } from './status.tsx'
+import { ConnectionBar, SavedCopy } from './status.tsx'
 import { NewChat } from './newchat.tsx'
-import { asks, connection, dsh, pending } from './state.ts'
+import { appActive, asks, connection, dsh, network, offlineCache, pending, pollForeground, trying } from './state.ts'
+import { oneAtATime } from './progress.ts'
 import { ago, readable, S } from './strings.ts'
 import { problemOf } from './files.ts'
 import { archivedChats, groupChats, searchChats, summaries, Workspaces, type ChatSummary, type Group } from './workspaces.ts'
@@ -21,12 +22,20 @@ type Item =
   | { kind: 'toggle'; id: string; count: number }
 
 export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: () => boolean; onNewChatClosed: () => void }) {
-  const chats = signal<Summary[]>([])
+  const cache = offlineCache()
+  const saved = cache?.data.list
+  const chats = signal<Summary[]>(saved?.value ?? [])
   const workspaces = new Workspaces()
+  if (cache?.data.workspaces) workspaces.apply({ type: 'baseline', value: cache.data.workspaces.value })
+  const copiedAt = signal(saved?.at ?? 0)
+  const fresh = signal(false)
+  effect(() => { if (connection() !== 'online') fresh.set(false) })
+  const known = signal(Boolean(saved))
   const version = signal(0)
   const error = signal('')
   const refreshing = signal(false)
-  const loading = signal(true)
+  const loading = signal(!saved)
+  effect(() => { if (!network() && !trying()) loading.set(false) })
   const startIn = signal<string | undefined>(undefined)
   const showArchived = signal(false)
   const renaming = signal<Summary | undefined>(undefined)
@@ -35,32 +44,41 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
   // A connection the phone kept while the app was away can be dead on its first use; reading the list again once is
   // safe, and the list on screen stays as it was until the second try fails too.
   const list = () => dsh().rpc('session/list', { _request: {} })
-  const load = async () => {
+  let stopped = false
+  const load = oneAtATime(async () => {
+    if (stopped || !appActive() || (!network() && !trying())) { loading.set(false); return }
     // A refresh that cannot reach the computer keeps the chats it has: the connection bar speaks for the connection
     // (back from the background, the first refresh often goes out before the connection is back).
-    try { chats.set(summaries(await list().catch(() => new Promise((r) => setTimeout(r, 400)).then(list)))); error.set('') } catch (e) { error.set(problemOf(e) === 'offline' ? '' : readable(e)) } finally { loading.set(false) }
-  }
+    try {
+      const value = summaries(await list().catch(async (e) => {
+        await new Promise((r) => setTimeout(r, 400))
+        if (stopped || !appActive() || (!network() && !trying())) throw e
+        return list()
+      }))
+      if (stopped) return
+      chats.set(value); known.set(true); fresh.set(true); copiedAt.set(Date.now()); error.set(''); cache?.list(value)
+    } catch (e) { if (!stopped) error.set(problemOf(e) === 'offline' ? '' : readable(e)) } finally { if (!stopped) loading.set(false) }
+  })
   const pull = async () => { refreshing.set(true); await load(); refreshing.set(false) }
-  load()
-  const timer = setInterval(load, 5000) // DSH's sidebar is live; a light poll keeps titles and running dots current
-  cleanup(() => clearInterval(timer))
+  pollForeground(load)
+  cleanup(() => { stopped = true; cache?.flush() })
   // After the first frame, a change (a chat pinned, archived, brought back) moves the rows rather than jumping them.
   let followed = false
   cleanup(dsh().stream('workspace/follow', {}, (frame) => {
     if (followed) LayoutAnimation.configureNext(LayoutAnimation.create(220, 'easeInEaseOut', 'opacity'))
     followed = true; workspaces.apply(frame); version.update((n) => n + 1)
+    if (workspaces.loaded) cache?.workspaces(workspaces.snapshot())
   }, (e) => error.set(readable(e))))
   // Titles match at once; DSH's full-text search adds hits when the install has its index (it can be turned off).
   let searchTimer: ReturnType<typeof setTimeout> | undefined
-  let fullText = true
   const search = (text: string) => {
     query.set(text); hits.set([]); clearTimeout(searchTimer)
-    if (!text.trim() || !fullText) return
+    if (!text.trim()) return
     searchTimer = setTimeout(async () => {
       try {
         const v = await dsh().rpc<{ items?: { sessionId: string; snippet?: string }[] }>('session/search', { request: { query: text.trim() } })
         if (query() === text) hits.set((v.items ?? []).map((r) => ({ sessionId: r.sessionId, snippet: r.snippet ?? '' })))
-      } catch { fullText = false } // this install has no search index: titles only
+      } catch { /* Titles still match locally; the next query can try the computer again. */ }
     }, 300)
   }
   cleanup(() => clearTimeout(searchTimer))
@@ -81,6 +99,7 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
   return (
     <View class="flex-1 bg-background">
       <ConnectionBar always />
+      <SavedCopy at={!fresh() || connection() !== 'online' ? copiedAt() : 0} failed={cache?.failed() ?? false} />
       <View class="mx-4 mt-1 mb-1 flex-row items-center gap-2 rounded-[10px] bg-secondary px-[10px]">
         <Icon name="search" size={16} />
         <Input testID="search" placeholder={S.search} value={query()} onChange={(e) => search(e.value)} returnKeyType="search" autoCapitalize="none"
@@ -118,7 +137,7 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
         )}
       </List>
       <If when={searching() && !items().length}><View class="absolute inset-0 items-center justify-center pointer-events-none"><Text class="text-muted-foreground text-[15px]">{S.noResults}</Text></View></If>
-      <If when={!chats().length && !loading() && !error() && !searching()}><View class="absolute inset-0 items-center justify-center pointer-events-none"><Text class="text-muted-foreground text-[15px]">{S.empty}</Text></View></If>
+      <If when={!chats().length && !loading() && (!error() || connection() === 'offline') && !searching()}><View class="absolute inset-0 items-center justify-center px-6 pointer-events-none"><Text class="text-muted-foreground text-[15px] text-center">{known() ? S.empty : S.noSavedChats}</Text></View></If>
       <NewChat open={sheetOpen} workspaces={() => (version(), workspaces.list())} chats={chats} workspaceId={startIn}
         onClose={() => { startIn.set(undefined); props.onNewChatClosed() }}
         onCreated={(sessionId, where) => { startIn.set(undefined); props.onNewChatClosed(); props.onOpen({ sessionId, title: S.untitled, updatedAt: Date.now(), running: false, ...(where ? { cwd: where.path, project: where.title } : {}) }) }} />

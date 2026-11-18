@@ -36,3 +36,19 @@ test('output waits for the page, then goes in one message per flush, in order wi
   await new Promise((r) => setTimeout(r, 30))
   expect(sent.length).toBe(4)
 })
+
+test('background drops pending and incoming display output and keys; resume sends only a fresh snapshot', async () => {
+  const sent: unknown[] = []
+  const ch = new PageChannel((m) => sent.push(JSON.parse(m)))
+  ch.ready(); ch.write('pending')
+  ch.setActive(false)
+  ch.reset(); ch.write('hidden'); ch.key('up'); ch.send({ t: 'focus' })
+  await new Promise((r) => setTimeout(r, 30))
+  expect(sent).toEqual([])
+  ch.setActive(true); ch.reset(); ch.write('fresh')
+  await new Promise((r) => setTimeout(r, 30))
+  expect(sent).toEqual([{ t: 'reset' }, { t: 'write', data: 'fresh' }])
+  ch.write('destroyed'); ch.lost()
+  await new Promise((r) => setTimeout(r, 30))
+  expect(sent.length).toBe(2)
+})

@@ -13,6 +13,10 @@ const ZH_UNITS: Record<ScheduleUnit, string> = { day: '天', hour: '小时', min
 const ZH_EVERY_ONE: Record<ScheduleUnit, string> = { day: '每天', hour: '每小时', minute: '每分钟', second: '每秒' }
 
 export const ZH: Strings = {
+  savedCopy: (at: string) => `本地副本 · ${at}，运行状态可能已变化。`,
+  cacheFailed: '未能保存到手机，当前页面仍可查看。',
+  noSavedChats: '手机尚未保存会话，请连接电脑加载。',
+  noSavedHistory: '手机尚未保存此会话，请连接电脑加载历史。',
   think: '思考', chats: '会话', newChat: '新建会话', untitled: '新会话', message: '给 DSH 发消息', send: '发送', sending: '发送中…', sendingSlow: '仍在发送，电脑还没有响应', delivered: '已送达', deliveredIdle: '已送达，智能体还没开始处理', queued: '排队中', notSent: '未发送，点按重试',
   privacy: '隐私', tryIt: { entry: '用示例数据试用', banner: '示例数据只在这台手机上，不会发送到任何地方。', leave: '连接电脑', exit: '退出示例', computer: '示例电脑', model: '示例模型', onPhone: '示例数据在这台手机上', noAttach: '要添加文件，请先连接电脑。', workspace: '示例项目', fixTitle: '修复失败的登录测试', fixAsk: '登录测试失败了，能帮我修一下吗？', fixAnswer: '测试还在等旧的错误提示。我更新了它，24 个测试全部通过。', deleteTitle: '删除旧的构建文件夹', deleteAsk: '请删除旧的构建文件夹。', deleteReason: '删除文件夹 build/old', deleteAnswer: '好了，旧的构建文件夹已删除。', deleteRejected: '好的，文件夹没有动。', nameTitle: '给发布版本起个名字', nameAsk: '帮我给下个版本起个名字。', nameQuestion: '你喜欢哪个名字？', nameOptions: ['港湾', '灯笼', '草地'], nameAnswer: (name: string) => `选得好。这个版本现在叫 ${name}。`, reply: '这是示例回答。在真实的 app 里，你的消息会发给电脑上的 agent，它的回答会显示在这里。', taskTitle: '检查依赖', taskPrompt: '找出过期的依赖并列出来。', readme: '# 示例项目\n\n用来试用 DSH Anywhere 的小项目。\n' },
   linkTitle: '连接你的电脑', linkHow: '在 Mac 上打开 DSH，调出 DSH Anywhere 的配对码，再用这台手机扫。',

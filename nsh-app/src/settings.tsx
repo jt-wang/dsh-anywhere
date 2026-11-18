@@ -4,7 +4,7 @@
 // the computer.
 import { cleanup, effect, host, openUrl, platform, Scroll, signal, Text, View, type JSX } from 'nsh'
 import { Switch } from 'nsh/base'
-import { appActive, connection, dsh, PRIVACY_URL, trying, unlink } from './state.ts'
+import { appActive, connection, dsh, pollForeground, PRIVACY_URL, trying, unlink } from './state.ts'
 import { language, S, type Language } from './strings.ts'
 import { notifyPrefs, setLanguage, setNotify, setTheme, theme, type NotifyPrefs, type Theme } from './prefs.ts'
 import { Icon } from './ui.tsx'
@@ -36,9 +36,8 @@ export function SettingsPage() {
   const findRoute = () => trying() ? undefined : host.call<{ route?: string; relay?: string }>('link.path').then((v) => route.set(v?.route ? { route: v.route, ...(v.relay ? { relay: v.relay } : {}) } : undefined), () => {})
   const routeText = () => { const r = route(); return r?.route === 'direct' ? S.pathDirect : r?.route === 'relay' ? S.pathRelay((r.relay ?? '').toUpperCase() || '—') : '' }
   const permission = () => host.call<{ granted?: boolean }>('notify.permission').then((v) => granted.set(v?.granted === true), () => {})
-  load(); permission(); findRoute()
-  const again = setInterval(() => { if (connection() === 'online') findRoute() }, 10_000)
-  cleanup(() => clearInterval(again))
+  load(); permission()
+  pollForeground(async () => { await findRoute() })
   // Back from the phone's settings, or reconnected: read again what may have changed there.
   effect(() => { if (appActive()) permission() })
   effect(() => { if (connection() === 'online' && !computer()) load() })

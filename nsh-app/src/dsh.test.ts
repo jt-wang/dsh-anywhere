@@ -17,6 +17,51 @@ class FakeSocket implements SocketLike {
   push(frame: unknown) { this.onmessage?.({ data: JSON.stringify(frame) }) }
 }
 
+test('background cancels display streams, retains notifications and terminal lifetime, and resumes with fresh ids', () => {
+  const socket = new FakeSocket('synthetic')
+  const dsh = new Dsh('http://h', 'k', { socket: () => socket })
+  const got: unknown[] = []
+  dsh.stream('$events', {}, (v) => got.push(v))
+  dsh.stream('terminal/retain', {}, () => {})
+  dsh.stream('session/follow', {}, (v) => got.push(v))
+  const terminal = dsh.duplex('terminal/attach', {}, (v) => got.push(v))
+  socket.open()
+  const old = socket.sent.filter((m) => m.type === 'open')
+  dsh.setForeground(false)
+  expect(socket.sent.filter((m) => m.type === 'cancel').map((m) => m.streamId)).toEqual(old.slice(2).map((m) => m.streamId))
+  for (const m of old) socket.push({ type: 'item', streamId: m.streamId, value: m.endpoint })
+  expect(got).toEqual(['$events'])
+  expect(terminal.send({ type: 'write', data: 'never replay' })).toBe(false)
+  dsh.setForeground(true)
+  const resumed = socket.sent.filter((m) => m.type === 'open').slice(4)
+  expect(resumed.map((m) => m.endpoint)).toEqual(['session/follow', 'terminal/attach'])
+  expect(resumed.every((m) => !old.some((o) => o.streamId === m.streamId))).toBe(true)
+  socket.push({ type: 'item', streamId: old[2].streamId, value: 'stale' })
+  socket.push({ type: 'item', streamId: resumed[0].streamId, value: 'fresh snapshot' })
+  expect(got).toEqual(['$events', 'fresh snapshot'])
+  expect(socket.sent.some((m) => m.type === 'item')).toBe(false)
+  dsh.close()
+})
+
+test('offline or idle background cannot reconnect through new streams or retryNow; authorization hold survives lifecycle resume', async () => {
+  const sockets: FakeSocket[] = []
+  const dsh = new Dsh('http://h', 'k', { socket: (url) => { const s = new FakeSocket(url); sockets.push(s); return s }, retryMs: 1 })
+  dsh.stream('$events', {}, () => {})
+  sockets[0].open()
+  dsh.setRetryEnabled(false)
+  sockets[0].close()
+  dsh.stream('session/follow', {}, () => {})
+  dsh.retryNow()
+  await new Promise((r) => setTimeout(r, 10))
+  expect(sockets.length).toBe(1)
+  dsh.hold()
+  dsh.setRetryEnabled(true)
+  expect(sockets.length).toBe(1)
+  dsh.retryNow()
+  expect(sockets.length).toBe(2)
+  dsh.close()
+})
+
 test('rpc sends the client-request envelope with the device key and unwraps the result', async () => {
   const calls: { url: string; init: any }[] = []
   const fetchImpl = async (url: any, init: any) => { calls.push({ url, init }); return { ok: true, status: 200, json: async () => ({ type: 'server-response', rpcId: JSON.parse(init.body).rpcId, result: { ok: true, value: { items: [] } } }) } as any }

@@ -1,7 +1,7 @@
 // DSH on the phone: the same chats as DSH Desktop, read and driven through DSH's own protocol.
-import { effect, host, Keyboard, mount, openUrl, safeAreaInsets, signal, Text, View } from 'nsh'
+import { effect, host, Keyboard, mount, openUrl, safeAreaInsets, signal, Text, untracked, View } from 'nsh'
 import { createNavStack, Input, NavPage, NavStack } from 'nsh/base'
-import { asks, boot, dsh, linkError, linking, loaded, news, pairWith, pending, PRIVACY_URL, scan, settings, started, trying, tryIt, turnErrors, unlink } from './src/state.ts'
+import { asks, backgroundWatch, boot, dsh, linkError, linking, loaded, network, news, pairWith, pending, PRIVACY_URL, refreshLists, scan, settings, started, trying, tryIt, turnErrors, unlink } from './src/state.ts'
 import { Attention } from './src/notify.tsx'
 import { summaries } from './src/workspaces.ts'
 import { SessionsScreen, type Summary } from './src/sessions.tsx'
@@ -109,6 +109,8 @@ function App() {
   effect(() => { nav.routes(); setTimeout(() => Keyboard.dismiss(), 0) }) // the keyboard belongs to the page that asked for it
   const terminalMenu = signal(false)
   const tab = signal<'chats' | 'progress'>('chats')
+  // NavStack keeps covered pages mounted: returning to one must not wait for its fallback timer.
+  effect(() => { nav.routes(); tab(); untracked(() => refreshLists.update((n) => n + 1)) })
   effect(() => { if (progressAvailable() === false) tab.set('chats') })
   const openJob = (j: { sessionId: string; chatTitle: string; messageId?: string; index: number }) =>
     nav.push({ name: 'chat', session: { sessionId: j.sessionId, title: titles()[j.sessionId] ?? j.chatTitle, updatedAt: 0, running: false }, ...(j.index > 1 && j.messageId ? { at: j.messageId } : {}) })
@@ -191,7 +193,7 @@ function App() {
   effect(() => { const v = visible(); if (shown && shown !== v) markSeen(shown); if (v) markSeen(v); shown = v })
   // A new link may be another computer: back to its chats.
   let lastLink: string | undefined
-  effect(() => { const key = settings()?.key; if (lastLink && key && key !== lastLink) nav.popToRoot(); lastLink = key })
+  effect(() => { const key = settings()?.key; if (lastLink && key !== lastLink) { nav.popToRoot(); titles.set({}) }; lastLink = key })
   return (
     <If when={loaded()}>
       <If when={settings()} else={<Connect />}>
@@ -203,7 +205,7 @@ function App() {
             {/* On the sample nothing is news: the notice stays in sight, and no notification is asked for. */}
             <If when={!trying()}>
             <Attention visible={visible} open={openChat} asks={asks} news={news}
-              io={{ list: () => dsh().rpc('session/list', { _request: {} }).then(summaries), requests: (id) => pending.forSession(id), waiting: () => pending.sessionsWaiting(), errors: turnErrors, ran: started, call: (name, args) => host.call(name, args) }} />
+              io={{ list: () => dsh().rpc('session/list', { _request: {} }).then(summaries), online: network, watching: (running) => backgroundWatch.set(running), requests: (id) => pending.forSession(id), waiting: () => pending.sessionsWaiting(), errors: turnErrors, ran: started, call: (name, args) => host.call(name, args) }} />
             </If>
             <LinkNotice />
             <ReachSheet />

@@ -49,6 +49,7 @@ export class Workspaces {
   }
 
   list(): Workspace[] { return this.order.flatMap((id) => (this.byId.has(id) ? [this.byId.get(id)!] : [])) }
+  snapshot() { return { items: this.list(), archivedSessionIds: [...this.archived], pinnedSessionIds: [...this.pinned] } }
 }
 
 export function groupChats(workspaces: Workspaces, chats: ChatSummary[]): Group[] {

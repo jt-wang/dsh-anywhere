@@ -3,7 +3,7 @@
 // the running count docked above the composer in a subagent's chat (one with no activity panel); a press opens the list in a sheet.
 import { cleanup, Keyboard, effect, signal, Scroll, Text, untracked, View } from 'nsh'
 import { Sheet } from 'nsh/base'
-import { dsh } from './state.ts'
+import { appActive, dsh } from './state.ts'
 import { duration, followJob, isLive, jobsOf, sections, type Job, type JobOutput } from './jobs.ts'
 import { readable, S } from './strings.ts'
 import { Grabber, haptic, Chevron, Icon, SCRIM, SHEET, sheetBottom, LiveDot } from './ui.tsx'
@@ -63,8 +63,12 @@ function JobRow(props: { sessionId: string; job: () => Job; divider: () => boole
   const problem = signal('')
   const output = signal<JobOutput>({ text: '', next: 0 })
   const now = signal(Date.now())
-  const tick = setInterval(() => { if (isLive(props.job())) now.set(Date.now()) }, 1000)
-  cleanup(() => clearInterval(tick))
+  effect(() => {
+    if (!appActive() || !isLive(props.job())) return
+    now.set(Date.now())
+    const tick = setInterval(() => now.set(Date.now()), 1000)
+    cleanup(() => clearInterval(tick))
+  })
   // The output streams only while the row is open.
   effect(() => {
     if (!open()) return

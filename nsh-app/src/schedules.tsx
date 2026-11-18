@@ -4,7 +4,7 @@
 // and DSH Desktop.
 import { cleanup, effect, List, signal, Scroll, Text, untracked, View } from 'nsh'
 import { Sheet } from 'nsh/base'
-import { dsh } from './state.ts'
+import { dsh, pollForeground } from './state.ts'
 import { ConnectionBar } from './status.tsx'
 import { deleteCall, deleted, formatAt, frequency, historyCall, historyOf, lastSent, nextRun, tasksOf, type Delivery, type HistoryPage, type Task, type TaskStatus } from './schedules.ts'
 import { readable, S } from './strings.ts'
@@ -24,10 +24,8 @@ export function SchedulesScreen() {
     try { tasks.set(tasksOf(await dsh().rpc('schedule/catalog', {}))); error.set(''); now.set(Date.now()) } catch (e) { error.set(readable(e)) } finally { loading.set(false) }
   }
   const pull = async () => { refreshing.set(true); await load(); refreshing.set(false) }
-  load()
   // A delivery moves a task's next run and last result on the computer; a light poll keeps the list current.
-  const timer = setInterval(load, 10_000)
-  cleanup(() => clearInterval(timer))
+  pollForeground(load)
   return (
     <View class="flex-1 bg-background">
       <ConnectionBar />
