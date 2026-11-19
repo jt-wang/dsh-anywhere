@@ -26,7 +26,7 @@ android {
 }
 dependencies {
     implementation files('libs/nsh.aar')
-    implementation files('libs/dshtailcat.aar') // Tailcat client, built by tools/build-tailcat.sh
+    implementation files('libs/dshtailcat.aar') // TailPocket connectmobile + DSH's dshtailcat, built by tools/build-tailcat.sh
     implementation 'com.google.android.gms:play-services-code-scanner:16.1.0' // QR scanning without a camera permission
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303' // the real org.json for JVM tests (android.jar has stubs)

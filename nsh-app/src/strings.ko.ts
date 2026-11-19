@@ -177,6 +177,7 @@ export const KO: Strings = {
     why: { connected: '', slow: '연결은 되어 있지만 응답이 느립니다. 메시지가 몇 초 늦게 도착할 수 있습니다.', trying: '어느 부분이 응답하지 않는지 확인하는 중입니다.', 'no-network': '휴대폰이 Wi-Fi나 모바일 데이터에 연결되면 자동으로 다시 연결됩니다.', blocked: '휴대폰에 네트워크는 있지만 컴퓨터와 이어 주는 릴레이에 연결할 수 없습니다. 네트워크가 차단했거나 인터넷이 안 될 수 있습니다. 다른 Wi-Fi나 모바일 데이터를 사용해 보세요.', computer: '릴레이는 정상이지만 컴퓨터가 응답하지 않습니다. 컴퓨터가 켜져 있고 절전 모드가 아니며 DSH가 실행 중인지 확인하세요. 컴퓨터에서 이 휴대폰을 제거했다면 다시 연결해야 합니다.', companion: '컴퓨터는 응답하지만 DSH 컴패니언은 응답하지 않습니다. 컴퓨터에서 DSH를 다시 여세요.', refused: '컴퓨터가 더 이상 이 휴대폰을 받지 않습니다. 컴퓨터에서 새 페어링 코드를 만들어 다시 연결하세요.' } },
   connectionState: { online: '연결됨', connecting: '다시 연결 중', offline: '연결 끊김' },
   viaTailcat: '종단 간 암호화 터널', pathDirect: '컴퓨터에 직접 연결', pathRelay: (region: string) => `릴레이 경유 (${region})`, pathUnknown: '경로 찾는 중…',
+  pathLan: '같은 Wi-Fi로 컴퓨터에 연결', pairEmoji: '컴퓨터에 같은 이모지가 표시되는지 확인한 뒤 컴퓨터에서 승인하세요.', tailcatOnly: 'Tailcat만 사용', tailcatOnlyHint: '릴레이와 컴퓨터가 제공하는 로컬 네트워크를 사용하지 않습니다.',
   appVersion: '버전(빌드)', versionUnavailable: '확인할 수 없음',
   dshVersion: 'DSH 버전', companionVersion: '컴패니언 버전', unlinkHint: '새 페어링 코드를 스캔하기 전까지 이 휴대폰은 컴퓨터에 연결할 수 없습니다.',
   appearance: '화면 모드', themeSystem: '시스템 설정', themeLight: '라이트', themeDark: '다크', language: '언어', languageSystem: '시스템 설정',

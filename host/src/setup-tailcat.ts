@@ -18,7 +18,7 @@ export async function setupTailcat(options: TailcatSetupOptions): Promise<{ base
   try { await lstat(configPath); exists = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   if (exists) {
     const raw = JSON.parse(await privateRead(configPath)) as LocalHostConfiguration;
-    if (raw.dshVersion !== version || raw.workspaceSource !== 'dsh-registry' || !raw.tailcat || raw.relay || raw.port !== port || !raw.tls ||
+    if (raw.dshVersion !== version || raw.workspaceSource !== 'dsh-registry' || !raw.tailcat || raw.port !== port || !raw.tls ||
         raw.statePath !== join(dir, 'state', 'host.sqlite') || (options.hostName !== undefined && raw.hostName !== options.hostName.trim())) throw new HostError('invalid_config');
     await assertPrivate(raw.tls.keyPath); await assertPrivate(raw.tls.certPath);
     const prepared = await prepareConfiguration(raw);

@@ -1,10 +1,43 @@
 // The bridge carries plain app traffic as TLS that trusts only the invited certificate: a stand-in companion with
 // that certificate echoes through it; one with any other certificate gets nothing and the app's connection closes
-// (as android BridgeTest).
+// (as android BridgeTest). The stand-in is connectmobile's forward too: it reads the line "TP-FWD <token>\n" first and
+// drops a connection without the right one, as connectphone.Forward does.
 import DSHKit
 import Foundation
 import Network
 import XCTest
+
+private let token = "synthetic-forward-token"
+
+/// The forward's side of the line, below the stand-in's TLS: reads "TP-FWD <token>\n", then lets TLS through.
+private final class ForwardReader: NWProtocolFramerImplementation {
+    static let label = "TP-FWD reader"
+    static let definition = NWProtocolFramer.Definition(implementation: ForwardReader.self)
+    private var line = Data()
+    required init(framer: NWProtocolFramer.Instance) {}
+    func start(framer: NWProtocolFramer.Instance) -> NWProtocolFramer.StartResult { .willMarkReady }
+    func handleInput(framer: NWProtocolFramer.Instance) -> Int {
+        while true {
+            var byte: UInt8?
+            let got = framer.parseInput(minimumIncompleteLength: 1, maximumLength: 1) { buffer, _ in
+                byte = buffer?.first; return byte == nil ? 0 : 1
+            }
+            guard got, let b = byte else { return 1 }
+            if b != 10 { line.append(b); if line.count > 200 { framer.markFailed(error: .posix(.EPROTO)); return 0 }; continue }
+            guard String(decoding: line, as: UTF8.self) == "TP-FWD \(token)" else { framer.markFailed(error: .posix(.EACCES)); return 0 }
+            framer.passThroughInput()
+            framer.passThroughOutput()
+            framer.markReady()
+            return 0
+        }
+    }
+    func handleOutput(framer: NWProtocolFramer.Instance, message: NWProtocolFramer.Message, messageLength: Int, isComplete: Bool) {
+        try? framer.writeOutputNoCopy(length: messageLength)
+    }
+    func wakeup(framer: NWProtocolFramer.Instance) {}
+    func stop(framer: NWProtocolFramer.Instance) -> Bool { true }
+    func cleanup(framer: NWProtocolFramer.Instance) {}
+}
 
 final class BridgeTests: XCTestCase {
     private func json(_ url: URL) throws -> [String: Any] { try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any] }
@@ -32,6 +65,7 @@ final class BridgeTests: XCTestCase {
             let tls = NWProtocolTLS.Options()
             sec_protocol_options_set_local_identity(tls.securityProtocolOptions, sec_identity_create(identity)!)
             let p = NWParameters(tls: tls)
+            p.defaultProtocolStack.applicationProtocols.append(NWProtocolFramer.Options(definition: ForwardReader.definition))
             p.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
             listener = try NWListener(using: p)
             let ready = DispatchSemaphore(value: 0)
@@ -74,7 +108,7 @@ final class BridgeTests: XCTestCase {
     func testTheInvitedCompanionEchoesThroughTheBridge() throws {
         let inv = try Invite.invitation(String(decoding: try JSONSerialization.data(withJSONObject: try json(pairingURL)["invitation"]!), as: UTF8.self))
         let companion = try Companion(try identity("companionP12"))
-        let bridge = try Bridge(invitation: inv, tailcatPort: companion.port)
+        let bridge = try Bridge(invitation: inv, tailcatPort: companion.port, forwardToken: token)
         defer { bridge.close() }
         XCTAssertEqual(roundTrip(bridge.port, "GET / HTTP/1.1\r\n\r\n"), "GET / HTTP/1.1\r\n\r\n")
         XCTAssertEqual(roundTrip(bridge.port, "again"), "again")
@@ -83,7 +117,15 @@ final class BridgeTests: XCTestCase {
     func testAnyOtherCertificateGetsNothing() throws {
         let inv = try Invite.invitation(String(decoding: try JSONSerialization.data(withJSONObject: try json(pairingURL)["invitation"]!), as: UTF8.self))
         let impostor = try Companion(try identity("otherP12"))
-        let bridge = try Bridge(invitation: inv, tailcatPort: impostor.port)
+        let bridge = try Bridge(invitation: inv, tailcatPort: impostor.port, forwardToken: token)
+        defer { bridge.close() }
+        XCTAssertNil(roundTrip(bridge.port, "secret"))
+    }
+
+    func testWithoutTheForwardsTokenNothingGetsThrough() throws {
+        let inv = try Invite.invitation(String(decoding: try JSONSerialization.data(withJSONObject: try json(pairingURL)["invitation"]!), as: UTF8.self))
+        let companion = try Companion(try identity("companionP12"))
+        let bridge = try Bridge(invitation: inv, tailcatPort: companion.port, forwardToken: "another-token")
         defer { bridge.close() }
         XCTAssertNil(roundTrip(bridge.port, "secret"))
     }
@@ -91,7 +133,7 @@ final class BridgeTests: XCTestCase {
     func testTheBridgeServesOnlyTheSameComputer() throws {
         let f = try json(pairingURL)
         let inv = try Invite.invitation(String(decoding: try JSONSerialization.data(withJSONObject: f["invitation"]!), as: UTF8.self))
-        let bridge = try Bridge(invitation: inv, tailcatPort: 9)
+        let bridge = try Bridge(invitation: inv, tailcatPort: 9, forwardToken: token)
         defer { bridge.close() }
         XCTAssertTrue(bridge.serves(inv))
         var other = f["invitation"] as! [String: Any]

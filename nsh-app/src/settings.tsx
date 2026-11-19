@@ -4,7 +4,7 @@
 // the computer.
 import { cleanup, effect, host, openUrl, platform, Scroll, signal, Text, View, type JSX } from 'nsh'
 import { Switch } from 'nsh/base'
-import { appActive, connection, dsh, pollForeground, PRIVACY_URL, trying, unlink } from './state.ts'
+import { appActive, connection, dsh, pollForeground, PRIVACY_URL, routeWords, setTailcatOnly, tailcatOnly, trying, unlink } from './state.ts'
 import { language, S, type Language } from './strings.ts'
 import { notifyPrefs, setLanguage, setNotify, setTheme, theme, type NotifyPrefs, type Theme } from './prefs.ts'
 import { Icon } from './ui.tsx'
@@ -38,7 +38,7 @@ export function SettingsPage() {
   // Direct or through a relay: the tunnel asks the computer (link.path; a direct path can come a little later).
   const route = signal<{ route: string; relay?: string } | undefined>(undefined)
   const findRoute = () => trying() ? undefined : host.call<{ route?: string; relay?: string }>('link.path').then((v) => route.set(v?.route ? { route: v.route, ...(v.relay ? { relay: v.relay } : {}) } : undefined), () => {})
-  const routeText = () => { const r = route(); return r?.route === 'direct' ? S.pathDirect : r?.route === 'relay' ? S.pathRelay((r.relay ?? '').toUpperCase() || '—') : '' }
+  const routeText = () => routeWords(route())
   const permission = () => host.call<{ granted?: boolean }>('notify.permission').then((v) => granted.set(v?.granted === true), () => {})
   load(); permission()
   pollForeground(async () => { await findRoute() })
@@ -77,6 +77,17 @@ export function SettingsPage() {
             <If when={routeText()}><Text testID="route" class="text-muted-foreground text-[13px] text-right">{routeText()}</Text></If>
           </View>
         </View>
+        <If when={!trying()}>
+          <View class="flex-row items-center gap-3 px-[14px] py-3 border-t border-border">
+            <View class="flex-1 gap-[2px]">
+              <Text class="text-foreground text-[15px]">{S.tailcatOnly}</Text>
+              <Text class="text-muted-foreground text-[13px] leading-[18px]">{S.tailcatOnlyHint}</Text>
+            </View>
+            <Switch testID="tailcat-only" accessibilityLabel={S.tailcatOnly} checked={tailcatOnly()} onChange={(e) => { setTailcatOnly(e.checked) }}
+              class="w-[46px] h-[28px]" trackClass="w-full h-full rounded-full bg-input checked:bg-primary justify-center px-[3px] transition-colors duration-150"
+              thumbClass="w-[22px] h-[22px] rounded-full bg-background shadow-sm checked:translate-x-[18px] transition-transform duration-150" />
+          </View>
+        </If>
         <If when={computer()?.dshVersion}><Info label={S.dshVersion} value={computer()?.dshVersion ?? ''} /></If>
         <If when={computer()?.companionVersion}><Info label={S.companionVersion} value={computer()?.companionVersion ?? ''} /></If>
       </Group>

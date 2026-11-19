@@ -9,7 +9,8 @@
 #                DSH_PROFILE (the name of an App Store profile for this app, installed on this Mac)
 #   DSH_DERIVED  Xcode's build folder (default ios/build/derived)
 #   DSH_OUT      where DSH.app goes (default ios/build)
-# The Tailcat framework comes from tools/build-tailcat.sh (IOS_ONLY=1) when ios/Frameworks lacks it.
+# The Tailcat framework (TailPocket connectmobile + DSH's dshtailcat) comes from tools/build-tailcat.sh (IOS_ONLY=1) when
+# ios/Frameworks lacks it. A framework built before TailPocket lacks Connectmobile*: delete it to rebuild.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IOS="$ROOT/ios"

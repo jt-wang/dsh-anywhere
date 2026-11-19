@@ -33,6 +33,21 @@ test('an unlinked phone scans the computer\'s QR and lands on its chats', async 
   expect(pairedWith).toBe('dshm1:synthetic')
 })
 
+test('an emoji pairing shows the four emoji while the computer\'s user compares them, and they go when it is done', async () => {
+  const app = await open('./App.tsx', {
+    host: { handlers: { 'link.state': { paired: false }, 'link.scan': 'dshm1:synthetic-v2', 'link.pair': paired } },
+    network: { [`POST ${ORIGIN}/api/session/list`]: { body: list } },
+  })
+  await app.waitFor('text:Link your computer')
+  // The shell sends link.emoji while its link.pair waits on the computer's user.
+  await app.host.send('link.emoji', { emoji: ['🐶', '🌙', '🍕', '🔑'] })
+  await app.waitFor('text:🐶 🌙 🍕 🔑')
+  expect(app.texts().includes('Check that your computer shows these same emoji, then confirm there.')).toBe(true)
+  await app.press('id:scan')
+  await app.waitFor('text:Newest chat')
+  expect(app.shows('id:pair-emoji')).toBe(false)
+})
+
 test('a pairing link that opened the app pairs without a scan; a refused code says why', async () => {
   const app = await open('./App.tsx', {
     host: { params: { pair: 'dshm1:expired' }, handlers: { 'link.state': { paired: false }, 'link.pair': () => { throw new Error('link/expired') } } },

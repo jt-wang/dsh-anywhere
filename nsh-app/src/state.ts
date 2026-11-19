@@ -17,6 +17,10 @@ export const refreshLists = signal(0)
 export const loaded = signal(false)
 export const linking = signal(false)
 export const linkError = signal('')
+/** The four emoji of an emoji pairing (the shell's link.emoji), while the computer's user compares and confirms them. */
+export const pairEmoji = signal<string[]>([])
+/** This phone reaches computers over Tailcat only: never a relay or local network route a computer offers (link.tailcatOnly). */
+export const tailcatOnly = signal(false)
 /** On the sample of tryit.ts: no link, nothing leaves the phone, and nothing is kept for the next launch. */
 export const trying = signal(false)
 const socketState = signal<ConnectionState>('connecting')
@@ -116,7 +120,7 @@ async function look() {
       const access = await askComputer()
       check.set({ access, ...(access === 'ok' ? { latencyMs: Date.now() - asked } : {}) })
       const r = await host.call<{ route?: string; relay?: string }>('link.path').catch(() => undefined)
-      routeText.set(r?.route === 'direct' ? S.pathDirect : r?.route === 'relay' ? S.pathRelay((r.relay ?? '').toUpperCase() || '—') : '')
+      routeText.set(routeWords(r))
     } else {
       const d = await host.call<Check & { error?: string }>('link.diagnose')
       if (d.error) return
@@ -125,6 +129,9 @@ async function look() {
     if (check()?.access === 'refused') { client?.hold(); offlineCache()?.clear(); offlineCache.set(undefined) }
   } catch { /* a shell without link.diagnose: the state stays as it is */ } finally { looking = false }
 }
+/** How the tunnel reaches the computer (link.path), in words; nothing while unknown. */
+export const routeWords = (r: { route?: string; relay?: string } | undefined) =>
+  r?.route === 'direct' ? S.pathDirect : r?.route === 'relay' ? S.pathRelay((r.relay ?? '').toUpperCase() || '—') : r?.route === 'lan' ? S.pathLan : ''
 async function askComputer(): Promise<NonNullable<Check['access']>> {
   try { await dsh().computer(); return 'ok' } catch (e) { return (e as DshError).code === 'unauthorized' ? 'refused' : 'failed' }
 }
@@ -162,10 +169,21 @@ export async function boot() {
   try { host.on('app.state', (data) => { appActive.set(onScreen(data)); if (appActive()) reconnect(); else offlineCache()?.flush() }) } catch {}
   host.call('app.state').then((v) => appActive.set(onScreen(v)), () => {})
   try { host.on('pair', (data) => { const text = (data as { text?: string } | undefined)?.text; if (text) pairWith(text) }) } catch {}
+  try { host.on('link.emoji', (data) => { const e = (data as { emoji?: unknown } | undefined)?.emoji; pairEmoji.set(Array.isArray(e) ? e.filter((x): x is string => typeof x === 'string') : []) }) } catch {}
+  host.call<{ on?: boolean }>('link.tailcatOnly').then((v) => tailcatOnly.set(v?.on === true), () => {})
+}
+/** Tailcat only on or off: the shell keeps it and opens a new tunnel with it, so the app follows the new bridge. */
+export async function setTailcatOnly(on: boolean) {
+  tailcatOnly.set(on)
+  try {
+    const v = await host.call<{ on?: boolean }>('link.tailcatOnly', { on })
+    tailcatOnly.set(v?.on === true)
+    if (!trying()) await adopt(await host.call<LinkState>('link.state'))
+  } catch (e) { tailcatOnly.set(!on); linkError.set(readable(e)) }
 }
 export async function pairWith(text: string) {
   linking.set(true); linkError.set('')
-  try { await adopt(await host.call<LinkState>('link.pair', { text })) } catch (e) { linkError.set(readable(e)) } finally { linking.set(false) }
+  try { await adopt(await host.call<LinkState>('link.pair', { text })) } catch (e) { linkError.set(readable(e)) } finally { linking.set(false); pairEmoji.set([]) }
 }
 export async function scan() {
   let text: string

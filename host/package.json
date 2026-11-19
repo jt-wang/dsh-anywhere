@@ -32,10 +32,6 @@
       "types": "./dist/state.d.ts",
       "default": "./dist/state.js"
     },
-    "./relay-connector": {
-      "types": "./dist/relay-connector.d.ts",
-      "default": "./dist/relay-connector.js"
-    },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "default": "./dist/cli.js"

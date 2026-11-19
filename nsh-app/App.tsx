@@ -1,7 +1,7 @@
 // DSH on the phone: the same chats as DSH Desktop, read and driven through DSH's own protocol.
 import { effect, host, Keyboard, mount, openUrl, safeAreaInsets, signal, Text, untracked, View } from 'nsh'
 import { createNavStack, Input, NavPage, NavStack } from 'nsh/base'
-import { asks, backgroundWatch, boot, dsh, linkError, linking, loaded, network, news, pairWith, pending, PRIVACY_URL, refreshLists, scan, settings, started, trying, tryIt, turnErrors, unlink } from './src/state.ts'
+import { asks, backgroundWatch, boot, dsh, linkError, linking, loaded, network, news, pairEmoji, pairWith, pending, PRIVACY_URL, refreshLists, scan, settings, started, trying, tryIt, turnErrors, unlink } from './src/state.ts'
 import { Attention } from './src/notify.tsx'
 import { summaries } from './src/workspaces.ts'
 import { SessionsScreen, type Summary } from './src/sessions.tsx'
@@ -33,6 +33,18 @@ type Route = { name: 'sessions' } | { name: 'project'; id: string; title: string
   | { name: 'terminals'; session: Summary } | { name: 'terminal'; session: Summary; target: TerminalTarget; title?: string }
 const HEADER = 'bg-background text-foreground tint-foreground'
 
+/** An emoji pairing waits on the computer: the four emoji the phone shows, to compare with the computer's, confirmed there. */
+function PairEmoji() {
+  return (
+    <If when={pairEmoji().length > 0}>
+      <View testID="pair-emoji" class="items-center gap-2 py-2">
+        <Text class="text-[34px] leading-[44px] tracking-[6px]">{pairEmoji().join(' ')}</Text>
+        <Text class="text-muted-foreground text-[13px] leading-[18px] text-center">{S.pairEmoji}</Text>
+      </View>
+    </If>
+  )
+}
+
 /** A pairing link opened while the phone is linked: linking, then why the computer refused it, over every page.
  * The phone stays linked as it was; a tap or six seconds take the notice away. */
 function LinkNotice() {
@@ -44,6 +56,7 @@ function LinkNotice() {
       <View role="button" testID="link-notice" onPress={() => linkError.set('')} class="absolute left-4 right-4 rounded-[12px] bg-popover border border-border px-3 py-[10px] shadow-md"
         style={{ top: insets().top + 64 }}>
         <Text class={`text-[13px] leading-[18px] ${linkError() ? 'text-destructive' : 'text-foreground'}`}>{linkError() || S.linking}</Text>
+        <If when={!linkError()}><PairEmoji /></If>
       </View>
     </If>
   )
@@ -63,6 +76,7 @@ function Connect() {
       <View role="button" testID="scan" onPress={() => { if (!linking()) scan() }} class="rounded-[10px] bg-primary py-3 items-center active:opacity-80">
         <Text class="text-primary-foreground text-[15px] font-medium">{linking() ? S.linking : S.scan}</Text>
       </View>
+      <PairEmoji />
       <If when={pasting()} else={
         <View role="button" testID="paste" onPress={() => pasting.set(true)} class="py-3 items-center active:opacity-60"><Text class="text-muted-foreground text-[15px]">{S.paste}</Text></View>
       }>

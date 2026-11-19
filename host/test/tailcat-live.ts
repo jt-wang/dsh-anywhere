@@ -2,7 +2,7 @@
 // reference phone (tailcat/e2e/phone) pair and read over real Tailcat/DERP. Needs network access.
 // Not a *.test.ts file: npm test never runs it. Prints statuses only, never keys or tokens.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runAdminCli } from '../src/cli.ts';
@@ -23,9 +23,24 @@ const started = Date.now();
 while (!host.tailcat?.status().ready) { if (Date.now() - started > 60_000) throw new Error('helper never ready: ' + JSON.stringify(host.tailcat?.status())); await new Promise(r => setTimeout(r, 250)); }
 console.log('[host] helper ready', JSON.stringify({ ...host.tailcat.status(), address: host.tailcat.status().address ? 'tc…' : '' }));
 const output = join(dir, 'companion', 'invitations', 'phone.json');
-const paired = await runAdminCli(['pair', '--config', configPath, '--tailcat', '--read', 'all', '--execute', 'all', '--output', output], io);
-console.log('[host] pair exit', paired);
-if (paired !== 0) { await host.close(); process.exit(1); }
-const code = await new Promise<number>(resolve => { const child = spawn(phonePath!, ['--invitation', output], { stdio: 'inherit' }); child.on('exit', c => resolve(c ?? 1)); });
+// The phone prints the four emoji it shows; the computer's answer is yes only when its own four are the same.
+let phoneEmoji = '', phoneOut = '';
+const confirmed: boolean[] = [];
+const paired = runAdminCli(['pair', '--config', configPath, '--tailcat', '--read', 'all', '--execute', 'all', '--output', output], io, {
+  emojiConfirm: async (emoji, device, route) => {
+    const end = Date.now() + 60_000;
+    while (!phoneEmoji && Date.now() < end) await new Promise(r => setTimeout(r, 100));
+    const same = phoneEmoji === emoji.join(' ');
+    console.log('[host] emoji request from', device, 'over', route, same ? '(same as the phone)' : '(DIFFERENT)');
+    confirmed.push(same); return same;
+  } });
+while (!existsSync(output)) { if (Date.now() - started > 120_000) throw new Error('no invitation'); await new Promise(r => setTimeout(r, 100)); }
+const code = await new Promise<number>(resolve => {
+  const child = spawn(phonePath!, ['--invitation', output], { stdio: ['ignore', 'pipe', 'inherit'] });
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => { process.stdout.write(chunk); phoneOut += chunk; phoneEmoji ||= /^emoji: (.+)$/m.exec(phoneOut)?.[1] ?? ''; });
+  child.on('exit', c => resolve(c ?? 1));
+});
+console.log('[host] pair exit', await paired, 'confirmed', JSON.stringify(confirmed));
 console.log('[host] phone exit', code, 'clients', JSON.stringify(host.state.tailcatClientCounts()), 'status', JSON.stringify({ ...host.tailcat.status(), address: 'tc…' }));
-await host.close(); process.exit(code);
+await host.close(); process.exit(code || (confirmed.join() === 'true' ? 0 : 1));

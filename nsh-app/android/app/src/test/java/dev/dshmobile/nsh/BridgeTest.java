@@ -1,5 +1,7 @@
 // The bridge carries plain app traffic as TLS that trusts only the invited certificate: a stand-in companion with
 // that certificate echoes through it; one with any other certificate gets nothing and the app's connection closes.
+// The stand-in is connectmobile's forward too: it reads the line "TP-FWD <token>\n" first and drops a connection
+// without the right one, as connectphone.Forward does.
 package dev.dshmobile.nsh;
 
 import static org.junit.Assert.assertEquals;
@@ -9,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -19,7 +22,6 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
 import org.json.JSONObject;
 import org.junit.Test;
@@ -29,20 +31,28 @@ public class BridgeTest {
         try (InputStream in = BridgeTest.class.getResourceAsStream("/pairing.json")) { return new JSONObject(new String(in.readAllBytes(), StandardCharsets.UTF_8)); }
     }
 
-    /** A TLS echo server on loopback with the given identity: the companion's end of the tunnel. */
-    private static SSLServerSocket companion(String certPem, String keyPem) throws Exception {
+    private static final String TOKEN = "synthetic-forward-token";
+
+    /** A TLS echo server on loopback with the given identity behind the forward's line: the companion's end of the tunnel. */
+    private static ServerSocket companion(String certPem, String keyPem) throws Exception {
         byte[] der = Base64.getMimeDecoder().decode(keyPem.replaceAll("-----[A-Z ]+-----", ""));
         PrivateKey key = KeyFactory.getInstance("EC").generatePrivate(new PKCS8EncodedKeySpec(der));
         KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType()); ks.load(null);
         ks.setKeyEntry("c", key, new char[0], new Certificate[] { Invite.certificate(certPem) });
         KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()); kmf.init(ks, new char[0]);
         SSLContext tls = SSLContext.getInstance("TLS"); tls.init(kmf.getKeyManagers(), null, null);
-        SSLServerSocket server = (SSLServerSocket) tls.getServerSocketFactory().createServerSocket(0, 4, InetAddress.getByName("127.0.0.1"));
+        ServerSocket server = new ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"));
         Thread t = new Thread(() -> {
-            try (SSLSocket s = (SSLSocket) server.accept()) {
+            try (Socket raw = server.accept()) {
+                StringBuilder line = new StringBuilder();
+                for (int c; (c = raw.getInputStream().read()) != '\n'; ) { if (c < 0 || line.length() > 200) return; line.append((char) c); }
+                if (!line.toString().equals("TP-FWD " + TOKEN)) return; // the forward closes it
+                SSLSocket s = (SSLSocket) tls.getSocketFactory().createSocket(raw, null, raw.getPort(), true);
+                s.setUseClientMode(false);
                 byte[] buf = new byte[64]; int n = s.getInputStream().read(buf);
                 s.getOutputStream().write(("echo:" + new String(buf, 0, n, StandardCharsets.UTF_8)).getBytes(StandardCharsets.UTF_8));
                 s.getOutputStream().flush();
+                s.close();
             } catch (Exception ignored) {}
         });
         t.setDaemon(true); t.start();
@@ -63,7 +73,7 @@ public class BridgeTest {
     @Test public void theInvitedComputerAnswersThroughTheBridge() throws Exception {
         JSONObject f = fixture();
         Invite.Invitation inv = Invite.invitation(f.getJSONObject("invitation").toString());
-        try (SSLServerSocket server = companion(f.getJSONObject("invitation").getString("certificatePem"), f.getString("keyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort())) {
+        try (ServerSocket server = companion(f.getJSONObject("invitation").getString("certificatePem"), f.getString("keyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort(), TOKEN)) {
             assertEquals("echo:ping", roundTrip(bridge.port()));
         }
     }
@@ -71,7 +81,16 @@ public class BridgeTest {
     @Test public void anotherCertificateGetsNothing() throws Exception {
         JSONObject f = fixture();
         Invite.Invitation inv = Invite.invitation(f.getJSONObject("invitation").toString());
-        try (SSLServerSocket server = companion(f.getString("otherCertificatePem"), f.getString("otherKeyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort())) {
+        try (ServerSocket server = companion(f.getString("otherCertificatePem"), f.getString("otherKeyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort(), TOKEN)) {
+            assertEquals("", roundTrip(bridge.port()));
+        }
+    }
+
+    /** The forward takes a raw connection only after its token: a bridge with another token gets nothing through. */
+    @Test public void aBridgeWithoutTheForwardsTokenGetsNothing() throws Exception {
+        JSONObject f = fixture();
+        Invite.Invitation inv = Invite.invitation(f.getJSONObject("invitation").toString());
+        try (ServerSocket server = companion(f.getJSONObject("invitation").getString("certificatePem"), f.getString("keyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort(), "another-token")) {
             assertEquals("", roundTrip(bridge.port()));
         }
     }
@@ -83,7 +102,7 @@ public class BridgeTest {
         Invite.Invitation again = Invite.invitation(f.getJSONObject("invitation").toString());
         Invite.Invitation elsewhere = new Invite.Invitation(inv.json, inv.serverName, inv.address + "x", inv.port, inv.pairingToken, inv.certificate);
         Invite.Invitation otherPort = new Invite.Invitation(inv.json, inv.serverName, inv.address, inv.port + 1, inv.pairingToken, inv.certificate);
-        try (Bridge bridge = new Bridge(inv, 1)) {
+        try (Bridge bridge = new Bridge(inv, 1, TOKEN)) {
             assertTrue(bridge.serves(again));
             assertFalse(bridge.serves(elsewhere));
             assertFalse(bridge.serves(otherPort));

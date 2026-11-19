@@ -3,8 +3,7 @@ import { lstat, readFile, realpath, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { HostError } from './errors.ts';
-import type { HostConfiguration, PreparedHostConfiguration, WorkspaceConfig } from './types.ts';
-import { validateRelayUrl } from './relay-connector.ts';
+import type { HostConfiguration, PreparedHostConfiguration, TailcatRelayConfiguration, WorkspaceConfig } from './types.ts';
 import { privateDirectory } from './private-files.ts';
 
 export type LocalHostConfiguration = HostConfiguration & {
@@ -35,7 +34,7 @@ async function regularFile(path: string, maxBytes: number): Promise<string> {
 }
 
 /** Preparation performs no listeners, OS trust changes, or networking changes. */
-export async function prepareConfiguration(input: HostConfiguration, options: { administrationOnly?: boolean; allowInsecureRelayLoopback?: boolean } = {}): Promise<PreparedConfiguration> {
+export async function prepareConfiguration(input: HostConfiguration, options: { administrationOnly?: boolean } = {}): Promise<PreparedConfiguration> {
   try {
     const raw = input as LocalHostConfiguration;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HostError('invalid_config');
@@ -74,21 +73,20 @@ export async function prepareConfiguration(input: HostConfiguration, options: { 
       if (typeof raw.includeCertificatePem !== 'boolean') throw new HostError('invalid_config');
       config.includeCertificatePem = raw.includeCertificatePem;
     }
-    if (raw.relay !== undefined) {
-      if (!raw.relay || typeof raw.relay !== 'object' || !/^[a-f0-9]{32}$/.test(raw.relay.routeId) || !/^[A-Za-z0-9_-]{43}$/.test(raw.relay.connectorToken) || bind !== '127.0.0.1' || port < 1 || !raw.tls || raw.allowInsecureLoopback) throw new HostError('invalid_config');
-      config.relay = { url: validateRelayUrl(raw.relay.url, options.allowInsecureRelayLoopback === true), routeId: raw.relay.routeId, connectorToken: raw.relay.connectorToken };
-      const innerUrl = `https://h-${raw.relay.routeId}.dsh.invalid`;
-      if (config.publicUrl && config.publicUrl !== innerUrl) throw new HostError('invalid_config');
-      config.publicUrl = innerUrl; config.includeCertificatePem = true;
-    }
+    // Relay v2 (the Node relay) was retired in favour of TailPocket's opaque relay under tailcat.relay.
+    if ((raw as unknown as Record<string, unknown>).relay !== undefined) throw new HostError('invalid_config');
     if (raw.tailcat !== undefined) {
       const tailcat = raw.tailcat as unknown as Record<string, unknown>;
       // The helper forwards Tailcat streams only to this fixed loopback TLS listener.
-      if (!tailcat || typeof tailcat !== 'object' || Array.isArray(tailcat) || Object.keys(tailcat).some(key => !['enabled', 'hostId', 'helperPath'].includes(key)) ||
+      if (!tailcat || typeof tailcat !== 'object' || Array.isArray(tailcat) || Object.keys(tailcat).some(key => !['enabled', 'hostId', 'helperPath', 'relay', 'lan', 'tailcatOnly'].includes(key)) ||
+          (tailcat.lan !== undefined && typeof tailcat.lan !== 'boolean') || (tailcat.tailcatOnly !== undefined && typeof tailcat.tailcatOnly !== 'boolean') ||
+          (tailcat.tailcatOnly === true && tailcat.relay !== undefined) ||
           tailcat.enabled !== true || typeof tailcat.hostId !== 'string' || !/^[a-f0-9]{32}$/.test(tailcat.hostId) ||
           (tailcat.helperPath !== undefined && (typeof tailcat.helperPath !== 'string' || !isAbsolute(tailcat.helperPath))) ||
-          raw.relay || bind !== '127.0.0.1' || port < 1024 || port > 65534 || !raw.tls || raw.allowInsecureLoopback) throw new HostError('invalid_config');
-      config.tailcat = { enabled: true, hostId: tailcat.hostId, ...(typeof tailcat.helperPath === 'string' ? { helperPath: resolve(tailcat.helperPath) } : {}) };
+          bind !== '127.0.0.1' || port < 1024 || port > 65534 || !raw.tls || raw.allowInsecureLoopback) throw new HostError('invalid_config');
+      config.tailcat = { enabled: true, hostId: tailcat.hostId, ...(typeof tailcat.helperPath === 'string' ? { helperPath: resolve(tailcat.helperPath) } : {}),
+        ...(tailcat.relay !== undefined ? { relay: tailcatRelay(tailcat.relay) } : {}),
+        ...(tailcat.lan === false ? { lan: false } : {}), ...(tailcat.tailcatOnly === true ? { tailcatOnly: true } : {}) };
       const innerUrl = `https://h-${tailcat.hostId}.dsh.invalid`;
       if (config.publicUrl && config.publicUrl !== innerUrl) throw new HostError('invalid_config');
       config.publicUrl = innerUrl; config.includeCertificatePem = true;
@@ -112,7 +110,7 @@ export async function prepareConfiguration(input: HostConfiguration, options: { 
       if (url.protocol !== 'https:') throw new HostError('invalid_config');
       const host = url.hostname.replace(/^\[|\]$/g, '');
       if (!(isIP(host) ? x509.checkIP(host) : x509.checkHost(host))) throw new HostError('invalid_config');
-      if ((config.relay || config.tailcat) && x509.checkHost(host, { wildcards: false, partialWildcards: false, multiLabelWildcards: false, subject: 'never' }) !== host) throw new HostError('invalid_config');
+      if (config.tailcat && x509.checkHost(host, { wildcards: false, partialWildcards: false, multiLabelWildcards: false, subject: 'never' }) !== host) throw new HostError('invalid_config');
     }
     return { config, tls: { cert, key, minVersion: 'TLSv1.2' }, pinSha256, certificatePem: leafPem + '\n' };
   } catch { throw new HostError('invalid_config'); }
@@ -133,8 +131,18 @@ export function validateBaseUrl(value: string, allowInsecureLoopback: boolean): 
     throw new Error();
   } catch { throw new HostError('invalid_config'); }
 }
+/** tailcat.relay, the same rule as TailPocket's connectrelay.ValidURL: wss://, or ws:// to loopback (tests); no path, query or userinfo. */
+export function tailcatRelay(value: unknown): TailcatRelayConfiguration {
+  const relay = value as Record<string, unknown>;
+  if (!relay || typeof relay !== 'object' || Array.isArray(relay) || Object.keys(relay).some(key => !['url', 'tokenFile'].includes(key)) ||
+      typeof relay.url !== 'string' || relay.url.length > 2048 || typeof relay.tokenFile !== 'string' || !isAbsolute(relay.tokenFile)) throw new HostError('invalid_config');
+  const syntax = /^(wss|ws):\/\/(\[[0-9a-fA-F:]+\]|[A-Za-z0-9.-]+)(?::([0-9]{1,5}))?\/?$/.exec(relay.url);
+  if (!syntax || (syntax[3] !== undefined && (Number(syntax[3]) < 1 || Number(syntax[3]) > 65535)) ||
+      (syntax[1] === 'ws' && !['127.0.0.1', 'localhost', '[::1]'].includes(syntax[2]!))) throw new HostError('invalid_config');
+  return { url: relay.url.replace(/\/$/, ''), tokenFile: resolve(relay.tokenFile) };
+}
 
-export async function loadConfiguration(path: string, options: { administrationOnly?: boolean; allowInsecureRelayLoopback?: boolean } = {}): Promise<PreparedLocalHostConfiguration> {
+export async function loadConfiguration(path: string, options: { administrationOnly?: boolean } = {}): Promise<PreparedLocalHostConfiguration> {
   try {
     const file = await regularFile(resolve(path), 65_536);
     const raw = JSON.parse(await readFile(file, 'utf8')) as LocalHostConfiguration;

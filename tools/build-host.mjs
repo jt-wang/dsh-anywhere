@@ -28,4 +28,4 @@ if (existsSync(staged)) {
 }
 const present = existsSync(helpers) ? readdirSync(helpers).filter(name => helperName.test(name)) : [];
 for (const name of present) if (!name.endsWith('.exe')) chmodSync(path.join(helpers, name), 0o755);
-console.log(present.length ? `Tailcat helpers: ${present.join(', ')}` : 'Tailcat helpers not built (tools/build-tailcat.sh); direct/relay modes are unaffected.');
+console.log(present.length ? `Tailcat helpers: ${present.join(', ')}` : 'Tailcat helpers not built (tools/build-tailcat.sh); direct mode is unaffected.');

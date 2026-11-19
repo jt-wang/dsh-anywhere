@@ -1,4 +1,4 @@
-// What a pairing QR and the invitation it leads to may contain (docs/TAILCAT.md: bootstrap v1, invitation v4).
+// What a pairing QR and the invitation it leads to may contain (docs/TAILCAT.md: bootstrap v1 and v2, invitation v4).
 // The QR only reaches a short-lived pairing node; the invitation names the computer's one certificate, which
 // is the only one this phone will ever trust for it.
 package dev.dshmobile.nsh;
@@ -29,7 +29,13 @@ final class Invite {
 
     static final class Bootstrap {
         final String address, key, proof;
-        Bootstrap(String address, String key, String proof) { this.address = address; this.key = key; this.proof = proof; }
+        final long expiresAtMs;
+        /** Bootstrap v2 (an emoji pairing): TailPocket's v2 invite JSON for Connectmobile.pair2, which checks it; null for v1. */
+        final String invite2;
+        Bootstrap(String address, String key, String proof, long expiresAtMs) { this(address, key, proof, expiresAtMs, null); }
+        private Bootstrap(String address, String key, String proof, long expiresAtMs, String invite2) {
+            this.address = address; this.key = key; this.proof = proof; this.expiresAtMs = expiresAtMs; this.invite2 = invite2;
+        }
     }
 
     static final class Invitation {
@@ -56,11 +62,18 @@ final class Invite {
     static Bootstrap bootstrap(String text, long nowMs) {
         try {
             String json = text.startsWith("dshm1:") ? inflate(Base64.getUrlDecoder().decode(text.substring(6))) : text;
-            JSONObject o = new JSONObject(json), t = o.getJSONObject("tailcat");
-            if (o.getInt("version") != 1 || o.getLong("expiresAt") <= nowMs) throw new IllegalArgumentException("link/expired");
+            JSONObject o = new JSONObject(json);
+            int version = o.getInt("version");
+            if (version == 2) {
+                // The QR of `pair --tailcat --qr`: both screens show four emoji and the computer's user confirms there.
+                if (o.getLong("expiresAt") <= nowMs) throw new IllegalArgumentException("link/expired");
+                return new Bootstrap("", "", "", o.getLong("expiresAt"), o.getJSONObject("invite").toString());
+            }
+            JSONObject t = o.getJSONObject("tailcat");
+            if (version != 1 || o.getLong("expiresAt") <= nowMs) throw new IllegalArgumentException("link/expired");
             String address = t.getString("address"), key = t.getString("key"), proof = t.getString("proof");
             if (t.getInt("port") != PAIRING_PORT || !ADDRESS.matcher(address).matches() || !key.startsWith("privkey:") || !SECRET.matcher(proof).matches()) throw new IllegalArgumentException("link/invalid");
-            return new Bootstrap(address, key, proof);
+            return new Bootstrap(address, key, proof, o.getLong("expiresAt"));
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {

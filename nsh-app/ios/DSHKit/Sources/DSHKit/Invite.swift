@@ -1,4 +1,4 @@
-// What a pairing QR and the invitation it leads to may contain (docs/TAILCAT.md: bootstrap v1, invitation v4), as the
+// What a pairing QR and the invitation it leads to may contain (docs/TAILCAT.md: bootstrap v1 and v2, invitation v4), as the
 // Android shell's Invite.java. The QR only reaches a short-lived pairing node; the invitation names the computer's one
 // certificate, which is the only one this phone will ever trust for it.
 import CryptoKit
@@ -14,6 +14,10 @@ public struct LinkFailure: Error, Equatable, LocalizedError {
 /// The QR's capability: the pairing node and the proof it asks for.
 public struct Bootstrap: Equatable, Sendable {
     public let address: String, key: String, proof: String
+    /// When the pairing window closes, unix milliseconds.
+    public let expiresAtMs: Int64
+    /// Bootstrap v2 (an emoji pairing): TailPocket's v2 invite JSON for ConnectmobilePair2, which checks it; nil for v1.
+    public var invite2: String? = nil
 }
 
 /// The computer this phone pairs with: its node, the one name and certificate its TLS may show, the one-time token.
@@ -45,15 +49,22 @@ public enum Invite {
         } else {
             json = Data(text.utf8)
         }
-        guard let o = object(json), let t = o["tailcat"] as? [String: Any],
-            let version = integer(o["version"]), let expiresAt = integer(o["expiresAt"])
+        guard let o = object(json), let version = integer(o["version"]), let expiresAt = integer(o["expiresAt"])
         else { throw LinkFailure("link/invalid") }
+        if version == 2 {
+            // The QR of `pair --tailcat --qr`: both screens show four emoji and the computer's user confirms there.
+            guard let invite = o["invite"] as? [String: Any], let text = try? JSONSerialization.data(withJSONObject: invite)
+            else { throw LinkFailure("link/invalid") }
+            if expiresAt <= nowMs { throw LinkFailure("link/expired") }
+            return Bootstrap(address: "", key: "", proof: "", expiresAtMs: expiresAt, invite2: String(decoding: text, as: UTF8.self))
+        }
+        guard let t = o["tailcat"] as? [String: Any] else { throw LinkFailure("link/invalid") }
         if version != 1 || expiresAt <= nowMs { throw LinkFailure("link/expired") }
         guard let a = t["address"] as? String, let key = t["key"] as? String, let proof = t["proof"] as? String,
             integer(t["port"]) == Int64(pairingPort), a.wholeMatch(of: address) != nil, key.hasPrefix("privkey:"),
             proof.wholeMatch(of: secret) != nil
         else { throw LinkFailure("link/invalid") }
-        return Bootstrap(address: a, key: key, proof: proof)
+        return Bootstrap(address: a, key: key, proof: proof, expiresAtMs: expiresAt)
     }
 
     public static func invitation(_ json: String) throws -> Invitation {

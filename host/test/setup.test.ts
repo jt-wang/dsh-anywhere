@@ -126,7 +126,7 @@ test('pairing CLI requires explicit private output before creating any offer or 
   t.after(() => rm(root, { recursive: true, force: true }));
   const configPath = join(root, 'host.json'), statePath = join(root, 'state', 'host.sqlite');
   await writeFile(configPath, JSON.stringify({ hostName: 'Synthetic output consent', workspaceSource: 'dsh-registry', bind: '127.0.0.1', port: 9443, allowInsecureLoopback: true, statePath }));
-  for (const args of [['pair'], ['remote-pair'], ['remote-pair', '--qr']]) {
+  for (const args of [['pair']]) {
     let output = '', errors = '';
     const code = await runAdminCli([...args, '--config', configPath, '--read', 'all'], { out(text) { output += text; }, error(text) { errors += text; } });
     assert.equal(code, 1);
@@ -168,41 +168,31 @@ test('pair QR round-trips zlib envelope and independent QR decoder without leaki
   assert.throws(() => invitationQr({ text: randomBytes(12000).toString('base64url') }), { code: 'qr_too_large' });
 });
 
-test('built dist CLI keeps oversized QR fallback file usable without revoking the published remote grant', { timeout: 30000 }, async t => {
-  const h = await setup(t), routeId = 'a'.repeat(32), hostname = `h-${routeId}.dsh.invalid`;
+test('built dist CLI keeps oversized QR fallback file usable without cancelling the offer', { timeout: 30000 }, async t => {
+  const h = await setup(t), hostname = `h-${'a'.repeat(32)}.dsh.invalid`;
   const candidates = ['openssl', ...(process.platform === 'win32' && process.env.ProgramFiles ? [join(process.env.ProgramFiles, 'Git', 'mingw64', 'bin', 'openssl.exe'), join(process.env.ProgramFiles, 'Git', 'ucrt64', 'bin', 'openssl.exe')] : [])];
   const openssl = candidates.find(candidate => spawnSync(candidate, ['version'], { stdio: 'ignore' }).status === 0);
   assert.ok(openssl, 'setup prerequisite is installed');
   // A valid self-signed certificate with a random custom extension: long but within JSON bounds.
   const extension = randomBytes(5000).toString('hex');
   assert.equal(spawnSync(openssl, ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-sha256', '-nodes', '-days', '1', '-keyout', h.config.tls.keyPath, '-out', h.config.tls.certPath, '-subj', '/CN=Synthetic oversized QR', '-addext', `subjectAltName=DNS:${hostname}`, '-addext', `1.3.6.1.4.1.55555.1=ASN1:UTF8String:${extension}`], { stdio: 'ignore', timeout: 10000 }).status, 0);
-  const config = { ...h.config, bind: '127.0.0.1', publicUrl: `https://${hostname}`, relay: { url: 'wss://relay.example/transport', routeId, connectorToken: randomBytes(32).toString('base64url') } };
+  const config = { ...h.config, bind: '127.0.0.1', publicUrl: `https://${hostname}`, includeCertificatePem: true };
   await writeFile(h.configPath, JSON.stringify(config));
   const invitationPath = join(h.root, 'private', 'invitations', 'oversized.private.json');
   const state = new HostState(config.statePath);
-  let published = false;
-  const publication = setInterval(() => {
-    const grants = state.relayGrantSnapshot(routeId);
-    if (grants.length) published = true;
-    state.acknowledgeRelaySnapshot(routeId, grants, 'synthetic-generation');
-    state.updateRelayStatus(routeId, true, true, 'synthetic-generation');
-  }, 20);
   try {
-    const child = spawn(process.execPath, [fileURLToPath(new URL('../dist/cli.js', import.meta.url)), 'remote-pair', '--config', h.configPath, '--read', 'all', '--qr', '--output', invitationPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [fileURLToPath(new URL('../dist/cli.js', import.meta.url)), 'pair', '--config', h.configPath, '--read', 'all', '--qr', '--output', invitationPath], { stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '', errors = '';
     child.stdout.setEncoding('utf8'); child.stdout.on('data', text => { output += text; });
     child.stderr.setEncoding('utf8'); child.stderr.on('data', text => { errors += text; });
     const exitCode = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
-    clearInterval(publication);
     const invitation = JSON.parse(await readFile(invitationPath, 'utf8'));
     const { encodeInvitationQr } = await import('../src/qr.ts');
     assert.ok(encodeInvitationQr(invitation).length > 2331, 'exercise real QR capacity failure');
     assert.ok(Buffer.byteLength(JSON.stringify(invitation)) <= 65536, 'not a protocol size failure');
-    assert.equal(published, true);
     assert.equal(exitCode, 0, errors);
     assert.match(errors, /Invitation exceeds QR capacity; use the private JSON file instead/);
-    assert.equal(state.relayPublication(invitation.relay.accessId)?.revoked, false);
-    assert.equal(state.remotePairingRoute(invitation.pairingToken), routeId, 'saved invitation retains a consumable remote offer');
-    assert.doesNotMatch(output + errors, new RegExp(`${invitation.pairingToken}|${invitation.relay.accessToken}|${config.relay.connectorToken}`));
-  } finally { clearInterval(publication); state.close(); }
+    assert.doesNotMatch(output + errors, new RegExp(invitation.pairingToken));
+    assert.ok(state.consumePairing(invitation.pairingToken, 'Synthetic phone').deviceToken, 'saved invitation retains a consumable offer');
+  } finally { state.close(); }
 });

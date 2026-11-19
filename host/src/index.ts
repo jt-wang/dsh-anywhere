@@ -3,9 +3,7 @@ export { HOST_VERSION } from './phone.ts';
 export { createHostServer, startHostServer } from './server.ts';
 export type { HostServerOptions, MobileHostServer } from './server.ts';
 export { HostState, isRequestId, validateGrants, allowsWorkspace } from './state.ts';
-export type { AuthorizedDevice, DeviceSummary, PairingOffer, PairingResult, StateOptions, RemotePairingOffer, RemotePairingResult, RelayPublication } from './state.ts';
-export { createRelayConnector, validateRelayUrl } from './relay-connector.ts';
-export type { RelayConnectorOptions, RelayConnector, RelayConnectorStatus } from './relay-connector.ts';
+export type { AuthorizedDevice, DeviceSummary, PairingOffer, PairingResult, StateOptions } from './state.ts';
 export { createTailcatConnector, bundledTailcatHelper } from './tailcat-connector.ts';
 export type { TailcatConnector, TailcatConnectorOptions, TailcatConnectorStatus, TailcatHelperCommand } from './tailcat-connector.ts';
 export { HostError } from './errors.ts';
@@ -14,4 +12,4 @@ export { prepareConfiguration, loadConfiguration, pairingInvitation } from './co
 export type { LocalHostConfiguration, PreparedLocalHostConfiguration, PreparedConfiguration } from './config.ts';
 export { createWorkspaceSource } from './workspace-source.ts';
 export type { WorkspaceSource, DshWorkspace, DshWorkspaceRegistry } from './workspace-source.ts';
-export type { HostAdapter, HostBaseConfiguration, HostConfiguration, PreparedHostConfiguration, WorkspaceConfig, Preset, HostSession, HostSnapshot, ChatMessage, CommandReceipt, CommandStatus, DeviceGrants, RelayConfiguration, RelayGrant, RelayAccess, TailcatConfiguration } from './types.ts';
+export type { HostAdapter, HostBaseConfiguration, HostConfiguration, PreparedHostConfiguration, WorkspaceConfig, Preset, HostSession, HostSnapshot, ChatMessage, CommandReceipt, CommandStatus, DeviceGrants, TailcatConfiguration } from './types.ts';
