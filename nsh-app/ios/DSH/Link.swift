@@ -27,12 +27,28 @@ final class Link {
     private static var tunnel: Int64 = -1
     private static var bridge: Bridge?
     private static let pairOp: Int64 = 1 // connectmobile's cancellable-operation number; one pairing at a time
-    private static let tailcatOnlyKey = "dsh.link.tailcatOnly"
     private weak var view: NshAppView?
+
+    // "Tailcat only" is an empty file in the app's Application Support: Release builds use no NSUserDefaults
+    // (PrivacyInfo.xcprivacy declares no reason for it; check-testflight.sh fails an IPA that links it).
+    private static var tailcatOnlyFile: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("dsh-tailcat-only")
+    }
+    private static var tailcatOnly: Bool {
+        get { FileManager.default.fileExists(atPath: tailcatOnlyFile.path) }
+        set {
+            if newValue {
+                try? FileManager.default.createDirectory(at: tailcatOnlyFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+                _ = FileManager.default.createFile(atPath: tailcatOnlyFile.path, contents: Data())
+            } else {
+                try? FileManager.default.removeItem(at: tailcatOnlyFile)
+            }
+        }
+    }
 
     init(host: UIViewController) {
         self.host = host
-        ConnectmobileSetTailcatOnly(UserDefaults.standard.bool(forKey: Link.tailcatOnlyKey))
+        ConnectmobileSetTailcatOnly(Link.tailcatOnly)
     }
 
     @MainActor
@@ -42,12 +58,12 @@ final class Link {
         view.handle("link.tailcatOnly") { [self] data, reply in
             let on = (data as? [String: Any])?["on"] as? Bool
             work.async {
-                if let on, on != UserDefaults.standard.bool(forKey: Link.tailcatOnlyKey) {
-                    UserDefaults.standard.set(on, forKey: Link.tailcatOnlyKey)
-                    ConnectmobileSetTailcatOnly(on)
+                if let on, on != Link.tailcatOnly {
+                    Link.tailcatOnly = on
+                    ConnectmobileSetTailcatOnly(Link.tailcatOnly)
                     Link.disconnect()
                 }
-                reply.resolve(["on": UserDefaults.standard.bool(forKey: Link.tailcatOnlyKey)])
+                reply.resolve(["on": Link.tailcatOnly])
             }
         }
         view.handle("link.state") { [self] _, reply in work.async { self.answer(reply) { try self.state() } } }
