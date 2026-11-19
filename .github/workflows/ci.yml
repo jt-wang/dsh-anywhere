@@ -58,7 +58,7 @@ jobs:
 
   host-macos:
     name: Companion / macOS / live Tailcat pairing
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 25
     env:
       GOTOOLCHAIN: go1.27.3
@@ -140,7 +140,7 @@ jobs:
 
   app:
     name: Phone app / NSH tests and check
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 40
     steps:
       - name: Check out source
@@ -152,7 +152,7 @@ jobs:
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ${{ runner.temp }}/nsh-bin
-          key: nsh-cli-${{ runner.os }}-${{ env.NSH_COMMIT }}
+          key: nsh-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.NSH_COMMIT }}
       - name: Build NSH from source
         if: steps.nsh-cache.outputs.cache-hit != 'true'
         shell: bash
