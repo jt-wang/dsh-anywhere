@@ -13,6 +13,22 @@ const ZH_UNITS: Record<ScheduleUnit, string> = { day: '天', hour: '小时', min
 const ZH_EVERY_ONE: Record<ScheduleUnit, string> = { day: '每天', hour: '每小时', minute: '每分钟', second: '每秒' }
 
 export const ZH: Strings = {
+  team: {
+    title: '团队协作', hint: '让主代理协调团队。关闭不会停止现有代理，也不会删除任务。',
+    on: '团队协作已开启', off: '团队协作已关闭', unsupported: '此 DSH 主机不支持团队协作设置。请更新电脑上的 DSH。',
+    readFailed: '无法读取团队协作设置，当前状态未知。', refresh: '重新确认设置',
+    unconfirmed: '电脑未确认保存此更改，未自动重试发送。',
+    taskFailure: 'DSH 无法读取较新的团队任务记录。任务保留在最后有效状态；显示的模式为已保存的选择。',
+  },
+  collapseThink: '收起思考', expandThink: '展开思考',
+  diagnostics: {
+    title: '本地诊断', enabled: '记录诊断', interaction: '交互', performance: '界面性能', network: '请求元数据', resources: '电量与温度状态',
+    recording: '正在此手机记录所选类别。', off: '已关闭。既有记录保留至清空或滚动替换。',
+    privacy: '仅元数据，不含聊天、思考、提示词、回复、终端、输入、媒体、凭据、URL 或用户路径。不会自动上传。',
+    retention: '最多保留 24 小时、800 条或 128 KiB，以先到者为准。后台停止记录。',
+    power: '系统电量和温度读数不是应用精确耗电量。界面计时测量回调延迟而非 FPS。不测速，不增加网络轮询。',
+    range: '导出时间范围', recent: '15 分钟', hour: '1 小时', day: '24 小时', export: '准备导出', clear: '清空记录', preview: '分享前确认', share: '分享元数据文件…', empty: '此时间范围内没有记录。', count: (n: number) => `${n} 条记录`, failed: '无法读取、保存或分享诊断，请重试。',
+  },
   savedCopy: (at: string) => `本地副本 · ${at}，运行状态可能已变化。`,
   cacheFailed: '未能保存到手机，当前页面仍可查看。',
   noSavedChats: '手机尚未保存会话，请连接电脑加载。',
@@ -163,6 +179,7 @@ export const ZH: Strings = {
     why: { connected: '', slow: '连接正常，但响应较慢，消息可能晚几秒才到。', trying: '正在检查是哪一段没有回应。', 'no-network': '手机连上 Wi-Fi 或移动数据后会自动重连。', blocked: '手机有网络，但连不上用来连接电脑的中继服务器。当前网络可能屏蔽了它，也可能实际上不能上网。换个 Wi-Fi 或用移动数据试试。', computer: '中继服务器正常，但电脑没有回应。请确认电脑开着、没有休眠、DSH 在运行。如果在电脑上移除过这台手机，需要重新配对。', companion: '电脑有回应，但上面的 DSH 配套程序没有回应。请在电脑上重新打开 DSH。', refused: '电脑已不再接受这台手机。请在电脑上生成新的配对码，再重新配对。' } },
   connectionState: { online: '连接成功', connecting: '重新连接中', offline: '连接异常' },
   viaTailcat: '端到端加密隧道', pathDirect: '直连你的电脑', pathRelay: (region: string) => `经中继（${region}）`, pathUnknown: '正在查找路由…',
+  appVersion: '版本（构建号）', versionUnavailable: '无法读取',
   dshVersion: 'DSH 版本', companionVersion: '电脑端插件版本', unlinkHint: '断开后，要重新扫码才能再连上电脑。',
   appearance: '外观', themeSystem: '跟随系统', themeLight: '浅色', themeDark: '深色', language: '语言', languageSystem: '跟随系统',
   notifications: '通知', notifyAnswers: '回答完成或已停止', notifyDecisions: '智能体需要你做决定', notifyBanners: '在应用内显示横幅',

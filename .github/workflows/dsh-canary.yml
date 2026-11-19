@@ -3,7 +3,8 @@ name: DSH canary
 # DSH publishes pre-releases often, and the companion accepts every 0.2.1 version and the 0.2.2 release candidates
 # and release (host/src/compatibility.ts). Each day this runs the real DSH SessionController from npm's `latest` and `next`
 # against the built companion adapter, so the release that breaks it is found the day it ships, not by a user.
-# A failure turns the run red; it opens no issue.
+# Static drift against an explicitly inspected baseline also requires review, never an automatic upgrade.
+# A failure turns the run red; it opens no issue and publishes/releases nothing.
 
 on:
   schedule:
@@ -13,6 +14,7 @@ on:
       - .github/workflows/dsh-canary.yml
       - host/src/compatibility.ts
       - tools/dsh-canary/**
+      - .dev/dsh-official-alignment.md
   workflow_dispatch:
     inputs:
       version:
@@ -29,12 +31,18 @@ concurrency:
 jobs:
   canary:
     name: DSH ${{ matrix.tag }}
+    # Keep one daily observer; private branches remain manually testable.
+    if: github.event_name != 'schedule' || github.repository == 'jt-wang/dsh-anywhere'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        tag: ${{ fromJSON(inputs.version && format('["{0}"]', inputs.version) || '["latest","next"]') }}
+        tag: ${{ fromJSON(inputs.version && format('[{0}]', toJSON(inputs.version)) || '["latest","next"]') }}
+    env:
+      # Evidence baseline, not an application dependency/version change. Advance only after inspection + semantic runs.
+      DSH_BASELINE: 0.2.2-rc.1
+      DSH_TARGET: ${{ matrix.tag }}
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -54,30 +62,84 @@ jobs:
           npm ci
           npm ci --prefix ../relay
           npm run build
+      - name: Canary self-tests
+        run: node --test tools/dsh-canary/*.test.mjs
+      - name: Resolve official release channels and record public upstream evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          export DSH_REPORT="$RUNNER_TEMP/dsh-compatibility"
+          echo "DSH_REPORT=$DSH_REPORT" >> "$GITHUB_ENV"
+          node tools/dsh-canary/compatibility.mjs metadata --baseline-version "$DSH_BASELINE" --requested "$DSH_TARGET" --output-dir "$DSH_REPORT"
       - name: Stage DSH ${{ matrix.tag }} from npm (no install scripts)
         id: stage
         run: |
           # The canary only accepts a runtime below $HOME/Documents/DeepSeekHarness.
-          runtime="$HOME/Documents/DeepSeekHarness/cache/dsh-${{ matrix.tag }}/runtime"
+          # Resolve once, then install the exact official version. User input never becomes shell code or a path.
+          version=$(node -p "JSON.parse(require('fs').readFileSync(process.env.DSH_REPORT + '/channels.json', 'utf8')).selected")
+          runtime="$HOME/Documents/DeepSeekHarness/cache/dsh-candidate/runtime"
           mkdir -p "$runtime" && cd "$runtime"
           echo '{"private":true}' > package.json
-          npm install --ignore-scripts --no-audit --no-fund "@deepseek-ai/dsh@${{ matrix.tag }}"
-          version=$(node -p "require('./node_modules/@deepseek-ai/dsh/package.json').version")
+          npm install --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund --save-exact "@deepseek-ai/dsh@$version"
+          expected="$version" node -e "require('node:assert/strict').equal(require('./node_modules/@deepseek-ai/dsh/package.json').version, process.env.expected)"
+          cp package-lock.json "$DSH_REPORT/candidate-package-lock.json"
           echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "DSH ${{ matrix.tag }} is $version"
+          echo "DSH $DSH_TARGET is $version"
+      - name: Stage the inspected comparison baseline (no install scripts)
+        id: baseline
+        run: |
+          runtime="$HOME/Documents/DeepSeekHarness/cache/dsh-baseline/runtime"
+          mkdir -p "$runtime" && cd "$runtime"
+          echo '{"private":true}' > package.json
+          npm install --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund --save-exact "@deepseek-ai/dsh@$DSH_BASELINE"
+          cp package-lock.json "$DSH_REPORT/baseline-package-lock.json"
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+      - name: Compare actual official contracts and report mobile review candidates
+        id: contracts
+        # Keep live semantic gates running even when static drift requires review. Enforce the outcome at the end.
+        continue-on-error: true
+        env:
+          BASELINE_ROOT: ${{ steps.baseline.outputs.runtime }}
+          CANDIDATE_ROOT: ${{ steps.stage.outputs.runtime }}
+        run: node tools/dsh-canary/compatibility.mjs compare --baseline-root "$BASELINE_ROOT" --runtime-root "$CANDIDATE_ROOT" --output-dir "$DSH_REPORT"
       - name: The companion accepts this version
+        env:
+          DSH_VERSION: ${{ steps.stage.outputs.version }}
         run: |
           node --input-type=module -e "
             const { isCompatibleDshVersion, SUPPORTED_DSH_VERSIONS } = await import('./host/dist/compatibility.js');
-            const v = '${{ steps.stage.outputs.version }}';
+            const v = process.env.DSH_VERSION;
             if (!isCompatibleDshVersion(v)) { console.error('DSH ' + v + ' is outside ' + SUPPORTED_DSH_VERSIONS + ': a new line needs inspection and a canary before it is added.'); process.exit(1); }
             console.log('DSH ' + v + ' is in ' + SUPPORTED_DSH_VERSIONS);"
-      - name: Canary self-tests and type check against this runtime
-        run: |
-          node --test tools/dsh-canary/*.test.mjs
-          node tools/dsh-canary/typecheck.mjs "${{ steps.stage.outputs.runtime }}"
+      - name: Type check against this runtime
+        run: node tools/dsh-canary/typecheck.mjs "${{ steps.stage.outputs.runtime }}"
       - name: Full canary (real SessionController + companion adapter)
         run: node tools/dsh-canary/run.mjs --runtime-root "${{ steps.stage.outputs.runtime }}"
       - name: Registry-mode profile insertion
         run: node --expose-internals tools/dsh-canary/run.mjs --registry-check --port 19446 --runtime-root "${{ steps.stage.outputs.runtime }}"
+      - name: Compatibility summary
+        if: always()
+        env:
+          DSH_REPORT: ${{ runner.temp }}/dsh-compatibility
+        run: |
+          if test -f "$DSH_REPORT/compatibility.md"; then
+            cat "$DSH_REPORT/compatibility.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Compatibility inspection did not complete; consult logs and available evidence. This is not a PASS.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve public metadata, contracts, lockfiles and isolated semantic receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dsh-compatibility-${{ strategy.job-index }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/dsh-compatibility/
+            ~/Documents/DeepSeekHarness/cache/dsh-mobile/canary/run-*/receipt.json
+      - name: Require explicit review of upstream contract drift
+        if: always() && steps.contracts.outcome != 'success'
+        run: |
+          echo 'Official DSH contract inspection changed or did not complete. Review evidence; do not widen supported versions or upgrade automatically.'
+          exit 1

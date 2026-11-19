@@ -6,6 +6,21 @@ export interface Model { id: string; name: string; description?: string; efforts
 export interface Group { id: string; name: string; models: Model[] }
 export interface Catalog { default?: Selection; groups: Group[] }
 
+// DSH 0.2.2-rc.5 dsh-agent-team: the setting is saved on the root Session.
+// rc.1's experimental agentTeam has members/tasks but no saved enabled selection.
+export type TeamMode = { kind: 'available'; enabled: boolean; failure?: string } | { kind: 'unsupported' } | { kind: 'error' }
+
+/** Only exact session/projections values are authoritative, never list-row/cache hints. */
+export function teamModeOf(v: unknown): TeamMode {
+  const o = obj(v), values = obj(o?.values)
+  if (!values || o?.kind !== 'sequenced') return { kind: 'error' }
+  if (!Object.prototype.hasOwnProperty.call(values, 'agentTeam')) return { kind: 'unsupported' }
+  const team = obj(values.agentTeam)
+  if (team && team.enabled === undefined && Array.isArray(team.members) && Array.isArray(team.tasks)) return { kind: 'unsupported' }
+  if (!team || typeof team.enabled !== 'boolean' || !Array.isArray(team.tasks) || (team.failure !== undefined && typeof team.failure !== 'string')) return { kind: 'error' }
+  return { kind: 'available', enabled: team.enabled, failure: str(team.failure) }
+}
+
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
 const obj = (v: unknown): Record<string, any> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : undefined)
 

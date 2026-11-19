@@ -20,6 +20,11 @@ name: TestFlight
         required: true
         default: false
         type: boolean
+      status_only:
+        description: Read ASC build inventory and tester-group access without building or uploading
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -34,6 +39,7 @@ env:
   DSH_VERSION: ${{ inputs.version }}
   DSH_BUILD: ${{ inputs.build }}
   DSH_UPLOAD: ${{ inputs.upload }}
+  DSH_STATUS_ONLY: ${{ inputs.status_only }}
   NSH_COMMIT: 7b3031fb7c9b93b0dee65f48a227bcf15d2bda38
 
 jobs:
@@ -51,6 +57,7 @@ jobs:
   archive:
     needs: gate
     if: >-
+      inputs.status_only != true &&
       github.repository == 'jt-wang/dsh-anywhere' &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
       inputs.source_sha == github.sha
@@ -147,3 +154,36 @@ jobs:
             ${{ runner.temp }}/dsh-testflight/summary.json
           if-no-files-found: error
           retention-days: 7
+
+  status:
+    needs: [gate, archive]
+    if: >-
+      always() && needs.gate.result == 'success' &&
+      ((inputs.status_only == true && inputs.upload == false) ||
+      (inputs.upload == true && needs.archive.result == 'success')) &&
+      github.repository == 'jt-wang/dsh-anywhere' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      inputs.source_sha == github.sha
+    environment: apple-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read ASC inventory and group access, never distribute
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_P8: ${{ secrets.ASC_PRIVATE_KEY_P8 }}
+          WAIT_SECONDS: ${{ inputs.upload && '1200' || '0' }}
+        run: python3 nsh-app/ios/asc_status.py --output "$RUNNER_TEMP/asc-status.json" --wait-seconds "$WAIT_SECONDS"
+      - name: Retain only the allowlisted ASC receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dsh-testflight-status-${{ github.run_id }}
+          path: ${{ runner.temp }}/asc-status.json
+          if-no-files-found: error
+          retention-days: 14

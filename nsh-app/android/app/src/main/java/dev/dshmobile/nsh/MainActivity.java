@@ -16,6 +16,7 @@ public final class MainActivity extends Activity {
     private Files files;
     private NetworkWatch network;
     private Notify notify;
+    private Diagnostics diagnostics;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -25,6 +26,19 @@ public final class MainActivity extends Activity {
         app.setErrorListener(message -> Log.e("nsh", message));
         app.setLimits(2047, 0, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE);
         setContentView(app);
+        // The installed phone app, not the NSH runtime or the linked computer.
+        app.handle("app.info", (data, reply) -> {
+            try {
+                android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+                if (info.versionName == null) { reply.reject("app.info/unavailable"); return; }
+                reply.resolve(java.util.Map.of("version", info.versionName, "build", Long.toString(info.getLongVersionCode()),
+                    "os", Build.VERSION.RELEASE, "deviceClass", getResources().getConfiguration().smallestScreenWidthDp >= 600 ? "tablet" : "phone"));
+            } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+                reply.reject("app.info/unavailable");
+            }
+        });
+        diagnostics = new Diagnostics(this);
+        diagnostics.attach(app);
         new Modules(this).attach(app); // generated interfaces (`ui.open`)
         Link link = new Link(this);
         link.attach(app); // the link to the owner's computer (`link.*`)
@@ -93,10 +107,10 @@ public final class MainActivity extends Activity {
     }
 
     @Override
-    protected void onStart() { super.onStart(); if (notify != null) notify.activeChanged(true); }
+    protected void onStart() { super.onStart(); if (diagnostics != null) diagnostics.active(true); if (notify != null) notify.activeChanged(true); }
 
     @Override
-    protected void onStop() { if (notify != null) notify.activeChanged(false); super.onStop(); }
+    protected void onStop() { if (diagnostics != null) diagnostics.active(false); if (notify != null) notify.activeChanged(false); super.onStop(); }
 
     @Override
     public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
@@ -126,6 +140,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (network != null) network.detach();
+        if (diagnostics != null) diagnostics.detach();
         app.destroy();
         super.onDestroy();
     }

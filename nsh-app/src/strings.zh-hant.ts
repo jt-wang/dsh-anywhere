@@ -12,6 +12,22 @@ const ZH_UNITS: Record<ScheduleUnit, string> = { day: '天', hour: '小時', min
 const ZH_EVERY_ONE: Record<ScheduleUnit, string> = { day: '每天', hour: '每小時', minute: '每分鐘', second: '每秒' }
 
 export const ZH_HANT: Strings = {
+  team: {
+    title: '團隊協作', hint: '讓主代理協調團隊。關閉不會停止現有代理，也不會刪除任務。',
+    on: '團隊協作已開啟', off: '團隊協作已關閉', unsupported: '此 DSH 主機不支援團隊協作設定。請更新電腦上的 DSH。',
+    readFailed: '無法讀取團隊協作設定，目前狀態未知。', refresh: '重新確認設定',
+    unconfirmed: '電腦未確認儲存此變更，未自動重試傳送。',
+    taskFailure: 'DSH 無法讀取較新的團隊任務紀錄。任務保留在最後有效狀態；顯示的模式為已儲存的選擇。',
+  },
+  collapseThink: '收合思考', expandThink: '展開思考',
+  diagnostics: {
+    title: '本機診斷', enabled: '記錄診斷', interaction: '互動', performance: '介面效能', network: '請求中繼資料', resources: '電量與溫度狀態',
+    recording: '正在此手機記錄所選類別。', off: '已關閉。既有記錄保留至清除或輪替。',
+    privacy: '僅中繼資料，不含聊天、思考、提示詞、回覆、終端機、輸入、媒體、憑證、URL 或使用者路徑。不會自動上傳。',
+    retention: '最多保留 24 小時、800 筆或 128 KiB，以先到者為準。背景停止記錄。',
+    power: '系統電量和溫度讀數不是應用程式精確耗電量。介面計時測量回呼延遲而非 FPS。不測速，不增加網路輪詢。',
+    range: '匯出時間範圍', recent: '15 分鐘', hour: '1 小時', day: '24 小時', export: '準備匯出', clear: '清除記錄', preview: '分享前確認', share: '分享中繼資料檔案…', empty: '此時間範圍內沒有記錄。', count: (n: number) => `${n} 筆記錄`, failed: '無法讀取、儲存或分享診斷，請重試。',
+  },
   savedCopy: (at: string) => `本機副本 · ${at}，執行狀態可能已變更。`,
   cacheFailed: '無法儲存到手機，目前頁面仍可檢視。',
   noSavedChats: '手機尚未儲存對話，請連線至電腦載入。',
@@ -162,6 +178,7 @@ export const ZH_HANT: Strings = {
     why: { connected: '', slow: '連線正常，但回應較慢，訊息可能晚幾秒才到。', trying: '正在檢查是哪一段沒有回應。', 'no-network': '手機連上 Wi-Fi 或行動數據後會自動重新連線。', blocked: '手機有網路，但連不上用來連接電腦的中繼伺服器。目前網路可能封鎖了它，也可能實際上無法上網。換個 Wi-Fi 或用行動數據試試。', computer: '中繼伺服器正常，但電腦沒有回應。請確認電腦開著、沒有休眠、DSH 正在執行。如果在電腦上移除過這支手機，需要重新配對。', companion: '電腦有回應，但上面的 DSH 配套程式沒有回應。請在電腦上重新開啟 DSH。', refused: '電腦已不再接受這支手機。請在電腦上產生新的配對碼，再重新配對。' } },
   connectionState: { online: '已連線', connecting: '重新連線中', offline: '連線中斷' },
   viaTailcat: '端對端加密通道', pathDirect: '直接連線到你的電腦', pathRelay: (region: string) => `經由中繼（${region}）`, pathUnknown: '正在尋找路由…',
+  appVersion: '版本（組建編號）', versionUnavailable: '無法讀取',
   dshVersion: 'DSH 版本', companionVersion: '配套程式版本', unlinkHint: '掃描新的配對碼之前，這支手機將無法連線到電腦。',
   appearance: '外觀', themeSystem: '跟隨系統', themeLight: '淺色', themeDark: '深色', language: '語言', languageSystem: '跟隨系統',
   notifications: '通知', notifyAnswers: '回答完成或已停止', notifyDecisions: '代理需要你做決定', notifyBanners: '在 App 內顯示橫幅',

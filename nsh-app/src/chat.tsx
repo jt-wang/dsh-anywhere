@@ -87,6 +87,9 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   const references = signal<Reference[]>([])
   const composerHeight = signal(LINE)
   const open = signal<Set<string>>(new Set())
+  const foldedThinking = signal<Set<string>>(new Set())
+  const scrollY = signal(0)
+  let readingAnchor: { id: string; offset: number } | undefined
   const atBottom = signal(true)
   const insets = safeAreaInsets()
   let list: ListRef | undefined
@@ -101,6 +104,8 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   // Frames arrive token by token; the screen redraws at most every 60 ms.
   const flush = () => {
     scheduled = false
+    const reading = readingThink()
+    if (reading && !readingAnchor) readingAnchor = { id: reading, offset: scrollY() }
     const now = loaded() ? Date.now() : 0
     for (const r of fold.rows()) if (!bornAt.has(r.id)) bornAt.set(r.id, now)
     showLine(fold.live())
@@ -146,7 +151,32 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   const viewport = signal(0)
   const heights = new Map<string, number>()
   const measured = signal(0)
-  const measure = (id: string, h: number) => { if (heights.get(id) !== h) { heights.set(id, h); measured.update((n) => n + 1) } }
+  const measure = (id: string, h: number) => {
+    if (heights.get(id) !== h) {
+      heights.set(id, h); measured.update((n) => n + 1)
+      // Native markdown can remeasure through a shorter intermediate layout. Keep the paragraph
+      // being read in place until the person touches the list again, rather than following that resize.
+      if (readingAnchor?.id === id) list?.scrollToOffset({ offset: readingAnchor.offset, animated: false })
+    }
+  }
+  // A long Think cell can have both ends offscreen. Offer its own collapse control, not a global
+  // "collapse all", only while its header has scrolled away and its body is still being read.
+  const readingThink = computed(() => {
+    measured(); const y = scrollY(), bottom = y + viewport(); let top = 12
+    for (const item of items()) {
+      const height = heights.get(item.id) ?? 48
+      if (item.kind === 'entry' && item.entry.kind === 'think' && !foldedThinking().has(item.id) && top + 32 < y && top + height > y + 44 && top < bottom) return item.id
+      top += height
+    }
+    return undefined
+  })
+  const toggleThinking = (id: string) => {
+    readingAnchor = undefined
+    atBottom.set(false)
+    foldedThinking.update((set) => { const next = new Set(set); next.has(id) ? next.delete(id) : next.add(id); return next })
+    // Pin the collapsed block's own header after remeasurement, not the chat's start or latest reply.
+    setTimeout(() => { const index = items().findIndex((item) => item.id === id); if (index >= 0) list?.scrollToIndex({ index, animated: false, viewPosition: 0 }) }, 30)
+  }
   const anchor = signal<string | undefined>(undefined)
   const below = computed(() => {
     measured(); const a = anchor(), all = items(); const i = a ? all.findIndex((x) => x.id === a) : -1
@@ -251,15 +281,22 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
     <View class="flex-1 bg-background pb-[env(keyboard-inset-height)]">
       <ConnectionBar />
       <SavedCopy at={!live() || connection() !== 'online' ? copiedAt() : 0} failed={cache?.failed() ?? false} />
-      <View class="flex-1" onTouchStart={() => { if (todosOpen()) todosOpen.set(false) }}>
+      <View class="flex-1" onTouchStart={() => { readingAnchor = undefined; if (todosOpen()) todosOpen.set(false) }}>
       <List ref={list} each={items()} keyExtractor={(r) => r.id} estimatedItemSize={48} testID="thread" style={{ flex: 1, opacity: placed() ? 1 : 0 }} class="transition-opacity duration-150" scrollbar={false}
         onLayout={(e) => viewport.set(e.bounds.size.height)}
         maintainVisibleContentPosition={{}} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled"
         contentStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }} scrollEventThrottle={50}
-        onScroll={(e) => atBottom.set(e.offset.y + e.size.height >= e.contentSize.height - 80)}>
+        onScroll={(e) => { scrollY.set(e.offset.y); atBottom.set(e.offset.y + e.size.height >= e.contentSize.height - 80) }}>
         {(r) => <RowView sessionId={props.sessionId} item={r} line={line} live={() => running() && r().id === lastProcess()} open={() => open().has(r().id)} toggle={() => toggle(r().id)}
+          thinkingOpen={() => !foldedThinking().has(r().id)} toggleThinking={() => toggleThinking(r().id)}
           onHeight={(h) => measure(r().id, h)} busy={running} retry={(o) => deliver(o)} ends={() => ends().has(r().id)} fresh={fresh} />}
       </List>
+      <If when={readingThink()}>
+        <View role="button" testID="think-collapse-reading" accessibilityLabel={S.collapseThink} onPress={() => { const id = readingThink(); if (id) toggleThinking(id) }}
+          class="absolute top-2 right-4 flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-2 shadow-sm active:bg-secondary">
+          <Chevron dir="up" font={13} /><Text class="text-foreground text-[13px] font-medium">{S.collapseThink}</Text>
+        </View>
+      </If>
       </View>
       <View role="button" accessibilityLabel={S.latest} testID={loaded() && !atBottom() ? 'latest' : undefined} onPress={toEnd}
         class={`absolute self-center w-[34px] h-[34px] rounded-full border border-border bg-card shadow-sm items-center justify-center active:opacity-70 transition-all ${loaded() && !atBottom() ? 'opacity-100 scale-100 duration-[180ms]' : 'opacity-0 scale-90 duration-[120ms]'}`}
@@ -332,7 +369,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
 }
 
 /** One cell; it reads `props.item()` where it is used because the List reuses cells for other rows. */
-function RowView(props: { sessionId: string; item: () => Item; line: () => LiveLine; live: () => boolean; open: () => boolean; toggle: () => void; onHeight: (h: number) => void; busy: () => boolean; retry: (o: Outgoing) => void; ends: () => boolean; fresh: (id: string) => boolean }) {
+function RowView(props: { sessionId: string; item: () => Item; line: () => LiveLine; live: () => boolean; open: () => boolean; toggle: () => void; thinkingOpen: () => boolean; toggleThinking: () => void; onHeight: (h: number) => void; busy: () => boolean; retry: (o: Outgoing) => void; ends: () => boolean; fresh: (id: string) => boolean }) {
   const kind = () => props.item().kind
   const sent = () => { const i = props.item(); return i.kind === 'outgoing' ? [i.message] : [] }
   const text = () => (props.item() as { text?: string }).text ?? ''
@@ -340,7 +377,7 @@ function RowView(props: { sessionId: string; item: () => Item; line: () => LiveL
   const entry = () => { const i = props.item(); return i.kind === 'entry' ? [i] : [] }
   return (
     <View class={kind() === 'entry' ? 'pb-[6px]' : kind() === 'process' && props.open() ? 'pb-[6px]' : 'pb-4'} onLayout={(e) => props.onHeight(e.bounds.size.height)}>
-      <Each of={entry()} key={(e) => e.id}>{(e) => <EntryView entry={() => e().entry} />}</Each>
+      <Each of={entry()} key={(e) => e.id}>{(e) => <EntryView entry={() => e().entry} open={props.thinkingOpen} toggle={props.toggleThinking} />}</Each>
       <If when={kind() === 'user'}>
         <View class="items-end">
           <SentAttachments sessionId={props.sessionId} items={() => (props.item() as { attachments?: Attached[] }).attachments ?? []} />
@@ -418,16 +455,25 @@ function ProcessView(props: { process: () => Process; line: () => LiveLine; live
 }
 
 /** One entry of an open turn, indented under it: Think with its formatted text, or a tool call. */
-function EntryView(props: { entry: () => Entry }) {
+function EntryView(props: { entry: () => Entry; open: () => boolean; toggle: () => void }) {
   const think = () => { const e = props.entry(); return e.kind === 'think' ? [e] : [] }
   const step = () => { const e = props.entry(); return e.kind === 'step' ? [e.step] : [] }
   return (
     <View class="ml-[2px] pl-[14px] border-l border-border">
       <Each of={think()} key={(e) => e.id}>{(e) => (
         <View class="self-stretch gap-[2px]">
-          <Text class="text-muted-foreground text-[12px] leading-[18px] font-medium">{S.think}</Text>
+          <View role="button" testID={`think-toggle-${e().id}`} accessibilityLabel={props.open() ? S.collapseThink : S.expandThink} accessibilityState={{ expanded: props.open() }} onPress={props.toggle}
+            class="self-stretch flex-row items-center gap-1 py-2 active:opacity-60">
+            <Text class="text-muted-foreground text-[12px] leading-[18px] font-medium">{S.think}</Text><Chevron dir={props.open() ? 'up' : 'down'} font={12} />
+          </View>
+          <If when={props.open()}>
           {/* formatted, as DSH Desktop shows expanded thinking */}
           <TextView markdown={e().text} classes={{ root: 'text-muted-foreground text-[13px] leading-5', code: 'font-mono text-[12px]', codeBlock: 'font-mono text-[12px] bg-card border border-border rounded-[8px]' }} />
+          <View role="button" testID={`think-collapse-${e().id}`} accessibilityLabel={S.collapseThink} onPress={props.toggle}
+            class="self-start flex-row items-center gap-1 rounded-[8px] border border-border bg-card px-3 py-2 my-2 active:bg-secondary">
+            <Chevron dir="up" font={12} /><Text class="text-muted-foreground text-[13px]">{S.collapseThink}</Text>
+          </View>
+          </If>
         </View>
       )}</Each>
       <Each of={step()} key={(st) => st.callId}>{(st) => <StepView step={st()} />}</Each>

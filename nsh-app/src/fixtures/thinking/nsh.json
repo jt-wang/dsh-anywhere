@@ -1,0 +1,4 @@
+{
+  "name": "Thinking controls checks",
+  "capabilities": { "host": ["haptic"], "network": { "hosts": ["*"] }, "clipboard": true }
+}

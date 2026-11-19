@@ -51,12 +51,12 @@ export function Icon(props: { name: IconName; size?: IconSize; class?: string })
 /** The chevron after a label (a dropdown, a disclosure, a row that opens): drawn edge to edge in its frame, so the gap
  * and padding around it are the space a person sees; 0.6 of the label's font size wide, its stroke about as heavy as
  * the label's stems (1.4 of 10 units at that width), in the label's colour. */
-export function Chevron(props: { dir: 'down' | 'right'; font: number; class?: string; onLayout?: (e: { bounds: Bounds }) => void }) {
+export function Chevron(props: { dir: 'down' | 'up' | 'right'; font: number; class?: string; onLayout?: (e: { bounds: Bounds }) => void }) {
   const long = Math.round(props.font * 0.6 * 2) / 2, short = Math.round(long * 0.6 * 10) / 10
-  const down = props.dir === 'down'
+  const down = props.dir !== 'right'
   return (
     <View onLayout={props.onLayout} style={{ width: down ? long : short, height: down ? short : long }}>
-      <Image src={down ? disclosureDown : disclosureRight} style={{ width: down ? long : short, height: down ? short : long }} class={props.class ?? 'tint-muted-foreground'} />
+      <Image src={down ? disclosureDown : disclosureRight} style={{ width: down ? long : short, height: down ? short : long, transform: props.dir === 'up' ? 'rotate(180deg)' : 'none' }} class={props.class ?? 'tint-muted-foreground'} />
     </View>
   )
 }

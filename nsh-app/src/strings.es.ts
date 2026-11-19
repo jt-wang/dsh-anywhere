@@ -16,6 +16,22 @@ const atTime = (time: string) => `${/^0?1(:|$)/.test(time) ? 'a la' : 'a las'} $
 const and = (next: string) => (/^h?[ií](?![aeoáéó])/i.test(next) ? 'e' : 'y')
 
 export const ES: Strings = {
+  team: {
+    title: 'Trabajo en equipo', hint: 'El agente principal coordina un equipo. Desactivarlo no detiene a los agentes existentes ni elimina tareas.',
+    on: 'Trabajo en equipo activado', off: 'Trabajo en equipo desactivado', unsupported: 'Este host DSH no admite esta opción. Actualiza DSH en tu ordenador.',
+    readFailed: 'No se pudo leer la opción de trabajo en equipo. Su estado actual es desconocido.', refresh: 'Consultar la opción de nuevo',
+    unconfirmed: 'El ordenador no confirmó que se guardara el cambio. No se volvió a enviar.',
+    taskFailure: 'DSH no pudo leer los registros más recientes de tareas del equipo. Las tareas conservan su último estado válido; se muestra el modo guardado.',
+  },
+  collapseThink: 'Contraer razonamiento', expandThink: 'Expandir razonamiento',
+  diagnostics: {
+    title: 'Diagnóstico local', enabled: 'Registrar diagnóstico', interaction: 'Interacciones', performance: 'Rendimiento de la interfaz', network: 'Metadatos de solicitudes', resources: 'Batería y temperatura',
+    recording: 'Se registran las categorías elegidas en este teléfono.', off: 'Desactivado. Los registros anteriores permanecen hasta borrarse o sustituirse.',
+    privacy: 'Solo metadatos. Sin chats, razonamiento, prompts, respuestas, terminal, entradas, medios, credenciales, URL ni rutas de usuario. Nada se sube automáticamente.',
+    retention: 'Hasta 24 horas, 800 eventos o 128 KiB. El registro se detiene en segundo plano.',
+    power: 'La batería y temperatura del sistema no miden el consumo exacto de la app. Se mide el retraso de callbacks, no FPS. Sin pruebas de velocidad ni consultas de red adicionales.',
+    range: 'Periodo de exportación', recent: '15 minutos', hour: '1 hora', day: '24 horas', export: 'Preparar exportación', clear: 'Borrar registros', preview: 'Revisar antes de compartir', share: 'Compartir archivo…', empty: 'Sin eventos en este periodo.', count: (n: number) => `${n} eventos`, failed: 'No se pudo leer, guardar o compartir el diagnóstico. Inténtalo de nuevo.',
+  },
   savedCopy: (at: string) => `Copia guardada · ${at}. El estado puede haber cambiado.`,
   cacheFailed: 'No se pudo guardar en este teléfono. Puedes seguir viendo la pantalla actual.',
   noSavedChats: 'Aún no hay chats guardados en este teléfono. Conecta tu computadora para cargarlos.',
@@ -166,6 +182,7 @@ export const ES: Strings = {
     why: { connected: '', slow: 'La conexión funciona, pero las respuestas tardan. Los mensajes pueden llegar unos segundos tarde.', trying: 'Comprobando qué parte no responde.', 'no-network': 'Se reconecta sola cuando el teléfono tenga Wi-Fi o datos móviles.', blocked: 'El teléfono tiene red, pero no llega al relay que lo conecta con tu computadora. La red puede bloquearlo o no tener internet. Prueba otra Wi-Fi o datos móviles.', computer: 'El relay funciona, pero tu computadora no responde. Comprueba que esté encendida, sin suspender y con DSH abierto. Si quitaste este teléfono en la computadora, hay que vincularlo de nuevo.', companion: 'Tu computadora responde, pero el complemento de DSH no. Vuelve a abrir DSH en la computadora.', refused: 'La computadora ya no acepta este teléfono. Crea un código nuevo en la computadora y vincúlalo de nuevo.' } },
   connectionState: { online: 'Conectado', connecting: 'Reconectando', offline: 'Desconectado' },
   viaTailcat: 'Túnel cifrado de extremo a extremo', pathDirect: 'Directo a tu computadora', pathRelay: (region: string) => `A través de un relé (${region})`, pathUnknown: 'Buscando la ruta…',
+  appVersion: 'Versión (compilación)', versionUnavailable: 'No disponible',
   dshVersion: 'Versión de DSH', companionVersion: 'Versión del complemento', unlinkHint: 'Este teléfono dejará de acceder a la computadora hasta que escanees un nuevo código de vinculación.',
   appearance: 'Apariencia', themeSystem: 'Sistema', themeLight: 'Claro', themeDark: 'Oscuro', language: 'Idioma', languageSystem: 'Sistema',
   notifications: 'Notificaciones', notifyAnswers: 'Respuesta lista o detenida', notifyDecisions: 'El agente necesita tu decisión', notifyBanners: 'Banners dentro de la app',

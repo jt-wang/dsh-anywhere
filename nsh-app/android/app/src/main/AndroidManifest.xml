@@ -33,6 +33,8 @@
                 <data android:scheme="dshm1" />
             </intent-filter>
         </activity>
+        <provider android:name=".DiagnosticExport" android:authorities="${applicationId}.diagnostics"
+            android:exported="false" android:grantUriPermissions="true" />
         <service android:name=".Watching" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Keeps the link to the owner's computer while an agent works there, to tell the owner when its answer is ready or it asks a question." />

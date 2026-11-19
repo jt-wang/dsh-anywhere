@@ -6,6 +6,7 @@
 // The phone's link to the computer can die without a word (a tunnel kept while the app was away): a socket that does
 // not open within `connectMs` and a call not answered within `rpcMs` count as failures, and after two failures in a
 // row the shell is asked to rebuild the link (`onStuck`) before the next try.
+import { diagnostics } from './diagnostics.ts'
 
 export interface SocketLike {
   onopen: (() => void) | null
@@ -18,6 +19,9 @@ export interface SocketLike {
 }
 export class DshError extends Error { constructor(public code: string, message: string) { super(message) } }
 export type ConnectionState = 'connecting' | 'online' | 'offline'
+
+const diagnosticOutcome = (e: unknown) => e instanceof DshError ? e.code === 'timeout' ? 'timeout' : e.code === 'unauthorized' ? 'unauthorized' : e.code.startsWith('http/') ? 'http_error' : e.code === 'network' ? 'network_error' : 'rpc_error' : 'network_error'
+const contentLength = (res: Response) => { const n = res.headers?.get?.('content-length'); return n && /^\d{1,12}$/.test(n) ? Number(n) : undefined }
 
 interface Stream { id: string; endpoint: string; args: unknown; onItem: (v: unknown) => void; onError?: (e: DshError) => void }
 
@@ -71,20 +75,28 @@ export class Dsh {
    * else the companion's configured `hostName`), the companion's and DSH's versions, and whether the companion has the
    * Progress page's calls (`capabilities.progress`; an older companion leaves it out). */
   async computer(): Promise<{ name: string; companionVersion: string; dshVersion: string; progress: boolean }> {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new DshError('timeout', 'The computer did not answer')), this.io.rpcMs ?? 20_000) })
-    let res: Response
-    try { res = await Promise.race([(this.io.fetch ?? fetch)(`${this.origin.replace(/\/dsh\/?$/, '')}/v1/capabilities`, { method: 'GET', headers: { authorization: `Bearer ${this.key}` } } as RequestInit), timeout]) }
-    catch (e) { throw e instanceof DshError ? e : new DshError('network', 'Can’t reach your computer') } finally { clearTimeout(timer) }
-    if (res.status === 401) throw new DshError('unauthorized', 'The computer did not accept this phone')
-    if (!res.ok) throw new DshError(`http/${res.status}`, `HTTP ${res.status}`)
-    const v = (await res.json()) as Record<string, unknown>
-    const text = (x: unknown) => (typeof x === 'string' ? x : '')
-    const caps = v.capabilities && typeof v.capabilities === 'object' ? v.capabilities as Record<string, unknown> : {}
-    return { name: text(v.computerName) || text(v.hostName), companionVersion: text(v.hostVersion), dshVersion: text(v.upstreamVersion), progress: caps.progress === true }
+    const finish = diagnostics.request('capabilities')
+    let outcome = 'network_error', status: number | undefined, bytes: number | undefined
+    try {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new DshError('timeout', 'The computer did not answer')), this.io.rpcMs ?? 20_000) })
+      let res: Response
+      try { res = await Promise.race([(this.io.fetch ?? fetch)(`${this.origin.replace(/\/dsh\/?$/, '')}/v1/capabilities`, { method: 'GET', headers: { authorization: `Bearer ${this.key}` } } as RequestInit), timeout]) }
+      catch (e) { throw e instanceof DshError ? e : new DshError('network', 'Can’t reach your computer') } finally { clearTimeout(timer) }
+      status = res.status; if (diagnostics.accepts('network')) bytes = contentLength(res)
+      if (res.status === 401) throw new DshError('unauthorized', 'The computer did not accept this phone')
+      if (!res.ok) throw new DshError(`http/${res.status}`, `HTTP ${res.status}`)
+      const v = (await res.json()) as Record<string, unknown>
+      const text = (x: unknown) => (typeof x === 'string' ? x : '')
+      const caps = v.capabilities && typeof v.capabilities === 'object' ? v.capabilities as Record<string, unknown> : {}
+      outcome = 'ok'
+      return { name: text(v.computerName) || text(v.hostName), companionVersion: text(v.hostVersion), dshVersion: text(v.upstreamVersion), progress: caps.progress === true }
+    } catch (e) { outcome = diagnosticOutcome(e); throw e } finally { finish(outcome, status, bytes) }
   }
 
   private async call<T>(url: string, method: string, args: Record<string, unknown>): Promise<T> {
+    const finish = diagnostics.request(method)
+    let outcome = 'network_error', status: number | undefined, bytes: number | undefined
     const rpcId = nextId()
     // Given up after rpcMs, reply body included; the request is cancelled then, so the computer stops the work it was
     // doing for it (a Progress list).
@@ -102,13 +114,14 @@ export class Dsh {
         } as RequestInit), timeout])
       } catch (e) { this.failed(); throw e instanceof DshError ? e : new DshError('network', 'Can’t reach your computer') }
       this.worked()
+      status = res.status; if (diagnostics.accepts('network')) bytes = contentLength(res)
       if (res.status === 401) throw new DshError('unauthorized', 'The computer did not accept this phone')
       if (!res.ok) throw new DshError(`http/${res.status}`, `HTTP ${res.status}`)
       const body = await Promise.race([/^\s*multipart\//i.test(res.headers?.get?.('content-type') ?? '') ? withBytes(res) : res.json(), timeout])
       const result = body?.result
-      if (result?.ok === true) return result.value as T
+      if (result?.ok === true) { outcome = 'ok'; return result.value as T }
       throw new DshError(result?.error?.code ?? 'unknown', result?.error?.message ?? '')
-    } finally { clearTimeout(timer) }
+    } catch (e) { outcome = diagnosticOutcome(e); throw e } finally { clearTimeout(timer); finish(outcome, status, bytes) }
   }
 
   /** Opens a logical stream on the shared socket; returns its cancel. Reopened after every reconnect. */

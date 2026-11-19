@@ -50,6 +50,9 @@ def gate():
         raise ConfigurationError('build must be a positive integer (at most nine digits)')
     if require('DSH_UPLOAD') not in ('false', 'true'):
         raise ConfigurationError('upload must be exactly false or true')
+    status_only = os.environ.get('DSH_STATUS_ONLY', 'false')
+    if status_only not in ('false', 'true') or (status_only == 'true' and os.environ['DSH_UPLOAD'] == 'true'):
+        raise ConfigurationError('status_only must be boolean and cannot upload')
 
 
 def preflight():
