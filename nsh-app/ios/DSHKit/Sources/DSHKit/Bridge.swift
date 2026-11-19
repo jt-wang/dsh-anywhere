@@ -1,7 +1,9 @@
 // The app speaks plain HTTP and WebSocket to 127.0.0.1:<port>; each connection continues as TLS that trusts only the
 // computer's invited certificate (SNI h-<hostId>.dsh.invalid), carried by Tailcat (WireGuard) to the companion. NSH's
 // WebSocket cannot be given a private certificate, so TLS ends here, inside the app's own process (as android
-// Bridge.java, with Network.framework).
+// Bridge.java, with Network.framework). connectmobile's forward carries raw connections only after the line
+// "TP-FWD <token>\n" with the token Connect gave (connectphone.Forward): ForwardLine, a framer below TLS, sends it first
+// on every connection. The token stays in memory.
 import Foundation
 import Network
 import Security
@@ -13,8 +15,12 @@ public final class Bridge: @unchecked Sendable {
     /// The loopback port the app connects to.
     public let port: Int
 
-    public init(invitation: Invitation, tailcatPort: Int) throws {
+    private let tailcatPort: UInt16
+
+    public init(invitation: Invitation, tailcatPort: Int, forwardToken: String) throws {
         self.invitation = invitation
+        self.tailcatPort = UInt16(clamping: tailcatPort)
+        ForwardLine.set(Data("TP-FWD \(forwardToken)\n".utf8), for: self.tailcatPort)
         let p = NWParameters.tcp
         p.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: p)
@@ -34,6 +40,7 @@ public final class Bridge: @unchecked Sendable {
         listener.start(queue: queue)
         guard ready.wait(timeout: .now() + 10) == .success, failure == nil, let bound = listener.port else {
             listener.cancel()
+            ForwardLine.set(nil, for: self.tailcatPort)
             throw LinkFailure("link/bridge")
         }
         port = Int(bound.rawValue)
@@ -42,9 +49,9 @@ public final class Bridge: @unchecked Sendable {
     /// Whether this bridge reaches the computer `other` invites to: the same node, port, name and certificate.
     public func serves(_ other: Invitation) -> Bool { invitation.sameComputer(as: other) }
 
-    public func close() { listener.cancel() }
+    public func close() { listener.cancel(); ForwardLine.set(nil, for: tailcatPort) }
 
-    deinit { listener.cancel() }
+    deinit { close() }
 
     /// TLS 1.2+ with the invited name as SNI, accepting exactly the invited leaf certificate.
     private static func parameters(_ invitation: Invitation) -> NWParameters {
@@ -59,7 +66,10 @@ public final class Bridge: @unchecked Sendable {
         }, DispatchQueue(label: "dsh-bridge-verify"))
         let tcp = NWProtocolTCP.Options()
         tcp.connectionTimeout = 20
-        return NWParameters(tls: tls, tcp: tcp)
+        let p = NWParameters(tls: tls, tcp: tcp)
+        // Below TLS (the stack lists the top first): the forward's line goes out before the ClientHello.
+        p.defaultProtocolStack.applicationProtocols.append(NWProtocolFramer.Options(definition: ForwardLine.definition))
+        return p
     }
 
     /// One app connection: the remote handshake first (15 s at most, so a dead tunnel cannot hold it), then bytes
@@ -104,4 +114,37 @@ public final class Bridge: @unchecked Sendable {
             }
         }
     }
+}
+
+/// Sends the forward's "TP-FWD <token>\n" when a connection to the forward starts, then gets out of the way. The line
+/// is found by the forward's loopback port, the connection's remote end (one forward, so one token, per tunnel).
+final class ForwardLine: NWProtocolFramerImplementation {
+    static let label = "TP-FWD"
+    static let definition = NWProtocolFramer.Definition(implementation: ForwardLine.self)
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var lines: [UInt16: Data] = [:]
+
+    static func set(_ line: Data?, for port: UInt16) { lock.lock(); lines[port] = line; lock.unlock() }
+    private static func line(for port: UInt16) -> Data? { lock.lock(); defer { lock.unlock() }; return lines[port] }
+
+    required init(framer: NWProtocolFramer.Instance) {}
+
+    func start(framer: NWProtocolFramer.Instance) -> NWProtocolFramer.StartResult {
+        guard case .hostPort(_, let port)? = framer.remote, let line = ForwardLine.line(for: port.rawValue) else {
+            framer.markFailed(error: .posix(.ECONNREFUSED))
+            return .willMarkReady
+        }
+        framer.writeOutput(data: line)
+        framer.passThroughOutput()
+        framer.passThroughInput()
+        return .ready
+    }
+
+    func handleInput(framer: NWProtocolFramer.Instance) -> Int { 0 }
+    func handleOutput(framer: NWProtocolFramer.Instance, message: NWProtocolFramer.Message, messageLength: Int, isComplete: Bool) {
+        try? framer.writeOutputNoCopy(length: messageLength)
+    }
+    func wakeup(framer: NWProtocolFramer.Instance) {}
+    func stop(framer: NWProtocolFramer.Instance) -> Bool { true }
+    func cleanup(framer: NWProtocolFramer.Instance) {}
 }

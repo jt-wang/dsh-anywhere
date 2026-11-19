@@ -53,11 +53,14 @@ export interface CommandReceipt {
   error?: { code: string; message: string }; updatedAt: number;
 }
 export interface DeviceGrants { readWorkspaceIds: string[]; executeWorkspaceIds: string[] }
-export interface RelayConfiguration { url: string; routeId: string; connectorToken: string }
+/** A tailpocket-relay server, always opaque (DSH's inner TLS end to end). The token stays in its own owner-only file. */
+export interface TailcatRelayConfiguration { url: string; /** Absolute; read once when the companion starts. */ tokenFile: string }
 /** Transport v3 (docs/TAILCAT.md). hostId names the inner TLS identity h-<hostId>.dsh.invalid. */
-export interface TailcatConfiguration { enabled: true; hostId: string; /** Absolute; defaults to the bundled helper for this platform. */ helperPath?: string }
-export interface RelayAccess { accessId: string; accessToken: string; expiresAt: number }
-export interface RelayGrant { accessId: string; tokenHash: string; deviceId: string | null; expiresAt: number; maxStreams: 2 | 8 }
+export interface TailcatConfiguration { enabled: true; hostId: string; /** Absolute; defaults to the bundled helper for this platform. */ helperPath?: string; relay?: TailcatRelayConfiguration;
+  /** false turns TailPocket's same-network route off (default on: private addresses only, end-to-end encrypted). */
+  lan?: boolean;
+  /** Tailcat only, as before TailPocket: no local network route and no relay. */
+  tailcatOnly?: boolean }
 export interface HostBaseConfiguration {
   hostName: string;
   bind: string;
@@ -66,7 +69,6 @@ export interface HostBaseConfiguration {
   tls?: { certPath: string; keyPath: string };
   /** Must remain false outside explicit local test/development composition. */
   allowInsecureLoopback?: boolean;
-  relay?: RelayConfiguration;
   tailcat?: TailcatConfiguration;
 }
 /** Omitting workspaceSource preserves the original explicit-list configuration. */

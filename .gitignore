@@ -38,8 +38,6 @@ artifacts/
 .amp/portals/
 .impeccable/
 docs/private/
-deploy/relay/image-receipt.json
-deploy/relay/repair-receipt.json
 __pycache__/
 *.pyc
 .DS_Store

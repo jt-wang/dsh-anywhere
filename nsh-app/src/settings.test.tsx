@@ -6,13 +6,13 @@ const ORIGIN = 'http://127.0.0.1:40001/dsh'
 const paired = { paired: true, origin: ORIGIN, token: 'synthetic-device-token' }
 const ok = (value: unknown) => ({ body: { type: 'server-response', rpcId: 'x', result: { ok: true, value } } })
 
-async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' })) {
+async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' }), extra: Record<string, unknown> = {}) {
   const app = await open('../App.tsx', {
     locale: 'en-US',
     host: { handlers: {
       'app.info': info, 'network.state': { online: !offline },
       'link.state': paired, 'app.state': { active: true }, 'notify.watch': null, 'notify.clear': null, 'notify.permission': { granted },
-      'notify.request': { granted: true, decided: true }, 'notify.settings': null, 'link.forget': null, 'link.path': { route: 'relay', relay: 'tok' },
+      'notify.request': { granted: true, decided: true }, 'notify.settings': null, 'link.forget': null, 'link.path': { route: 'relay', relay: 'tok' }, ...extra,
     } },
     network: {
       [`POST ${ORIGIN}/api/session/list`]: () => ok({ items: [] }),
@@ -66,3 +66,23 @@ test('Unlink in Settings forgets the computer', async () => {
   await app.waitFor('text:Link your computer')
   expect(app.host.calls().some((c) => c.name === 'link.forget')).toBe(true)
 })
+
+test('Tailcat only is kept by the shell, which opens a new tunnel with it; the app then follows the new bridge', async () => {
+  let on = false, states = 0
+  const app = await settings(true, false, undefined, {
+    'link.tailcatOnly': (data?: { on?: boolean }) => { if (typeof data?.on === 'boolean') on = data.on; return { on } },
+    'link.state': () => { states++; return paired },
+  })
+  await app.waitFor('text:Tailcat only')
+  expect(app.texts().includes('Never use the relay or the local network your computer offers.')).toBe(true)
+  const before = states
+  await app.press('id:tailcat-only')
+  await app.waitUntil(() => on && states > before)
+  expect(app.host.calls().filter((c) => c.name === 'link.tailcatOnly').map((c) => c.data ?? null)).toEqual([null, { on: true }])
+})
+
+test('the same-network route is named as such', async () => {
+  const app = await settings(true, false, undefined, { 'link.path': { route: 'lan' } })
+  await app.waitFor('text:Over this Wi-Fi to your computer')
+})
+

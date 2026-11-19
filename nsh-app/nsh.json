@@ -2,7 +2,7 @@
   "name": "DSH",
   "id": "io.jingtao.dshanywhere",
   "version": "0.1.8",
-  "build": 9,
+  "build": 10,
   "appearance": "system",
   "theme": {
     "cssVars": {
@@ -77,6 +77,7 @@
       "link.reset",
       "link.path",
       "link.diagnose",
+      "link.tailcatOnly",
       "files.pick",
       "haptic",
       "network.state",

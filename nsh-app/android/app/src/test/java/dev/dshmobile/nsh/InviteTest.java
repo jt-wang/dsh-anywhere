@@ -39,6 +39,17 @@ public class InviteTest {
         assertEquals("link/invalid", assertThrows(IllegalArgumentException.class, () -> Invite.bootstrap("dshm1:not-zlib", NOW)).getMessage());
     }
 
+    /** Bootstrap v2 (`pair --tailcat --qr`): TailPocket's v2 invite as it is, for Connectmobile.pair2 to check. */
+    @Test public void anEmojiBootstrapCarriesTheV2Invite() throws Exception {
+        JSONObject invite = new JSONObject().put("v", 2).put("address", "tcSYNTHETICnode").put("expiresAt", NOW / 1000 + 300);
+        JSONObject boot = new JSONObject().put("version", 2).put("expiresAt", NOW + 300_000).put("invite", invite);
+        Invite.Bootstrap b = Invite.bootstrap(boot.toString(), NOW);
+        assertEquals(invite.toString(), new JSONObject(b.invite2).toString());
+        assertEquals("link/expired", assertThrows(IllegalArgumentException.class, () -> Invite.bootstrap(boot.toString(), NOW + 300_001)).getMessage());
+        assertEquals("link/invalid", assertThrows(IllegalArgumentException.class, () -> Invite.bootstrap(new JSONObject().put("version", 2).put("expiresAt", NOW + 1).toString(), NOW)).getMessage());
+        assertEquals(null, Invite.bootstrap(fixture().getString("qr"), NOW).invite2);
+    }
+
     @Test public void theInvitationNamesOneHostWhoseCertificateMatchesThePin() throws Exception {
         Invite.Invitation inv = Invite.invitation(fixture().getJSONObject("invitation").toString());
         assertEquals("h-0123456789abcdef0123456789abcdef.dsh.invalid", inv.serverName);

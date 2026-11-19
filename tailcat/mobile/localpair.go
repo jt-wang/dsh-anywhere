@@ -1,39 +1,39 @@
 package dshtailcat
 
-// Same-Wi-Fi pairing crypto, phone role. Construction from voxt-mobile LocalPairing.swift
-// (Apache-2.0, see tailcat/NOTICE) with this project's labels; contract and frozen test
-// vector: docs/TAILCAT.md ("Same-Wi-Fi pairing").
+// Same-Wi-Fi pairing crypto, phone role, wire v2 (commit, then reveal), for the Android app that runs
+// the wire protocol itself (android/, LocalPairing.kt). TailPocket's connectlocal builds it; DSH keeps
+// its own label, which the host's code and seal (host/src/local-pairing.ts) use too. Contract and frozen
+// test vector: docs/TAILCAT.md ("Same-Wi-Fi pairing").
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
-	"fmt"
-	"io"
 
-	"golang.org/x/crypto/chacha20poly1305"
-	"golang.org/x/crypto/curve25519"
-	"golang.org/x/crypto/hkdf"
+	"github.com/jt-wang/tailpocket/connectlocal"
 )
 
 const localPairLabel = "dsh-mobile-local-pairing-v1"
 
-// LocalPairKeyPair returns a fresh X25519 key pair as {"private":"<b64>","public":"<b64>"}.
+// LocalPairKeyPair returns a fresh attempt as {"private","public","nonce","commit"} (standard base64):
+// an X25519 key pair, the 32-byte nonce and the commitment SHA256(label ‖ "commit" ‖ public ‖ nonce)
+// the phone sends before it sees the computer's key.
 func LocalPairKeyPair() string {
-	private := make([]byte, curve25519.ScalarSize)
-	if _, err := io.ReadFull(rand.Reader, private); err != nil {
-		return `{"error":"keypair-failed"}`
-	}
-	public, err := curve25519.X25519(private, curve25519.Basepoint)
+	kp, err := connectlocal.NewKeyPair()
 	if err != nil {
 		return `{"error":"keypair-failed"}`
 	}
+	nonce, err := connectlocal.NewNonce()
+	if err != nil {
+		return `{"error":"keypair-failed"}`
+	}
+	commit := connectlocal.Commit(localPairLabel, kp.Public[:], nonce)
+	b64 := base64.StdEncoding.EncodeToString
 	body, err := json.Marshal(struct {
 		Private string `json:"private"`
 		Public  string `json:"public"`
-	}{base64.StdEncoding.EncodeToString(private), base64.StdEncoding.EncodeToString(public)})
+		Nonce   string `json:"nonce"`
+		Commit  string `json:"commit"`
+	}{b64(kp.Private[:]), b64(kp.Public[:]), b64(nonce), b64(commit[:])})
 	if err != nil {
 		return `{"error":"keypair-failed"}`
 	}
@@ -41,72 +41,49 @@ func LocalPairKeyPair() string {
 }
 
 // LocalPairCode returns the 6-digit confirmation code the phone shows, or "" on invalid input.
-func LocalPairCode(private, peerPublic string) string {
-	code, _, err := localPairDerive(private, peerPublic)
-	if err != nil {
+func LocalPairCode(private, peerPublic, nonce string) string {
+	s := localPairSession(private, peerPublic, nonce)
+	if s == nil {
 		return ""
 	}
-	return code
+	return s.Code
 }
 
 // LocalPairOpen decrypts the host's sealed invitation, or returns "" if it does not authenticate.
-func LocalPairOpen(private, peerPublic, sealed string) string {
-	_, aeadKey, err := localPairDerive(private, peerPublic)
-	if err != nil {
-		return ""
-	}
+func LocalPairOpen(private, peerPublic, nonce, sealed string) string {
+	s := localPairSession(private, peerPublic, nonce)
 	box, err := base64.StdEncoding.DecodeString(sealed)
-	if err != nil || len(box) < chacha20poly1305.NonceSize+chacha20poly1305.Overhead || len(box) > 128*1024 {
+	if s == nil || err != nil {
 		return ""
 	}
-	aead, err := chacha20poly1305.New(aeadKey)
-	if err != nil {
-		return ""
-	}
-	plain, err := aead.Open(nil, box[:chacha20poly1305.NonceSize], box[chacha20poly1305.NonceSize:], nil)
+	plain, err := s.Open(box)
 	if err != nil {
 		return ""
 	}
 	return string(plain)
 }
 
-// localPairDerive computes the code and AEAD key for the phone holding private, talking to
-// the host with peerPublic.
-func localPairDerive(privateText, peerText string) (string, []byte, error) {
-	private, err := decodeKey(privateText)
-	if err != nil {
-		return "", nil, err
+// canonical32 decodes standard base64 that is exactly 32 bytes and re-encodes to the same text.
+func canonical32(text string) []byte {
+	b, err := base64.StdEncoding.DecodeString(text)
+	if err != nil || len(b) != 32 || base64.StdEncoding.EncodeToString(b) != text {
+		return nil
 	}
-	hostPub, err := decodeKey(peerText)
-	if err != nil {
-		return "", nil, err
-	}
-	phonePub, err := curve25519.X25519(private, curve25519.Basepoint)
-	if err != nil {
-		return "", nil, err
-	}
-	shared, err := curve25519.X25519(private, hostPub) // Rejects low-order (all-zero) results.
-	if err != nil {
-		return "", nil, err
-	}
-	digest := sha256.New()
-	digest.Write([]byte(localPairLabel))
-	digest.Write(phonePub)
-	digest.Write(hostPub)
-	digest.Write(shared)
-	code := fmt.Sprintf("%06d", binary.BigEndian.Uint64(digest.Sum(nil)[:8])%1_000_000)
-	salt := append(append([]byte{}, phonePub...), hostPub...)
-	aeadKey := make([]byte, chacha20poly1305.KeySize)
-	if _, err := io.ReadFull(hkdf.New(sha256.New, shared, salt, []byte(localPairLabel+" invitation")), aeadKey); err != nil {
-		return "", nil, err
-	}
-	return code, aeadKey, nil
+	return b
 }
 
-func decodeKey(text string) ([]byte, error) {
-	raw, err := base64.StdEncoding.DecodeString(text)
-	if err != nil || len(raw) != curve25519.PointSize {
-		return nil, errInvalid
+func localPairSession(privateText, peerText, nonceText string) *connectlocal.Session {
+	private, peer, nonce := canonical32(privateText), canonical32(peerText), canonical32(nonceText)
+	if private == nil || peer == nil || nonce == nil {
+		return nil
 	}
-	return raw, nil
+	own, err := connectlocal.KeyPairFromPrivate(private)
+	if err != nil {
+		return nil
+	}
+	s, err := connectlocal.NewSession(localPairLabel, own, peer, true, nonce)
+	if err != nil {
+		return nil
+	}
+	return s
 }

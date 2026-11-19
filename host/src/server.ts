@@ -21,9 +21,7 @@ import type { WorkspaceSource } from './workspace-source.ts';
 import type { AuthorizedDevice, StoredCommand } from './state.ts';
 import type { FileUploadReservation, HostAdapter, HostConfiguration, PreparedHostConfiguration, HostSession, HostSnapshot } from './types.ts';
 import { isRequestId } from './state.ts';
-import { createRelayConnector } from './relay-connector.ts';
-import type { RelayConnector } from './relay-connector.ts';
-import { createTailcatConnector } from './tailcat-connector.ts';
+import { createTailcatConnector, readTailcatRelays } from './tailcat-connector.ts';
 import type { TailcatConnector, TailcatHelperCommand } from './tailcat-connector.ts';
 import { STEP_KINDS, STEP_STATUSES, TOOL_NAME, windowMessages } from './step-presentation.ts';
 import { createFolders, FolderError } from './folders.ts';
@@ -42,8 +40,6 @@ export interface HostServerOptions {
   state?: HostState;
   /** Tests may shorten this; production heartbeats never exceed twenty seconds. */
   heartbeatMs?: number;
-  /** Test-only loopback outer WS. Inner listener always remains HTTPS in relay mode. */
-  allowInsecureRelayLoopback?: boolean;
   /** Test-only fake Tailcat helper; production always runs the configured or bundled binary. */
   tailcatHelper?: TailcatHelperCommand;
   /** DSH's own protocol for the owner's phone under /dsh (dsh-relay.ts); read per request, available once DSH's web server is. */
@@ -58,7 +54,6 @@ export interface MobileHostServer {
   readonly server: HttpServer | HttpsServer;
   readonly state: HostState;
   readonly config: PreparedHostConfiguration;
-  readonly relay?: RelayConnector;
   readonly tailcat?: TailcatConnector;
   start(): Promise<{ baseUrl: string }>;
   close(): Promise<void>;
@@ -141,17 +136,16 @@ async function bodyJson(req: IncomingMessage, signal: AbortSignal): Promise<Reco
 
 /** Prepares a private server without binding; safe for in-process plugin composition. */
 export async function createHostServer(options: HostServerOptions): Promise<MobileHostServer> {
-  const prepared = await prepareConfiguration(options.config, { allowInsecureRelayLoopback: options.allowInsecureRelayLoopback === true });
+  const prepared = await prepareConfiguration(options.config);
   const config = prepared.config, adapter = options.adapter;
   const workspaceSource = options.workspaceSource ?? await createWorkspaceSource(config);
   const folders = createFolders({ home: options.folderHome ?? homedir(), roots: async () => (await workspaceSource.list()).map(workspace => workspace.path) });
   if (options.heartbeatMs !== undefined && (!Number.isInteger(options.heartbeatMs) || options.heartbeatMs < 10 || options.heartbeatMs > 20_000)) throw new HostError('invalid_config');
   const state = options.state ?? new HostState(config.statePath);
   if (state.path !== config.statePath) { if (!options.state) state.close(); throw new HostError('invalid_config'); }
-  const relay = config.relay ? createRelayConnector({ relay: config.relay, state, targetPort: config.port, allowInsecureLoopback: options.allowInsecureRelayLoopback === true }) : undefined;
   // Fails closed (tailcat_helper_missing) before binding when the platform helper is absent.
   let tailcat: TailcatConnector | undefined;
-  try { tailcat = config.tailcat ? createTailcatConnector({ tailcat: config.tailcat, state, targetPort: config.port, hostName: config.hostName, ...(options.tailcatHelper ? { helper: options.tailcatHelper } : {}) }) : undefined; }
+  try { tailcat = config.tailcat ? createTailcatConnector({ tailcat: config.tailcat, state, targetPort: config.port, hostName: config.hostName, relays: await readTailcatRelays(config.tailcat), ...(options.tailcatHelper ? { helper: options.tailcatHelper } : {}) }) : undefined; }
   catch (error) { if (!options.state) state.close(); throw error; }
   let notifications: NotificationFeed | undefined;
   const notificationStreams = new Set<string>();
@@ -585,9 +579,9 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
   }
 
   function authorized(req: IncomingMessage): AuthorizedDevice {
-    // Relay and Tailcat tunnels all arrive from loopback after transport access checks; never lock them out as one peer.
+    // Tailcat and relay tunnels all arrive from loopback after transport access checks; never lock them out as one peer.
     const peer = req.socket.remoteAddress ?? 'unknown';
-    const key = (relay || tailcat) && /^(127\.|::1$|::ffff:127\.)/.test(peer) ? undefined : `auth-fail:${peer}`;
+    const key = tailcat && /^(127\.|::1$|::ffff:127\.)/.test(peer) ? undefined : `auth-fail:${peer}`;
     const header = req.headers.authorization;
     // A valid credential always wins, so a peer sharing the address (NAT) cannot lock a paired phone out.
     const device = typeof header === 'string' && /^Bearer [A-Za-z0-9_-]{43}$/.test(header) ? state.authenticate(header.slice(7)) : undefined;
@@ -660,14 +654,6 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
       limits.take('pair-global', 30); limits.take(`pair:${req.socket.remoteAddress ?? 'unknown'}`, 10);
       const body = await bodyJson(req, signal); keys(body, ['pairingToken', 'deviceName']);
       if (typeof body.pairingToken !== 'string' || typeof body.deviceName !== 'string') throw new HostError('invalid_request');
-      const remoteRoute = state.remotePairingRoute(body.pairingToken);
-      if (remoteRoute) {
-        if (!relay || remoteRoute !== config.relay?.routeId) throw new HostError('unauthorized');
-        const result = state.consumeRemotePairing(body.pairingToken, body.deviceName, remoteRoute);
-        try { await relay.waitPublished(result.relayAccess.accessId); }
-        catch { state.revokeRelayGrant(result.relayAccess.accessId); throw new HostError('unavailable'); }
-        sendJson(res, 201, { ...result, hostName: config.hostName, protocolVersion: 1 }); return;
-      }
       const result = state.consumePairing(body.pairingToken, body.deviceName);
       sendJson(res, 201, { ...result, hostName: config.hostName, protocolVersion: 1 }); return;
     }
@@ -1004,7 +990,7 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
   });
   server.on('clientError', (_error, socket) => { if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'); });
   const host: MobileHostServer = {
-    server, state, config, ...(relay ? { relay } : {}), ...(tailcat ? { tailcat } : {}),
+    server, state, config, ...(tailcat ? { tailcat } : {}),
     start() {
       if (closing) return Promise.reject(new HostError('unavailable'));
       started ??= (async () => {
@@ -1017,7 +1003,6 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
         }
         claimed = true;
         await files.startup(await workspaceSource.list());
-        if (relay) state.recoverPendingRelayPublications();
         const sources = adapter.notifications?.();
         if (sources) { notifications = new NotificationFeed(state, sources); await notifications.start(); }
         // A hot reload starts this companion while the previous one is still closing: wait for its port (15 s).
@@ -1030,7 +1015,7 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
           if (error.code !== 'EADDRINUSE' || waited >= 15_000 || closing) { state.releaseRuntime(); claimed = false; throw new HostError('unavailable'); }
           await new Promise(resolve => setTimeout(resolve, 300));
         }
-        relay?.start(); tailcat?.start();
+        tailcat?.start();
         const address = server.address();
         if (!address || typeof address === 'string') throw new HostError('unavailable');
         return { baseUrl: `${prepared.tls ? 'https' : 'http'}://${config.bind === '::1' ? '[::1]' : config.bind}:${address.port}` };
@@ -1042,7 +1027,7 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
       closing = true; pumpUploads(); shutdown.abort(); clearInterval(uploadSweep); for (const id of uploads.keys()) removeUpload(id);
       await Promise.all([...cleanups]).catch(() => {}); await files.close().catch(() => {});
       await notifications?.close();
-      await relay?.close(); await tailcat?.close();
+      await tailcat?.close();
       for (const stream of streams) stream.stop();
       onRevoke();
       // A host stop must not cancel upstream work. Preserve all in-flight outcomes as uncertain

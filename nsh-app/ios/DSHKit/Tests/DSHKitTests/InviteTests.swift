@@ -55,6 +55,18 @@ final class InviteTests: XCTestCase {
         refused("link/invalid") { try Invite.bootstrap("{}", nowMs: self.now) }
     }
 
+    /// Bootstrap v2 (`pair --tailcat --qr`): TailPocket's v2 invite as it is, for ConnectmobilePair2 to check.
+    func testAnEmojiBootstrapCarriesTheV2Invite() throws {
+        let invite: [String: Any] = ["v": 2, "address": "tcSYNTHETICnode", "expiresAt": now / 1000 + 300]
+        let boot: [String: Any] = ["version": 2, "expiresAt": now + 300_000, "invite": invite]
+        let b = try Invite.bootstrap(text(boot), nowMs: now)
+        let back = try JSONSerialization.jsonObject(with: Data(b.invite2!.utf8)) as! [String: Any]
+        XCTAssertEqual(back["address"] as? String, "tcSYNTHETICnode")
+        refused("link/expired") { try Invite.bootstrap(self.text(boot), nowMs: self.now + 300_001) }
+        refused("link/invalid") { try Invite.bootstrap(self.text(["version": 2, "expiresAt": self.now + 1]), nowMs: self.now) }
+        XCTAssertNil(try Invite.bootstrap(try pairing()["qr"] as! String, nowMs: now).invite2)
+    }
+
     func testTheQrInflatesToAtMost64KiB() throws {
         let x = try extra()
         XCTAssertNoThrow(try Invite.bootstrap(x["qrAtCap"] as! String, nowMs: now))

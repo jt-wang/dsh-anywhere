@@ -2,16 +2,19 @@
 # Builds the Tailcat helper binaries into host/dist/tailcat/, the Android AAR into
 # nsh-app/android/app/libs/dshtailcat.aar and, with IOS_ONLY=1, the iOS framework into
 # nsh-app/ios/Frameworks/Dshtailcat.xcframework (all gitignored). Contract: docs/TAILCAT.md.
+# The phone library binds two packages: TailPocket's connectmobile (Java dev.dshmobile.tailcat.connectmobile.Connectmobile,
+# Objective-C Connectmobile*) and DSH's tailcat/mobile (dshtailcat: Diagnose and the same-Wi-Fi pairing crypto).
 #   HELPERS_ONLY=1  build only the helper binaries
 #   AAR_ONLY=1      build only the Android AAR (needs ANDROID_HOME/ANDROID_SDK_ROOT and ANDROID_NDK_HOME)
 #   IOS_ONLY=1      build only the iOS xcframework, device and simulator (needs Xcode)
-# Go 1.27.3 (toolchain line in tailcat/go.mod; fixes stdlib advisories in 1.27.1) is downloaded by any Go >=1.21.
+# Go 1.27.4 (toolchain line in tailcat/go.mod) is downloaded by any Go >=1.21.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 module="$root/tailcat"
-go_version="1.27.3"
+go_version="1.27.4"
 tailcat_pin="github.com/tailscale/tailcat v0.6.0"
+tailpocket_pin="github.com/jt-wang/tailpocket v0.3.0-pre.9" # public tag commit 63aa1be88082a87afbbaea5faf5959084dd126bb
 
 fail() { echo "build-tailcat: $*" >&2; exit 1; }
 
@@ -27,6 +30,7 @@ export GOFLAGS="-mod=readonly"
 cd "$module"
 [[ "$(go version)" == *"go${go_version} "* ]] || fail "toolchain is '$(go version)', tailcat/go.mod requires go${go_version}"
 [[ "$(go list -m github.com/tailscale/tailcat)" == "$tailcat_pin" ]] || fail "tailcat module is not the pinned ${tailcat_pin#* }"
+[[ "$(go list -m github.com/jt-wang/tailpocket)" == "$tailpocket_pin" ]] || fail "tailpocket module is not the pinned ${tailpocket_pin#* }"
 mobile_version="$(go list -m -f '{{.Version}}' golang.org/x/mobile)"
 
 # gomobile writes the folder it binds into the library's Go build info (-trimpath leaves it), so it binds a copy in a
@@ -76,7 +80,7 @@ build_aar() {
   (cd "$bind_folder/tailcat" && PATH="$bin:$PATH" ANDROID_HOME="$sdk" "$bin/gomobile" bind \
     -target=android/arm64,android/arm,android/amd64 -androidapi 26 \
     -javapkg dev.dshmobile.tailcat -trimpath -ldflags='-s -w' -tags ts_omit_ssh \
-    -o "$root/nsh-app/android/app/libs/dshtailcat.aar" ./mobile) || { rm -rf "$bind_folder"; fail "gomobile bind failed"; }
+    -o "$root/nsh-app/android/app/libs/dshtailcat.aar" ./mobile github.com/jt-wang/tailpocket/connectmobile) || { rm -rf "$bind_folder"; fail "gomobile bind failed"; }
   rm -rf "$bind_folder"
   local unpacked; unpacked="$(mktemp -d)" # the AAR is a zip: its libraries are unpacked to be read
   unzip -q "$root/nsh-app/android/app/libs/dshtailcat.aar" 'jni/*' -d "$unpacked"
@@ -95,7 +99,7 @@ build_xcframework() {
   (cd "$bind_folder/tailcat" && PATH="$bin:$PATH" "$bin/gomobile" bind \
     -target=ios/arm64,iossimulator/arm64 -iosversion 17.0 \
     -trimpath -ldflags='-s -w' -tags ts_omit_ssh \
-    -o "$out/Dshtailcat.xcframework" ./mobile) || { rm -rf "$bind_folder"; fail "gomobile bind failed"; }
+    -o "$out/Dshtailcat.xcframework" ./mobile github.com/jt-wang/tailpocket/connectmobile) || { rm -rf "$bind_folder"; fail "gomobile bind failed"; }
   rm -rf "$bind_folder"
   refuse_machine_paths "$out/Dshtailcat.xcframework" "$out/Dshtailcat.xcframework"
   echo "xcframework ready: nsh-app/ios/Frameworks/Dshtailcat.xcframework"

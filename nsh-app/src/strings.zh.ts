@@ -179,6 +179,7 @@ export const ZH: Strings = {
     why: { connected: '', slow: '连接正常，但响应较慢，消息可能晚几秒才到。', trying: '正在检查是哪一段没有回应。', 'no-network': '手机连上 Wi-Fi 或移动数据后会自动重连。', blocked: '手机有网络，但连不上用来连接电脑的中继服务器。当前网络可能屏蔽了它，也可能实际上不能上网。换个 Wi-Fi 或用移动数据试试。', computer: '中继服务器正常，但电脑没有回应。请确认电脑开着、没有休眠、DSH 在运行。如果在电脑上移除过这台手机，需要重新配对。', companion: '电脑有回应，但上面的 DSH 配套程序没有回应。请在电脑上重新打开 DSH。', refused: '电脑已不再接受这台手机。请在电脑上生成新的配对码，再重新配对。' } },
   connectionState: { online: '连接成功', connecting: '重新连接中', offline: '连接异常' },
   viaTailcat: '端到端加密隧道', pathDirect: '直连你的电脑', pathRelay: (region: string) => `经中继（${region}）`, pathUnknown: '正在查找路由…',
+  pathLan: '经同一 Wi-Fi 连到电脑', pairEmoji: '请确认电脑上显示的是同样的表情，然后在电脑上确认。', tailcatOnly: '仅用 Tailcat', tailcatOnlyHint: '不经中继，也不走电脑提供的局域网。',
   appVersion: '版本（构建号）', versionUnavailable: '无法读取',
   dshVersion: 'DSH 版本', companionVersion: '电脑端插件版本', unlinkHint: '断开后，要重新扫码才能再连上电脑。',
   appearance: '外观', themeSystem: '跟随系统', themeLight: '浅色', themeDark: '深色', language: '语言', languageSystem: '跟随系统',

@@ -29,7 +29,7 @@ targets:
       - package: DSHKit
       - framework: Frameworks/NativeShell.xcframework
         embed: false
-      - framework: Frameworks/Dshtailcat.xcframework
+      - framework: Frameworks/Dshtailcat.xcframework # TailPocket connectmobile + DSH's dshtailcat (tools/build-tailcat.sh)
         embed: false
       - sdk: libresolv.tbd # the Go runtime's DNS
     settings:

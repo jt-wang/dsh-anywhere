@@ -1,6 +1,7 @@
 // Command phone is a reference Tailcat phone for end-to-end checks of docs/TAILCAT.md. It does what
-// the Android app does with the same mobile library: Voxt-style /pair over the temporary pairing
-// node, then the normal forward, pinned HTTPS to the companion and one authenticated read.
+// the phone app does with the same mobile library (TailPocket's connectmobile): an emoji pairing from a
+// bootstrap v2 (or /pair from a v1), the invitation v4 from the link's payload, then the normal forward
+// (TP-FWD and the connection's token first), pinned HTTPS to the companion, one authenticated read and a sync.
 // It prints only statuses, never keys or tokens.
 package main
 
@@ -23,12 +24,13 @@ import (
 	"strings"
 	"time"
 
-	dshtailcat "dshmobile.local/tailcat/mobile"
+	"github.com/jt-wang/tailpocket/connectmobile"
 )
 
 type bootstrap struct {
-	Version int   `json:"version"`
-	Expires int64 `json:"expiresAt"`
+	Version int             `json:"version"`
+	Expires int64           `json:"expiresAt"`
+	Invite  json.RawMessage `json:"invite"` // version 2: TailPocket's v2 invite
 	Tailcat struct {
 		Address string `json:"address"`
 		Port    int    `json:"port"`
@@ -52,19 +54,12 @@ type normalInvitation struct {
 type forward struct {
 	Handle int64  `json:"handle"`
 	Port   int    `json:"port"`
+	Token  string `json:"token"`
 	Error  string `json:"error"`
 }
 
-func start(address, key string, port int) (forward, error) {
-	var f forward
-	if err := json.Unmarshal([]byte(dshtailcat.Start(address, key, port)), &f); err != nil || f.Error != "" || f.Port == 0 {
-		return f, fmt.Errorf("start failed: %s", f.Error)
-	}
-	return f, nil
-}
-
 func main() {
-	path := flag.String("invitation", "", "bootstrap v1 JSON file")
+	path := flag.String("invitation", "", "bootstrap v1 or v2 JSON file")
 	timeout := flag.Duration("timeout", 90*time.Second, "overall deadline")
 	flag.Parse()
 	if err := run(*path, *timeout); err != nil {
@@ -79,68 +74,58 @@ func run(path string, timeout time.Duration) error {
 		return err
 	}
 	var boot bootstrap
-	if err := json.Unmarshal(raw, &boot); err != nil || boot.Version != 1 {
-		return errors.New("not a bootstrap v1")
+	if err := json.Unmarshal(raw, &boot); err != nil || (boot.Version != 1 && boot.Version != 2) {
+		return errors.New("not a bootstrap v1 or v2")
 	}
 	deadline := time.Now().Add(timeout)
 
-	// 1. The phone's durable Tailcat identity is created once and sent to /pair.
-	phoneKey := dshtailcat.NewClientKey()
-	public := dshtailcat.PublicKey(phoneKey)
-	pairing, err := start(boot.Tailcat.Address, boot.Tailcat.Key, boot.Tailcat.Port)
-	if err != nil {
-		return err
-	}
-	pairClient := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
-		DisableKeepAlives: true,
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", pairing.Port))
-		},
-	}}
-	var invitation string
-	for attempt := 1; ; attempt++ {
-		request, _ := http.NewRequest(http.MethodPost, "http://pairing.invalid/pair", strings.NewReader(fmt.Sprintf(`{"phoneKey":%q}`, public)))
-		request.Header.Set("Authorization", "Bearer "+boot.Tailcat.Proof)
-		request.Header.Set("Content-Type", "application/json")
-		response, err := pairClient.Do(request)
-		if err == nil {
-			body, _ := io.ReadAll(io.LimitReader(response.Body, 8192))
-			response.Body.Close()
-			if response.StatusCode != http.StatusOK {
-				dshtailcat.Stop(pairing.Handle)
-				return fmt.Errorf("/pair status %d", response.StatusCode)
-			}
-			var reply struct {
-				Invitation string `json:"invitation"`
-			}
-			if json.Unmarshal(body, &reply) != nil || reply.Invitation == "" {
-				dshtailcat.Stop(pairing.Handle)
-				return errors.New("/pair: no invitation")
-			}
-			invitation = reply.Invitation
-			break
+	// 1. The phone's durable Tailcat identity is created once. Bootstrap v2 is TailPocket's v2 invite: both
+	// screens show four emoji and the computer's user confirms. Bootstrap v1 (same-Wi-Fi) is a v1 invite.
+	phoneKey := connectmobile.NewKey()
+	var linkText string
+	ms := func() int { return int(time.Until(deadline) / time.Millisecond) }
+	if boot.Version == 2 {
+		first := connectmobile.Pair2(1, string(boot.Invite), phoneKey, "Reference phone", "", ms())
+		var shown struct {
+			Emoji []string `json:"emoji"`
 		}
-		if time.Now().After(deadline) {
-			dshtailcat.Stop(pairing.Handle)
-			return fmt.Errorf("/pair: %w", err)
+		if json.Unmarshal([]byte(first), &shown) == nil && len(shown.Emoji) == 4 {
+			fmt.Println("emoji:", strings.Join(shown.Emoji, " "))
+			linkText = connectmobile.Pair2Finish(1, ms())
+		} else {
+			linkText = first
 		}
-		fmt.Printf("pairing node not reachable yet (attempt %d)\n", attempt)
-		time.Sleep(2 * time.Second)
+	} else {
+		invite, _ := json.Marshal(map[string]any{"v": 1, "address": boot.Tailcat.Address, "port": boot.Tailcat.Port,
+			"key": boot.Tailcat.Key, "proof": boot.Tailcat.Proof, "expiresAt": boot.Expires / 1000})
+		linkText = connectmobile.Pair(1, string(invite), phoneKey, "Reference phone", "", ms())
 	}
-	dshtailcat.Stop(pairing.Handle)
+	var link struct {
+		Address string `json:"address"`
+		Port    int    `json:"port"`
+		Payload string `json:"payload"`
+		Error   string `json:"error"`
+	}
+	if json.Unmarshal([]byte(linkText), &link) != nil || link.Error != "" {
+		return fmt.Errorf("/pair: %s", link.Error)
+	}
 	fmt.Println("pairing node: ok (invitation received)")
 
+	// The reply's address is authoritative; the payload is the invitation v4 for the TLS identity.
 	var normalInv normalInvitation
-	if err := json.Unmarshal([]byte(invitation), &normalInv); err != nil || normalInv.Version != 4 || normalInv.Tailcat.Port != 48931 || !strings.HasPrefix(normalInv.Tailcat.Address, "tc") {
+	if err := json.Unmarshal([]byte(link.Payload), &normalInv); err != nil || normalInv.Version != 4 || normalInv.Tailcat.Port != 48931 || link.Port != 48931 || !strings.HasPrefix(link.Address, "tc") {
 		return errors.New("invalid normal invitation")
+	}
+	if normalInv.Tailcat.Address != link.Address {
+		return errors.New("invitation names another node (or none)")
 	}
 
 	// 2. Normal node with the same durable key, pinned HTTPS through the loopback forward.
-	normal, err := start(normalInv.Tailcat.Address, phoneKey, normalInv.Tailcat.Port)
-	if err != nil {
-		return err
+	var normal forward
+	if json.Unmarshal([]byte(connectmobile.Connect(linkText, "")), &normal) != nil || normal.Error != "" || normal.Port == 0 {
+		return fmt.Errorf("connect failed: %s", normal.Error)
 	}
-	defer dshtailcat.Stop(normal.Handle)
+	defer connectmobile.Stop(normal.Handle)
 	base, err := url.Parse(normalInv.BaseURL)
 	if err != nil {
 		return err
@@ -166,7 +151,12 @@ func run(path string, timeout time.Duration) error {
 	client := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
 		TLSClientConfig: tlsConfig, ForceAttemptHTTP2: false, DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", normal.Port))
+			c, err := (&net.Dialer{}).DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", normal.Port))
+			if err == nil {
+				// A raw (TLS) connection through the forward starts with the connection's token.
+				_, err = io.WriteString(c, "TP-FWD "+normal.Token+"\n")
+			}
+			return c, err
 		},
 	}}
 	var token string
@@ -206,6 +196,15 @@ func run(path string, timeout time.Duration) error {
 	if response.StatusCode != 200 {
 		return errors.New("authenticated read failed")
 	}
+	// 3. The phone registers its end-to-end key and learns the host's routes (an opaque relay, if any).
+	var synced struct {
+		Via   []struct{ T, M string } `json:"via"`
+		Error string                  `json:"error"`
+	}
+	if json.Unmarshal([]byte(connectmobile.Sync(normal.Handle, 30000)), &synced) != nil || synced.Error != "" {
+		return fmt.Errorf("sync: %s", synced.Error)
+	}
+	fmt.Printf("sync: ok, %d route(s) besides Tailcat\n", len(synced.Via))
 	fmt.Println("PASS: phone paired and read over Tailcat")
 	return nil
 }

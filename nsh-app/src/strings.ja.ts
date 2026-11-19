@@ -175,6 +175,7 @@ export const JA: Strings = {
     why: { connected: '', slow: '接続はできていますが、応答に時間がかかっています。メッセージが数秒遅れることがあります。', trying: 'どの部分が応答していないか確認しています。', 'no-network': 'スマートフォンが Wi-Fi かモバイルデータにつながると自動で再接続します。', blocked: 'スマートフォンはネットワークにつながっていますが、パソコンとつなぐリレーに接続できません。ネットワークがブロックしているか、インターネットにつながっていない可能性があります。別の Wi-Fi かモバイルデータを試してください。', computer: 'リレーは正常ですが、パソコンが応答しません。電源が入っていてスリープしておらず、DSH が起動しているか確認してください。パソコンでこのスマートフォンを削除した場合は、もう一度ペアリングが必要です。', companion: 'パソコンは応答していますが、DSH のコンパニオンが応答しません。パソコンで DSH を開き直してください。', refused: 'パソコンがこのスマートフォンを受け付けなくなりました。パソコンで新しいペアリングコードを作り、もう一度ペアリングしてください。' } },
   connectionState: { online: '接続済み', connecting: '再接続中', offline: '切断' },
   viaTailcat: 'エンドツーエンド暗号化トンネル', pathDirect: 'パソコンに直接接続', pathRelay: (region: string) => `リレー経由（${region}）`, pathUnknown: '経路を確認中…',
+  pathLan: '同じ Wi-Fi でパソコンに接続', pairEmoji: 'パソコンに同じ絵文字が表示されていることを確かめて、パソコンで承認してください。', tailcatOnly: 'Tailcat のみ', tailcatOnlyHint: 'リレーやパソコンが提供するローカルネットワークを使いません。',
   appVersion: 'バージョン（ビルド）', versionUnavailable: '取得できません',
   dshVersion: 'DSH バージョン', companionVersion: 'コンパニオンのバージョン', unlinkHint: '新しいペアリングコードをスキャンするまで、このスマートフォンからパソコンに接続できなくなります。',
   appearance: '外観', themeSystem: 'システムに合わせる', themeLight: 'ライト', themeDark: 'ダーク', language: '言語', languageSystem: 'システムに合わせる',
