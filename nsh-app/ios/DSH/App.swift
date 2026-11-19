@@ -48,6 +48,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let s = url.absoluteString
         return s.hasPrefix("dshm1:") ? s : nil
     }
+
+    func sceneDidEnterBackground(_ scene: UIScene) { shell?.diagnosticActive(false) }
+    func sceneDidBecomeActive(_ scene: UIScene) { shell?.diagnosticActive(true) }
 }
 
 final class ShellController: UIViewController {
@@ -57,6 +60,7 @@ final class ShellController: UIViewController {
     private var files: Files!
     private var modules: Modules!
     private var network: NetworkWatch!
+    private var diagnostics: Diagnostics!
 
     init(pair: String?) {
         pairAtStart = pair
@@ -75,6 +79,17 @@ final class ShellController: UIViewController {
         app.onError = { message in NSLog("nsh: %@", message) }
         // As the Android shell's setLimits(2047, 0, MAX, MAX, MAX): a chat's history and markdown need the room.
         app.limits = NshLimits(memoryMB: 2047, loadBudget: 10_000_000, callBudget: 10_000_000, maxNodes: .max)
+        // The installed phone app, not the NSH runtime or the linked computer.
+        app.handle("app.info") { _, reply in
+            guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                  let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String else {
+                return reply.reject("app.info/unavailable")
+            }
+            reply.resolve(["version": version, "build": build, "os": UIDevice.current.systemVersion,
+                           "deviceClass": UIDevice.current.userInterfaceIdiom == .pad ? "tablet" : "phone"])
+        }
+        diagnostics = Diagnostics(host: self)
+        diagnostics.attach(app)
         modules = Modules(host: self)
         modules.attach(app) // generated interfaces (`ui.open`)
         link = Link(host: self)
@@ -96,6 +111,7 @@ final class ShellController: UIViewController {
     }
 
     func pair(_ text: String) { app.send("pair", ["text": text]) }
+    func diagnosticActive(_ active: Bool) { diagnostics?.setActive(active) }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { NshAppView.preferredStatusBarStyle }
     override var prefersStatusBarHidden: Bool { NshAppView.prefersStatusBarHidden }

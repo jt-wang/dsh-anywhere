@@ -1,0 +1,4 @@
+{
+  "name": "Local diagnostics checks",
+  "capabilities": { "host": ["app.info", "diagnostics.*"] }
+}

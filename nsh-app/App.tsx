@@ -20,6 +20,8 @@ import { ActivityButton, createActivity } from './src/activity.tsx'
 import { ConnectionDot, ReachSheet } from './src/status.tsx'
 import { FilesPage } from './src/files.tsx'
 import { TerminalPage, TerminalsPage, type TerminalTarget } from './src/shell.tsx'
+import { diagnostics, loadDiagnostics } from './src/diagnostics.ts'
+import { appActive } from './src/state.ts'
 import type { FileEntry } from './src/files.ts'
 import './assets/fonts/Geist-Regular.ttf'
 import './assets/fonts/Geist-Medium.ttf'
@@ -97,6 +99,14 @@ function TryBanner() {
 
 function App() {
   loadPrefs()
+  loadDiagnostics()
+  host.on('diagnostics.resource', (value) => diagnostics.record('resources', 'os.snapshot', value))
+  // Native observers run only when explicitly enabled and visible; no resource sampling timer.
+  effect(() => {
+    diagnostics.foreground(appActive())
+    const prefs = diagnostics.prefs()
+    host.call('diagnostics.resources', { enabled: appActive() && prefs.enabled && prefs.categories.resources }).catch(() => { if (prefs.enabled) diagnostics.failed.set(true) })
+  })
   boot()
   const nav = createNavStack<Route>([{ name: 'sessions' }])
   const titles = signal<Record<string, string>>({})
@@ -106,7 +116,7 @@ function App() {
   const renaming = signal<Summary | undefined>(undefined)
   const notice = signal('')
   let menuClosed = 0 // a press on ⋯ while the menu is open closes it as a press outside; it must not reopen it
-  effect(() => { nav.routes(); setTimeout(() => Keyboard.dismiss(), 0) }) // the keyboard belongs to the page that asked for it
+  effect(() => { nav.routes(); diagnostics.callback(); setTimeout(() => Keyboard.dismiss(), 0) }) // the keyboard belongs to the page that asked for it
   const terminalMenu = signal(false)
   const tab = signal<'chats' | 'progress'>('chats')
   // NavStack keeps covered pages mounted: returning to one must not wait for its fallback timer.
@@ -137,8 +147,8 @@ function App() {
     ? <NavPage title={S.chats} headerClass={HEADER} class="bg-background"
         headerTitle={progressAvailable() ? <HomeTabs tab={tab} onTab={(t) => tab.set(t)} /> : undefined}
         headerRight={<View class="flex-row items-center">
-          <IconButton name="compose" label={S.newChat} testID="new-chat" onPress={() => { tab.set('chats'); newChat.set(true) }} />
-          <IconButton name="more" label={S.more} testID="more" onPress={() => { if (Date.now() - menuClosed > 300) menu.set(true) }} />
+          <IconButton name="compose" label={S.newChat} testID="new-chat" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'new_chat' }); tab.set('chats'); newChat.set(true) }} />
+          <IconButton name="more" label={S.more} testID="more" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'menu' }); if (Date.now() - menuClosed > 300) menu.set(true) }} />
         </View>}>
         <View class="flex-1">
           <If when={trying()}><TryBanner /></If>
@@ -147,7 +157,7 @@ function App() {
           </View>
           <If when={tab() === 'progress'}><ProgressScreen onProject={(p) => nav.push({ name: 'project', id: p.id, title: p.title })} onOpen={openJob} /></If>
           <HeaderMenu open={menu} onClose={() => { menuClosed = Date.now(); menu.set(false) }} actions={[{ id: 'schedules', label: S.schedules, icon: 'clock' }, { id: 'settings', label: S.settings, icon: 'sliders' }]}
-            onChoose={(id) => { if (id === 'schedules') nav.push({ name: 'schedules' }); else if (id === 'settings') nav.push({ name: 'settings' }) }} />
+            onChoose={(id) => { if (id === 'schedules') nav.push({ name: 'schedules' }); else if (id === 'settings') { diagnostics.record('interaction', 'ui.action', { action: 'settings' }); nav.push({ name: 'settings' }) } }} />
         </View>
       </NavPage>
     : route.name === 'trajectory' ? <NavPage title={S.trajectory} headerClass={HEADER} class="bg-background"><TrajectoryPage sessionId={route.session.sessionId} /></NavPage>

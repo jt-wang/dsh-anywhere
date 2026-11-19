@@ -6,6 +6,22 @@ Start with **Actions → TestFlight → Run workflow** on the default branch. Se
 
 After reviewing that run, a run with `upload` true rebuilds the requested source, validates the IPA with Apple, then uploads it. A successful upload command still requires App Store Connect processing before the build is available to testers. It does not submit an App Store release. Native UI testing is a separate release check.
 
+## Read App Store Connect before choosing a build
+
+Set `status_only=true` and `upload=false` to skip the entire archive job. This mode uses only the three ASC secrets in the existing `apple-release` environment; it does not request signing credentials or install an SDK. Supply the proposed version/build and the exact default-branch source SHA as usual.
+
+The `dsh-testflight-status-<run_id>` artifact contains `asc-status.json`: the app ID, UTC query time, fully paginated iOS build inventory across versions and processing states, highest and next numeric build, whether the proposed build number is already occupied, and app-owned beta groups with explicit/automatic build access. A missing proposed build is a successful inventory result, not an upload or processing acceptance. Choose a number only after inspecting this receipt. Concurrent uploads outside this workflow can still consume it; recheck rather than blindly retry an uncertain upload.
+
+After an upload succeeds, the status job waits at most 20 minutes for that exact version/build to reach `VALID`, then records processing, beta states and group access. It changes no groups, testers, export-compliance declarations, reviews or releases. `VALID` and group access are separate from tester eligibility; check the internal state and the intended tester's TestFlight app. If Apple is still processing after the observation deadline, use a new read-only run, not a new upload.
+
+For example, inventory only (no build or upload):
+
+```sh
+gh workflow run testflight.yml --ref main \
+  -f source_sha="$RELEASE_SHA" -f version="$RELEASE_VERSION" \
+  -f build="$PROPOSED_BUILD" -f upload=false -f status_only=true
+```
+
 ## Repository setup
 
 A repository administrator creates the `apple-release` environment and restricts its deployment branches to the exact default branch, with no tag rule. Required reviewers are optional. Store the following as **environment secrets**, so the branch restriction protects their use:
@@ -20,7 +36,7 @@ A repository administrator creates the `apple-release` environment and restricts
 | `ASC_ISSUER_ID` | App Store Connect API issuer ID | Upload preflight and upload |
 | `ASC_PRIVATE_KEY_P8` | App Store Connect API private key, including PEM line breaks | Upload preflight and upload |
 
-The first four are required for either mode. The three ASC secrets are required only when `upload` is true. The p12 identity must match a certificate in the profile; the profile must be unexpired, belong to the team and exact bundle, and allow App Store distribution. An ASC key does not replace the signing private key. Use the existing App Store Connect app record.
+The first four are required for either archive mode, not for `status_only`. The three ASC secrets are required when `upload` or `status_only` is true. The p12 identity must match a certificate in the profile; the profile must be unexpired, belong to the team and exact bundle, and allow App Store distribution. An ASC key does not replace the signing private key. Use the existing App Store Connect app record.
 
 Protect changes to the default branch and workflow. Give automation Actions write access without permission to bypass that protection or administer environment secrets. The workflow checks the dispatch event, source ref/SHA and workflow ref/SHA; checkout uses the run's exact SHA. Branch restrictions are the server-side control: checks inside a workflow cannot protect secrets from someone allowed to replace that workflow.
 
@@ -51,6 +67,7 @@ Offline command-boundary tests are available on macOS with Python 3.11 or newer 
 ```sh
 python3 nsh-app/ios/runtime_patch_test.py
 python3 nsh-app/ios/testflight_ci_test.py
+python3 nsh-app/ios/asc_status_test.py
 python3 .github/tests/testflight_workflow_test.py
 ```
 

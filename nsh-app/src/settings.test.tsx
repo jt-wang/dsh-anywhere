@@ -6,29 +6,43 @@ const ORIGIN = 'http://127.0.0.1:40001/dsh'
 const paired = { paired: true, origin: ORIGIN, token: 'synthetic-device-token' }
 const ok = (value: unknown) => ({ body: { type: 'server-response', rpcId: 'x', result: { ok: true, value } } })
 
-async function settings(granted: boolean) {
+async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' })) {
   const app = await open('../App.tsx', {
     locale: 'en-US',
     host: { handlers: {
+      'app.info': info, 'network.state': { online: !offline },
       'link.state': paired, 'app.state': { active: true }, 'notify.watch': null, 'notify.clear': null, 'notify.permission': { granted },
       'notify.request': { granted: true, decided: true }, 'notify.settings': null, 'link.forget': null, 'link.path': { route: 'relay', relay: 'tok' },
     } },
     network: {
       [`POST ${ORIGIN}/api/session/list`]: () => ok({ items: [] }),
-      [`GET http://127.0.0.1:40001/v1/capabilities`]: () => ({ body: { hostName: 'DSH Anywhere companion', computerName: 'Studio', hostVersion: '0.7.13', upstreamVersion: '0.2.1-rc.3' } }),
+      [`GET http://127.0.0.1:40001/v1/capabilities`]: () => offline ? { status: 503 } : { body: { hostName: 'DSH Anywhere companion', computerName: 'Studio', hostVersion: '0.7.13', upstreamVersion: '0.2.1-rc.3' } },
     },
   })
   await app.waitFor('id:more')
   await app.press('id:more')
   await app.press('text:Settings')
-  await app.waitFor('text:Studio')
+  if (!offline) await app.waitFor('text:Studio')
   return app
 }
 
 test('Settings says which computer the phone is linked to, how, and the versions on it', async () => {
   const app = await settings(true)
+  await app.waitFor('text:2.4.9 (314)')
   const t = app.texts()
-  for (const s of ['Computer', 'Studio', 'End-to-end encrypted tunnel', 'Through a relay (TOK)', '0.2.1-rc.3', '0.7.13', 'Unlink', 'Appearance', 'Language', 'Notifications']) expect([s, t.includes(s)]).toEqual([s, true])
+  for (const s of ['DSH Anywhere', 'Version (build)', 'Computer', 'Studio', 'End-to-end encrypted tunnel', 'Through a relay (TOK)', '0.2.1-rc.3', '0.7.13', 'Unlink', 'Appearance', 'Language', 'Notifications']) expect([s, t.includes(s)]).toEqual([s, true])
+})
+
+test('the installed app version remains readable without the computer; a failed read does not invent a version', async () => {
+  const app = await settings(true, true)
+  await app.waitFor('text:2.4.9 (314)')
+  expect(app.texts().includes('Studio')).toBe(false)
+  await app.press('id:language-zh')
+  await app.waitFor('text:版本（构建号）')
+  expect(app.texts().includes('2.4.9 (314)')).toBe(true)
+  const failed = await settings(true, true, () => { throw new Error('app.info/unavailable') })
+  await failed.waitFor('text:Unavailable')
+  expect(failed.texts().includes('2.4.9 (314)')).toBe(false)
 })
 
 test('a language picked in Settings changes the app\'s words at once', async () => {

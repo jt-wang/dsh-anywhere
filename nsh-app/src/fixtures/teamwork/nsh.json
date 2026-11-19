@@ -1,0 +1,4 @@
+{
+  "name": "Teamwork setting checks",
+  "capabilities": { "host": ["haptic"], "network": { "hosts": ["*"] } }
+}

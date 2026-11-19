@@ -20,6 +20,22 @@ const RU_UNITS: Record<ScheduleUnit, [string, string, string]> = { day: ['ден
 const ruUnit = (n: number, unit: ScheduleUnit) => `${n} ${ruPlural(n, ...RU_UNITS[unit])}`
 
 const EN = {
+  team: {
+    title: 'Teamwork', hint: 'Let the lead agent coordinate a team. Turning this off does not stop existing agents or delete tasks.',
+    on: 'Teamwork is on', off: 'Teamwork is off', unsupported: 'This DSH host does not support the Teamwork setting. Update DSH on your computer.',
+    readFailed: 'Could not read the Teamwork setting. Its current state is unknown.', refresh: 'Check setting again',
+    unconfirmed: 'The computer did not confirm saving this change. It was not retried.',
+    taskFailure: 'DSH could not read newer team task records. Tasks remain at their last valid state; the mode shown is the saved selection.',
+  },
+  collapseThink: 'Collapse thinking', expandThink: 'Expand thinking',
+  diagnostics: {
+    title: 'Local diagnostics', enabled: 'Record diagnostics', interaction: 'Interactions', performance: 'UI performance', network: 'Request metadata', resources: 'Battery and thermal state',
+    recording: 'Recording selected categories on this phone.', off: 'Off. Previously saved logs remain until cleared or replaced.',
+    privacy: 'Metadata only. No chats, thinking, prompts, replies, terminal text, input, media, credentials, URLs or user paths. Nothing uploads automatically.',
+    retention: 'Up to 24 hours, 800 events or 128 KiB, whichever is reached first. Recording stops in the background.',
+    power: 'System battery and thermal readings are not precise app energy usage. UI timing measures callback delay, not FPS. No speed tests or extra network polling.',
+    range: 'Export time range', recent: '15 minutes', hour: '1 hour', day: '24 hours', export: 'Prepare export', clear: 'Clear saved logs', preview: 'Review before sharing', share: 'Share metadata file…', empty: 'No events in this range.', count: (n: number) => `${n} events`, failed: 'Could not read, save or share diagnostics. Try again.',
+  },
   savedCopy: (at: string) => `Saved copy · ${at}. Activity may be out of date.`,
   cacheFailed: 'Could not save on this phone. Your current view is still available.',
   noSavedChats: 'No chats saved on this phone yet. Connect to your computer to load them.',
@@ -187,6 +203,7 @@ const EN = {
     why: { connected: '', slow: 'The connection works, but answers are taking a while. Messages may arrive a few seconds late.', trying: 'Checking which part isn’t answering.', 'no-network': 'It reconnects by itself once the phone is on Wi-Fi or mobile data.', blocked: 'The phone has a network, but can’t reach the relay that connects it to your computer. The network may block it or have no internet. Try another Wi-Fi or mobile data.', computer: 'The relay works, but your computer doesn’t answer. Check that it is on, awake, and DSH is running. If this phone was removed on the computer, it needs linking again.', companion: 'Your computer answers, but DSH’s companion on it doesn’t. Open DSH on your computer again.', refused: 'The computer no longer accepts this phone. Make a new pairing code on the computer and link again.' } },
   connectionState: { online: 'Connected', connecting: 'Reconnecting', offline: 'Disconnected' } as Record<'online' | 'connecting' | 'offline', string>,
   viaTailcat: 'End-to-end encrypted tunnel', pathDirect: 'Direct to your computer', pathRelay: (region: string) => `Through a relay (${region})`, pathUnknown: 'Finding the route…',
+  appVersion: 'Version (build)', versionUnavailable: 'Unavailable',
   dshVersion: 'DSH version', companionVersion: 'Companion version', unlinkHint: 'This phone stops reaching the computer until you scan a new pairing code.',
   appearance: 'Appearance', themeSystem: 'System', themeLight: 'Light', themeDark: 'Dark', language: 'Language', languageSystem: 'System',
   notifications: 'Notifications', notifyAnswers: 'Answer ready or stopped', notifyDecisions: 'Agent needs your decision', notifyBanners: 'Banners while in the app',
@@ -196,6 +213,22 @@ const EN = {
 export type Strings = typeof EN
 
 const RU: Strings = {
+  team: {
+    title: 'Командная работа', hint: 'Ведущий агент координирует команду. Отключение не останавливает существующих агентов и не удаляет задачи.',
+    on: 'Командная работа включена', off: 'Командная работа выключена', unsupported: 'Этот хост DSH не поддерживает настройку командной работы. Обновите DSH на компьютере.',
+    readFailed: 'Не удалось прочитать настройку командной работы. Текущее состояние неизвестно.', refresh: 'Проверить настройку снова',
+    unconfirmed: 'Компьютер не подтвердил сохранение изменения. Повторная отправка не выполнялась.',
+    taskFailure: 'DSH не смог прочитать новые записи задач команды. Задачи остаются в последнем корректном состоянии; показан сохранённый режим.',
+  },
+  collapseThink: 'Свернуть размышления', expandThink: 'Развернуть размышления',
+  diagnostics: {
+    title: 'Локальная диагностика', enabled: 'Записывать диагностику', interaction: 'Взаимодействия', performance: 'Отклик интерфейса', network: 'Метаданные запросов', resources: 'Батарея и нагрев',
+    recording: 'Выбранные категории записываются на телефоне.', off: 'Выключено. Старые записи сохраняются до очистки или замены.',
+    privacy: 'Только метаданные. Без чатов, размышлений, запросов к модели, ответов, терминала, ввода, медиа, ключей, URL и пользовательских путей. Автоматической отправки нет.',
+    retention: 'До 24 часов, 800 событий или 128 КиБ. В фоне запись останавливается.',
+    power: 'Показания батареи и нагрева — не точный расход приложения. Измеряется задержка обратного вызова, не FPS. Без тестов скорости и дополнительных сетевых опросов.',
+    range: 'Период экспорта', recent: '15 минут', hour: '1 час', day: '24 часа', export: 'Подготовить экспорт', clear: 'Очистить записи', preview: 'Проверка перед отправкой', share: 'Поделиться файлом…', empty: 'За этот период событий нет.', count: (n: number) => `Событий: ${n}`, failed: 'Не удалось прочитать, сохранить или отправить диагностику. Повторите попытку.',
+  },
   savedCopy: (at: string) => `Сохранённая копия · ${at}. Статус мог измениться.`,
   cacheFailed: 'Не удалось сохранить на телефоне. Текущий экран остаётся доступен.',
   noSavedChats: 'На телефоне пока нет сохранённых чатов. Подключитесь к компьютеру, чтобы загрузить их.',
@@ -346,6 +379,7 @@ const RU: Strings = {
     why: { connected: '', slow: 'Соединение работает, но ответы идут долго. Сообщения могут приходить с задержкой в несколько секунд.', trying: 'Проверяем, какая часть не отвечает.', 'no-network': 'Подключится само, когда у телефона появится Wi-Fi или мобильная сеть.', blocked: 'У телефона есть сеть, но он не может достучаться до ретранслятора, через который связывается с компьютером. Сеть может его блокировать или не иметь выхода в интернет. Попробуйте другой Wi-Fi или мобильную сеть.', computer: 'Ретранслятор работает, но компьютер не отвечает. Проверьте, что он включён, не спит и DSH запущен. Если этот телефон удалили на компьютере, его нужно привязать заново.', companion: 'Компьютер отвечает, но компаньон DSH на нём — нет. Откройте DSH на компьютере заново.', refused: 'Компьютер больше не принимает этот телефон. Создайте новый код на компьютере и привяжите заново.' } },
   connectionState: { online: 'Подключено', connecting: 'Переподключение', offline: 'Нет связи' },
   viaTailcat: 'Зашифрованный туннель', pathDirect: 'Напрямую к компьютеру', pathRelay: (region: string) => `Через ретранслятор (${region})`, pathUnknown: 'Поиск маршрута…',
+  appVersion: 'Версия (сборка)', versionUnavailable: 'Недоступно',
   dshVersion: 'Версия DSH', companionVersion: 'Версия компаньона', unlinkHint: 'Телефон перестанет подключаться к компьютеру, пока вы не отсканируете новый код.',
   appearance: 'Оформление', themeSystem: 'Как в системе', themeLight: 'Светлое', themeDark: 'Тёмное', language: 'Язык', languageSystem: 'Как в системе',
   notifications: 'Уведомления', notifyAnswers: 'Ответ готов или остановлен', notifyDecisions: 'Агенту нужно ваше решение', notifyBanners: 'Баннеры в приложении',

@@ -32,6 +32,20 @@ class Workflow(unittest.TestCase):
         self.assertEqual(run({'GITHUB_WORKFLOW_SHA':'b'*40}),2)
         self.assertEqual(run({'GITHUB_EVENT_NAME':'push'}),2)
         self.assertEqual(run({'GITHUB_REF':'refs/pull/1/merge'}),2)
+        self.assertEqual(run({'DSH_STATUS_ONLY':'true'}),0)
+        self.assertEqual(run({'DSH_STATUS_ONLY':'true','DSH_UPLOAD':'true'}),2)
+
+    def test_status_only_has_no_build_or_signing_credentials(self):
+        archive = self.workflow['jobs']['archive']
+        self.assertIn('inputs.status_only != true', archive['if'])
+        job = self.workflow['jobs']['status']
+        self.assertIn("needs.gate.result == 'success'", job['if'])
+        self.assertIn('inputs.status_only == true && inputs.upload == false', job['if'])
+        self.assertEqual(job['environment'], 'apple-release')
+        step = next(s for s in job['steps'] if 'ASC_KEY_ID' in s.get('env', {}))
+        self.assertEqual(set(step['env']), {'ASC_KEY_ID','ASC_ISSUER_ID','ASC_PRIVATE_KEY_P8','WAIT_SECONDS'})
+        self.assertIn('asc_status.py', step['run'])
+        self.assertNotIn('testflight_ci.py archive', step['run'])
 
     def test_pinned_xcodegen_download_checksum_and_success(self):
         step = next(s for s in self.workflow['jobs']['archive']['steps'] if s.get('id') == 'xcodegen')

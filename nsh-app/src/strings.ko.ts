@@ -11,6 +11,22 @@ const KO_UNITS: Record<ScheduleUnit, string> = { day: '일', hour: '시간', min
 const KO_EVERY_ONE: Record<ScheduleUnit, string> = { day: '매일', hour: '매시간', minute: '매분', second: '매초' }
 
 export const KO: Strings = {
+  team: {
+    title: '팀워크', hint: '리드 에이전트가 팀을 조율합니다. 꺼도 기존 에이전트가 중지되거나 작업이 삭제되지 않습니다.',
+    on: '팀워크 켜짐', off: '팀워크 꺼짐', unsupported: '이 DSH 호스트는 팀워크 설정을 지원하지 않습니다. 컴퓨터에서 DSH를 업데이트하세요.',
+    readFailed: '팀워크 설정을 읽을 수 없습니다. 현재 상태를 알 수 없습니다.', refresh: '설정 다시 확인',
+    unconfirmed: '컴퓨터에서 변경 사항 저장을 확인하지 못했습니다. 다시 전송하지 않았습니다.',
+    taskFailure: 'DSH가 새 팀 작업 기록을 읽지 못했습니다. 작업은 마지막 유효 상태로 유지되며 표시된 모드는 저장된 설정입니다.',
+  },
+  collapseThink: '사고 과정 접기', expandThink: '사고 과정 펼치기',
+  diagnostics: {
+    title: '로컬 진단', enabled: '진단 기록', interaction: '상호 작용', performance: '화면 응답 성능', network: '요청 메타데이터', resources: '배터리 및 온도 상태',
+    recording: '선택한 항목을 이 휴대전화에 기록합니다.', off: '꺼짐. 이전 기록은 지우거나 교체할 때까지 남습니다.',
+    privacy: '메타데이터만 기록합니다. 채팅, 사고 과정, 프롬프트, 답변, 터미널, 입력, 미디어, 인증 정보, URL, 사용자 경로는 제외합니다. 자동 업로드하지 않습니다.',
+    retention: '최대 24시간, 800개 이벤트 또는 128 KiB까지 보관합니다. 백그라운드에서는 기록을 중지합니다.',
+    power: '시스템 배터리·온도 수치는 앱의 정확한 전력 소비가 아닙니다. 화면 측정은 FPS가 아닌 콜백 지연입니다. 속도 테스트나 추가 네트워크 폴링은 없습니다.',
+    range: '내보낼 기간', recent: '15분', hour: '1시간', day: '24시간', export: '내보내기 준비', clear: '기록 지우기', preview: '공유 전 확인', share: '파일 공유…', empty: '이 기간에 기록이 없습니다.', count: (n: number) => `${n}개 이벤트`, failed: '진단을 읽거나 저장하거나 공유할 수 없습니다. 다시 시도하세요.',
+  },
   savedCopy: (at: string) => `저장된 사본 · ${at}. 실행 상태가 변경되었을 수 있습니다.`,
   cacheFailed: '휴대폰에 저장하지 못했습니다. 현재 화면은 계속 볼 수 있습니다.',
   noSavedChats: '휴대폰에 저장된 채팅이 없습니다. 컴퓨터에 연결하여 불러오세요.',
@@ -161,6 +177,7 @@ export const KO: Strings = {
     why: { connected: '', slow: '연결은 되어 있지만 응답이 느립니다. 메시지가 몇 초 늦게 도착할 수 있습니다.', trying: '어느 부분이 응답하지 않는지 확인하는 중입니다.', 'no-network': '휴대폰이 Wi-Fi나 모바일 데이터에 연결되면 자동으로 다시 연결됩니다.', blocked: '휴대폰에 네트워크는 있지만 컴퓨터와 이어 주는 릴레이에 연결할 수 없습니다. 네트워크가 차단했거나 인터넷이 안 될 수 있습니다. 다른 Wi-Fi나 모바일 데이터를 사용해 보세요.', computer: '릴레이는 정상이지만 컴퓨터가 응답하지 않습니다. 컴퓨터가 켜져 있고 절전 모드가 아니며 DSH가 실행 중인지 확인하세요. 컴퓨터에서 이 휴대폰을 제거했다면 다시 연결해야 합니다.', companion: '컴퓨터는 응답하지만 DSH 컴패니언은 응답하지 않습니다. 컴퓨터에서 DSH를 다시 여세요.', refused: '컴퓨터가 더 이상 이 휴대폰을 받지 않습니다. 컴퓨터에서 새 페어링 코드를 만들어 다시 연결하세요.' } },
   connectionState: { online: '연결됨', connecting: '다시 연결 중', offline: '연결 끊김' },
   viaTailcat: '종단 간 암호화 터널', pathDirect: '컴퓨터에 직접 연결', pathRelay: (region: string) => `릴레이 경유 (${region})`, pathUnknown: '경로 찾는 중…',
+  appVersion: '버전(빌드)', versionUnavailable: '확인할 수 없음',
   dshVersion: 'DSH 버전', companionVersion: '컴패니언 버전', unlinkHint: '새 페어링 코드를 스캔하기 전까지 이 휴대폰은 컴퓨터에 연결할 수 없습니다.',
   appearance: '화면 모드', themeSystem: '시스템 설정', themeLight: '라이트', themeDark: '다크', language: '언어', languageSystem: '시스템 설정',
   notifications: '알림', notifyAnswers: '답변 완료 또는 중지', notifyDecisions: '에이전트의 결정 요청', notifyBanners: '앱 사용 중 배너',

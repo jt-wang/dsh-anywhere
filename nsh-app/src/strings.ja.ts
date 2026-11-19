@@ -9,6 +9,22 @@ const counts = (todos: Todo[]) => { const done = todos.filter((t) => t.status ==
 const JA_UNITS: Record<ScheduleUnit, string> = { day: '日', hour: '時間', minute: '分', second: '秒' }
 
 export const JA: Strings = {
+  team: {
+    title: 'チームワーク', hint: 'リードエージェントがチームを調整します。オフにしても既存のエージェントは停止せず、タスクも削除されません。',
+    on: 'チームワークはオンです', off: 'チームワークはオフです', unsupported: 'このDSHホストはチームワークの設定に対応していません。パソコンのDSHを更新してください。',
+    readFailed: 'チームワークの設定を読み取れませんでした。現在の状態は不明です。', refresh: '設定を再確認',
+    unconfirmed: 'パソコンから変更の保存を確認できませんでした。再送信はしていません。',
+    taskFailure: 'DSHは新しいチームタスクの記録を読み取れませんでした。タスクは最後の有効な状態のままです。表示中のモードは保存された設定です。',
+  },
+  collapseThink: '思考を折りたたむ', expandThink: '思考を展開',
+  diagnostics: {
+    title: 'ローカル診断', enabled: '診断を記録', interaction: '操作', performance: '画面の応答性能', network: 'リクエストのメタデータ', resources: '電池と温度の状態',
+    recording: '選択した項目をこの端末に記録しています。', off: 'オフです。既存の記録は消去または上書きまで残ります。',
+    privacy: 'メタデータのみ。チャット、思考、プロンプト、回答、端末出力、入力、メディア、認証情報、URL、ユーザーパスは含みません。自動送信しません。',
+    retention: '最大24時間、800件、128 KiBのいずれかまで保持。バックグラウンドでは記録を停止します。',
+    power: 'OSの電池・温度情報はアプリの正確な消費電力ではありません。画面計時はコールバックの遅延でFPSではありません。速度テストや追加の通信監視は行いません。',
+    range: '書き出す期間', recent: '15分', hour: '1時間', day: '24時間', export: '書き出しを準備', clear: '記録を消去', preview: '共有前の確認', share: 'ファイルを共有…', empty: 'この期間の記録はありません。', count: (n: number) => `${n}件`, failed: '診断の読込・保存・共有に失敗しました。再試行してください。',
+  },
   savedCopy: (at: string) => `保存済みコピー · ${at}。動作状況は変わっている場合があります。`,
   cacheFailed: 'スマートフォンに保存できませんでした。現在の画面は引き続き表示できます。',
   noSavedChats: 'このスマートフォンにはまだチャットが保存されていません。パソコンに接続して読み込んでください。',
@@ -159,6 +175,7 @@ export const JA: Strings = {
     why: { connected: '', slow: '接続はできていますが、応答に時間がかかっています。メッセージが数秒遅れることがあります。', trying: 'どの部分が応答していないか確認しています。', 'no-network': 'スマートフォンが Wi-Fi かモバイルデータにつながると自動で再接続します。', blocked: 'スマートフォンはネットワークにつながっていますが、パソコンとつなぐリレーに接続できません。ネットワークがブロックしているか、インターネットにつながっていない可能性があります。別の Wi-Fi かモバイルデータを試してください。', computer: 'リレーは正常ですが、パソコンが応答しません。電源が入っていてスリープしておらず、DSH が起動しているか確認してください。パソコンでこのスマートフォンを削除した場合は、もう一度ペアリングが必要です。', companion: 'パソコンは応答していますが、DSH のコンパニオンが応答しません。パソコンで DSH を開き直してください。', refused: 'パソコンがこのスマートフォンを受け付けなくなりました。パソコンで新しいペアリングコードを作り、もう一度ペアリングしてください。' } },
   connectionState: { online: '接続済み', connecting: '再接続中', offline: '切断' },
   viaTailcat: 'エンドツーエンド暗号化トンネル', pathDirect: 'パソコンに直接接続', pathRelay: (region: string) => `リレー経由（${region}）`, pathUnknown: '経路を確認中…',
+  appVersion: 'バージョン（ビルド）', versionUnavailable: '取得できません',
   dshVersion: 'DSH バージョン', companionVersion: 'コンパニオンのバージョン', unlinkHint: '新しいペアリングコードをスキャンするまで、このスマートフォンからパソコンに接続できなくなります。',
   appearance: '外観', themeSystem: 'システムに合わせる', themeLight: 'ライト', themeDark: 'ダーク', language: '言語', languageSystem: 'システムに合わせる',
   notifications: '通知', notifyAnswers: '回答の完了または停止', notifyDecisions: 'エージェントが判断を求めたとき', notifyBanners: 'アプリ使用中のバナー',

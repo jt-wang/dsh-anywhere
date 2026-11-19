@@ -15,6 +15,22 @@ const frUnit = (n: number, unit: ScheduleUnit) => `${n} ${plural(n, ...FR_UNITS[
 const every = (n: number, unit: ScheduleUnit) => (n === 1 ? `Chaque ${FR_UNITS[unit][0]}` : `${unit === 'day' ? 'Tous' : 'Toutes'} les ${frUnit(n, unit)}`)
 
 export const FR: Strings = {
+  team: {
+    title: 'Travail en équipe', hint: 'L’agent principal coordonne une équipe. Désactiver ce mode n’arrête pas les agents existants et ne supprime pas les tâches.',
+    on: 'Travail en équipe activé', off: 'Travail en équipe désactivé', unsupported: 'Cet hôte DSH ne prend pas en charge ce réglage. Mettez DSH à jour sur votre ordinateur.',
+    readFailed: 'Impossible de lire le réglage du travail en équipe. Son état actuel est inconnu.', refresh: 'Vérifier à nouveau le réglage',
+    unconfirmed: 'L’ordinateur n’a pas confirmé l’enregistrement du changement. Aucun nouvel envoi n’a été effectué.',
+    taskFailure: 'DSH n’a pas pu lire les nouveaux enregistrements des tâches de l’équipe. Les tâches restent dans leur dernier état valide. Le mode affiché est le choix enregistré.',
+  },
+  collapseThink: 'Replier le raisonnement', expandThink: 'Déplier le raisonnement',
+  diagnostics: {
+    title: 'Diagnostic local', enabled: 'Enregistrer le diagnostic', interaction: 'Interactions', performance: 'Réactivité de l’interface', network: 'Métadonnées des requêtes', resources: 'Batterie et température',
+    recording: 'Les catégories choisies sont enregistrées sur ce téléphone.', off: 'Désactivé. Les anciens journaux restent jusqu’à leur effacement ou remplacement.',
+    privacy: 'Métadonnées uniquement. Sans conversations, raisonnement, prompts, réponses, terminal, saisie, médias, identifiants, URL ni chemins utilisateur. Aucun envoi automatique.',
+    retention: 'Au maximum 24 heures, 800 événements ou 128 Kio. Arrêt de l’enregistrement en arrière-plan.',
+    power: 'Les mesures système ne sont pas la consommation exacte de l’app. Le délai des callbacks n’est pas le FPS. Aucun test de débit ni requête réseau supplémentaire.',
+    range: 'Période d’exportation', recent: '15 minutes', hour: '1 heure', day: '24 heures', export: 'Préparer l’exportation', clear: 'Effacer les journaux', preview: 'Vérifier avant de partager', share: 'Partager le fichier…', empty: 'Aucun événement sur cette période.', count: (n: number) => `${n} événements`, failed: 'Impossible de lire, enregistrer ou partager le diagnostic. Réessayez.',
+  },
   savedCopy: (at: string) => `Copie enregistrée · ${at}. L’état peut avoir changé.`,
   cacheFailed: 'Impossible d’enregistrer sur ce téléphone. L’écran actuel reste disponible.',
   noSavedChats: 'Aucune discussion enregistrée sur ce téléphone. Connectez votre ordinateur pour les charger.',
@@ -165,6 +181,7 @@ export const FR: Strings = {
     why: { connected: '', slow: 'La connexion fonctionne, mais les réponses tardent. Les messages peuvent arriver avec quelques secondes de retard.', trying: 'Recherche de l’élément qui ne répond pas.', 'no-network': 'La connexion reprendra d’elle-même dès que le téléphone aura du Wi-Fi ou des données mobiles.', blocked: 'Le téléphone a du réseau, mais n’atteint pas le relais qui le relie à votre ordinateur. Le réseau le bloque peut-être, ou n’a pas accès à Internet. Essayez un autre Wi-Fi ou les données mobiles.', computer: 'Le relais fonctionne, mais votre ordinateur ne répond pas. Vérifiez qu’il est allumé, pas en veille, et que DSH est ouvert. Si vous avez retiré ce téléphone sur l’ordinateur, il faut l’associer à nouveau.', companion: 'Votre ordinateur répond, mais pas le module DSH. Rouvrez DSH sur l’ordinateur.', refused: 'L’ordinateur n’accepte plus ce téléphone. Générez un nouveau code sur l’ordinateur et associez-le à nouveau.' } },
   connectionState: { online: 'Connecté', connecting: 'Reconnexion', offline: 'Déconnecté' },
   viaTailcat: 'Tunnel chiffré de bout en bout', pathDirect: 'Directement à votre ordinateur', pathRelay: (region: string) => `Par un relais (${region})`, pathUnknown: 'Recherche de l’itinéraire…',
+  appVersion: 'Version (build)', versionUnavailable: 'Indisponible',
   dshVersion: 'Version de DSH', companionVersion: 'Version du module', unlinkHint: 'Ce téléphone n’aura plus accès à l’ordinateur tant que vous n’aurez pas scanné un nouveau code d’association.',
   appearance: 'Apparence', themeSystem: 'Système', themeLight: 'Clair', themeDark: 'Sombre', language: 'Langue', languageSystem: 'Système',
   notifications: 'Notifications', notifyAnswers: 'Réponse prête ou arrêt', notifyDecisions: 'L’agent attend votre décision', notifyBanners: 'Bannières dans l’app',
