@@ -74,7 +74,9 @@ test('the package installs with no scripts and no dependencies and declares its 
   const entries = untar(readFileSync(file));
   for (const name of entries.keys()) assert.match(name, /^package\//, name);
   const manifest = JSON.parse(entries.get('package/package.json').data.toString('utf8'));
-  assert.equal(manifest.name, 'dsh-anywhere');
+  assert.equal(manifest.name, '@jt-wang/dsh-anywhere', 'scoped: the bare npm name belongs to another author');
+  assert.equal(manifest.repository.url, 'git+https://github.com/jt-wang/dsh-anywhere.git');
+  assert.deepEqual(manifest.publishConfig, { access: 'public' });
   assert.equal(manifest.version, host.version);
   assert.equal(manifest.type, 'module');
   for (const key of ['scripts', 'dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies', 'bundleDependencies', 'bundledDependencies', 'bin'])
@@ -82,7 +84,7 @@ test('the package installs with no scripts and no dependencies and declares its 
   assert.deepEqual(manifest.dsh.bundle, { patch: './cordis.patch.yml' });
   assert.deepEqual(manifest.dsh.client, host.dsh.client);
   assert.ok(entries.has('package/' + manifest.exports['./client'].replace(/^\.\//, '')), 'client bundle is in the package');
-  assert.match(entries.get('package/dist/client.js').data.toString('utf8'), /^window\.__ModuleLoader__\.load\(\{\n\tid: "dsh-anywhere",/, 'the browser module is registered under the package name');
+  assert.match(entries.get('package/dist/client.js').data.toString('utf8'), /^window\.__ModuleLoader__\.load\(\{\n\tid: "@jt-wang\/dsh-anywhere",/, 'the browser module is registered under the package name');
   const helper = entries.get('package/dist/tailcat/dsh-tailcat-host-darwin-arm64');
   assert.ok(helper, 'Tailcat helper is packed');
   assert.equal(helper.mode & 0o777, 0o755);

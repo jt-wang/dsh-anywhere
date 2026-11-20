@@ -1,0 +1,78 @@
+name: npm publish
+
+# Publishes the Mac companion as @jt-wang/dsh-anywhere from a release tag, with npm trusted publishing (OIDC) and
+# provenance: no npm token is stored anywhere. DSH Desktop's plugin manager installs and updates it from npm.
+# Every formal release is published here, never with a manual `npm publish`.
+"on":
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish, vX.Y.Z (run the workflow from that tag)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'jt-wang/dsh-anywhere' && github.ref == format('refs/tags/{0}', inputs.tag)
+    # The darwin-arm64 Tailcat helper links with cgo against the macOS SDK.
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GOTOOLCHAIN: go1.27.4
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: The tag is a normal version and matches the package
+        shell: bash
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
+          release=$(sed -nE "s/^export const RELEASE_VERSION = '([^']+)';$/\1/p" host/src/phone.ts)
+          app=$(node -p "require('./nsh-app/nsh.json').version")
+          [[ "v$release" == "$TAG" && "v$app" == "$TAG" ]] || { echo "tag $TAG, companion release $release, app $app" >&2; exit 1; }
+      - name: Build the Tailcat helper and the host, then test and pack
+        shell: bash
+        run: |
+          HELPERS_ONLY=1 tools/build-tailcat.sh
+          codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64
+          (cd host && npm ci && npm run build)
+          node --test tools/pack-bundle.test.mjs
+          node tools/pack-bundle.mjs --out "$RUNNER_TEMP/npm"
+          tar -xzOf "$RUNNER_TEMP/npm/dsh-anywhere-darwin-arm64.tgz" package/package.json | node -e '
+            let d = ""; process.stdin.on("data", c => d += c).on("end", () => {
+              const m = JSON.parse(d), want = require("./host/package.json").version;
+              if (m.name !== "@jt-wang/dsh-anywhere" || m.version !== want) { console.error(`packed ${m.name}@${m.version}, expected @jt-wang/dsh-anywhere@${want}`); process.exit(1); }
+            });'
+          (cd "$RUNNER_TEMP/npm" && shasum -a 256 dsh-anywhere-darwin-arm64.tgz | tee SHA256SUMS.txt)
+      - name: Publish with provenance (trusted publishing, no token)
+        shell: bash
+        run: |
+          # Trusted publishing needs npm 11.5.1 or later.
+          npm install -g npm@11.11.0
+          npm publish "$RUNNER_TEMP/npm/dsh-anywhere-darwin-arm64.tgz" --provenance --access public
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dsh-npm-${{ github.run_id }}
+          path: ${{ runner.temp }}/npm/
+          if-no-files-found: error
+          retention-days: 30

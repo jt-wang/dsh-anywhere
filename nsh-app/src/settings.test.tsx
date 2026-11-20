@@ -1,12 +1,13 @@
 // The phone's Settings page (src/settings.tsx): which computer it is linked to and how, the
 // appearance, the language and the notifications, and Unlink. Headless: the test plays the shell and the computer.
 import { expect, open, test } from 'nsh/test'
+import { APK_URL, UPDATE_GUIDE_URL } from './updates.ts'
 
 const ORIGIN = 'http://127.0.0.1:40001/dsh'
 const paired = { paired: true, origin: ORIGIN, token: 'synthetic-device-token' }
 const ok = (value: unknown) => ({ body: { type: 'server-response', rpcId: 'x', result: { ok: true, value } } })
 
-async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' }), extra: Record<string, unknown> = {}, platform: 'ios' | 'android' = 'ios') {
+async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' }), extra: Record<string, unknown> = {}, platform: 'ios' | 'android' = 'ios', caps: Record<string, unknown> = {}) {
   const app = await open('../App.tsx', {
     platform,
     locale: 'en-US',
@@ -17,7 +18,7 @@ async function settings(granted: boolean, offline = false, info: () => unknown =
     } },
     network: {
       [`POST ${ORIGIN}/api/session/list`]: () => ok({ items: [] }),
-      [`GET http://127.0.0.1:40001/v1/capabilities`]: () => offline ? { status: 503 } : { body: { hostName: 'DSH Anywhere companion', computerName: 'Studio', hostVersion: '0.7.13', upstreamVersion: '0.2.1-rc.3' } },
+      [`GET http://127.0.0.1:40001/v1/capabilities`]: () => offline ? { status: 503 } : { body: { hostName: 'DSH Anywhere companion', computerName: 'Studio', hostVersion: '0.7.13', upstreamVersion: '0.2.1-rc.3', ...caps } },
     },
   })
   await app.waitFor('id:more')
@@ -130,3 +131,37 @@ for (const platform of ['ios', 'android'] as const) {
     }
   })
 }
+
+// The companion says its release from 0.8.1 (DSH Anywhere 0.1.11); one before it says none and is older than this app.
+for (const platform of ['ios', 'android'] as const) {
+  test(`${platform}: Settings says which side to update when the app and the computer come from different releases`, async () => {
+    const app = (version: string) => () => ({ version, build: '12' })
+    const same = await settings(true, false, app('0.1.11'), {}, platform, { release: '0.1.11' })
+    await same.waitFor('text:0.1.11 (12)')
+    expect(same.shows('id:update-notice')).toBe(false)
+
+    const old = await settings(true, false, app('0.1.11'), {}, platform, { hostVersion: '0.7.15' })
+    await old.waitFor('text:Update DSH Anywhere on your computer to 0.1.11')
+    await old.press('id:update-action')
+    expect(old.openedUrls()).toEqual([UPDATE_GUIDE_URL])
+    const behind = await settings(true, false, app('0.1.12'), {}, platform, { release: '0.1.11' })
+    await behind.waitFor('text:Update DSH Anywhere on your computer to 0.1.12')
+
+    // 0.1.10 against 0.1.9 is newer by numbers, older as text.
+    const ahead = await settings(true, false, app('0.1.9'), {}, platform, { release: '0.1.10' })
+    await ahead.waitFor('text:DSH Anywhere 0.1.10 is available')
+    if (platform === 'android') {
+      await ahead.press('id:update-action')
+      expect(ahead.openedUrls()).toEqual([APK_URL])
+    } else {
+      expect(ahead.shows('text:Your computer runs a newer version than this app. Update DSH Anywhere in TestFlight.')).toBe(true)
+      expect(ahead.shows('id:update-action')).toBe(false)
+    }
+  })
+}
+
+test('a developer build of the app, which has no release number, is not told to update either side', async () => {
+  const app = await settings(true, false, () => ({ version: '0.1.11-dev', build: '0' }), {}, 'android', { release: '0.1.12' })
+  await app.waitFor('text:0.1.11-dev (0)')
+  expect(app.shows('id:update-notice')).toBe(false)
+})

@@ -38,13 +38,15 @@ $DSH_HOME/profiles/<name>/cordis.patch.yml (default web; backed up first); --uni
 }
 if (process.platform === 'win32') fail('On Windows use tools/install-host.ps1.');
 if (flags.has('--activate') && flags.has('--uninstall')) fail('Choose --activate or --uninstall, not both.');
-// `dsh plugin add …/dsh-anywhere-<v>-darwin-arm64.tgz` (tools/pack-bundle.mjs) already runs the companion in that profile,
+// `dsh plugin add @jt-wang/dsh-anywhere` (or, before 0.8.1, the release's dsh-anywhere-darwin-arm64.tgz, which installs as
+// `dsh-anywhere`; tools/pack-bundle.mjs) already runs the companion in that profile,
 // with the same private configuration: a second one would compete for its port and state.
 if (flags.has('--activate')) {
   const home = flags.get('--dsh-home') ?? process.env.DSH_HOME, name = flags.get('--profile') ?? 'web';
   let bundles = [];
   try { if (home && path.isAbsolute(home)) bundles = JSON.parse(readFileSync(path.join(home, 'profiles', name, 'package.json'), 'utf8')).dsh?.profile?.bundles ?? []; } catch { /* checked again below */ }
-  if (Array.isArray(bundles) && bundles.includes('dsh-anywhere')) fail(`The ${name} profile already runs DSH Anywhere, installed with "dsh plugin add". Keep that install, or remove it first: dsh plugin --profile ${name} remove dsh-anywhere`);
+  const installed = Array.isArray(bundles) ? ['@jt-wang/dsh-anywhere', 'dsh-anywhere'].find(bundle => bundles.includes(bundle)) : undefined;
+  if (installed) fail(`The ${name} profile already runs DSH Anywhere, installed with "dsh plugin add". Keep that install, or remove it first: dsh plugin --profile ${name} remove ${installed}`);
 }
 
 const base = process.platform === 'darwin'

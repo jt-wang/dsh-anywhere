@@ -1,7 +1,7 @@
 import { FileStaging } from './file-staging.ts';
 import { sessionModel, settledQuestions, mutationAnswer } from './phone-projection.ts';
 import { gzipSync } from 'node:zlib';
-import { HOST_VERSION, parseMutation, validateAnswer, UPLOAD_LIMIT, UPLOAD_MIMES, identifier, safeAttachmentRefs, safeQueue, questionsOf } from './phone.ts';
+import { HOST_VERSION, RELEASE_VERSION, parseMutation, validateAnswer, UPLOAD_LIMIT, UPLOAD_MIMES, identifier, safeAttachmentRefs, safeQueue, questionsOf } from './phone.ts';
 import type { SessionMutation, PromptOptions, UploadedAttachment } from './phone.ts';
 import { NotificationFeed } from './notifications.ts';
 import { HISTORY_CUT_NOTICE } from './dsh-adapter.ts';
@@ -702,7 +702,7 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
       sendJson(res, 200, { items: workspaces.filter(workspace => allowsWorkspace(current.grants.readWorkspaceIds, workspace.id)).map(workspace => ({ id: workspace.id, name: workspace.name, canExecute: allowsWorkspace(current.grants.executeWorkspaceIds, workspace.id) })) }); return;
     }
     if (req.method === 'GET' && url.pathname === '/v1/capabilities') {
-      sendJson(res, 200, { protocolVersion: 1, hostVersion: HOST_VERSION, hostName: config.hostName, computerName: await (naming ??= computerName()), upstreamVersion: adapter.upstreamVersion, capabilities: { sessions: true, textPrompt: true, cancel: true, liveSnapshots: true, questionSkip: false, fileDownload: false, ...(adapter.phoneCapabilities?.() ?? { attachments: false, questions: false, steer: false, queue: false, rename: false, models: false }), approvals: false, push: false, notifications: !!notifications, ...(options.progress?.() ? { progress: true } : {}) }, notificationCapabilities: { version: 1, coverage: notifications?.coverage ?? 'degraded', feed: !!notifications, unifiedPush: false, retentionMs: 604800000 } }); return;
+      sendJson(res, 200, { protocolVersion: 1, hostVersion: HOST_VERSION, release: RELEASE_VERSION, hostName: config.hostName, computerName: await (naming ??= computerName()), upstreamVersion: adapter.upstreamVersion, capabilities: { sessions: true, textPrompt: true, cancel: true, liveSnapshots: true, questionSkip: false, fileDownload: false, ...(adapter.phoneCapabilities?.() ?? { attachments: false, questions: false, steer: false, queue: false, rename: false, models: false }), approvals: false, push: false, notifications: !!notifications, ...(options.progress?.() ? { progress: true } : {}) }, notificationCapabilities: { version: 1, coverage: notifications?.coverage ?? 'degraded', feed: !!notifications, unifiedPush: false, retentionMs: 604800000 } }); return;
     }
     if (req.method === 'GET' && url.pathname === '/v1/models') {
       if (!adapter.models) throw new HostError('unavailable');

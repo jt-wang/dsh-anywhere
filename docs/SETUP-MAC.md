@@ -13,10 +13,11 @@ Nothing here restarts DSH, opens a firewall port or changes macOS trust. The com
 With DSH Desktop installed and opened once, run:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/jt-wang/dsh-anywhere/releases/latest/download/dsh-anywhere-darwin-arm64.tgz
+dsh plugin --profile desktop add @jt-wang/dsh-anywhere
 ```
 
-No `dsh` on PATH: use the app's launcher
+The package is `@jt-wang/dsh-anywhere` on npm; always write the `@jt-wang/` scope, because the bare npm name
+`dsh-anywhere` is another author's plugin. No `dsh` on PATH: use the app's launcher
 `"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"`. DSH checks the supported versions
 (`0.2.0-rc.2`, every 0.2.1 release or pre-release, and every 0.2.2 release candidate or release) while
 installing.
@@ -24,13 +25,20 @@ installing.
 DSH loads the new bundle; on its first start the companion creates its private Tailcat configuration in
 `~/Library/Application Support/DSHMobile/host/` (a random host ID, a P-256 certificate for `h-<hostId>.dsh.invalid`,
 loopback port 19445, access to all DSH projects). `companion.log` there ends with `running <version>` once it runs.
-Then open **Settings → Mobile → Pair a phone** in DSH. Remove it with `dsh plugin --profile desktop remove dsh-anywhere`.
+Then open **Settings → Mobile → Pair a phone** in DSH. Remove it with `dsh plugin --profile desktop remove @jt-wang/dsh-anywhere`.
 
 [AGENT-INSTALL.md](../AGENT-INSTALL.md) is the same procedure for an AI agent, with checks.
 
 ## Update
 
-Run the install command again, then quit and reopen DSH Desktop. Until you do, the old version keeps running. Paired
+DSH Desktop updates it: **Plugins** in the sidebar marks `@jt-wang/dsh-anywhere` when a new version is out, and its
+Update button installs it. If `companion.log` does not end with `running <new version>` within a minute,
+quit and reopen DSH Desktop. Paired phones stay paired.
+
+Installed DSH Anywhere 0.1.10 or earlier from the GitHub download? That package is named `dsh-anywhere` and DSH cannot
+update it. Switch once, as in [AGENT-INSTALL.md § 7](../AGENT-INSTALL.md#7-switch-from-the-github-download): check that
+the installed `dsh-anywhere` is DSH Anywhere's (not the other author's plugin of that name), then
+`dsh plugin --profile desktop remove dsh-anywhere` and `dsh plugin --profile desktop add @jt-wang/dsh-anywhere`. Paired
 phones stay paired.
 
 ## Pair the phone

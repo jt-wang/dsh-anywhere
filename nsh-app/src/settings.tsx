@@ -11,6 +11,7 @@ import { Icon } from './ui.tsx'
 import { ProgressSetting } from './progress.tsx'
 import { CATEGORIES, diagnostics } from './diagnostics.ts'
 import { DesktopSettings } from './desktop-settings.tsx'
+import { APK_URL, U, UPDATE_GUIDE_URL, updateNotice, type UpdateNotice } from './updates.ts'
 
 function Group(props: { children?: JSX.Element | JSX.Element[] }) { return <View class="rounded-[14px] bg-card border border-border overflow-hidden">{props.children}</View> }
 function Label(props: { text: string }) { return <Text class="px-2 pt-5 pb-[6px] text-muted-foreground text-[13px] font-medium">{props.text}</Text> }
@@ -19,6 +20,22 @@ function Info(props: { label: string; value: string; first?: boolean; children?:
     <View class={`flex-row items-center gap-3 px-[14px] py-[11px] ${props.first ? '' : 'border-t border-border'}`}>
       <Text class="text-foreground text-[15px]">{props.label}</Text>
       <View class="flex-1 flex-row items-center justify-end gap-2">{props.children}<Text class="text-muted-foreground text-[15px] text-right line-clamp-2 shrink">{props.value}</Text></View>
+    </View>
+  )
+}
+
+/** Which side to update (updates.ts), under the app's version; Android downloads the APK, an iPhone updates in TestFlight. */
+export function UpdateRow(props: { notice: () => UpdateNotice }) {
+  const n = props.notice
+  return (
+    <View testID="update-notice" class="px-[14px] py-3 border-t border-border gap-[6px]">
+      <Text class="text-foreground text-[15px] font-medium">{n().kind === 'computer' ? U.computerTitle(n().version) : U.appTitle(n().version)}</Text>
+      <Text class="text-muted-foreground text-[13px] leading-[18px]">{n().kind === 'computer' ? U.computerBody : n().kind === 'apk' ? U.apkBody : U.testflightBody}</Text>
+      <If when={n().kind !== 'testflight'}>
+        <View role="link" testID="update-action" hitSlop={6} class="self-start active:opacity-60" onPress={() => { openUrl(n().kind === 'apk' ? APK_URL : UPDATE_GUIDE_URL).catch(() => {}) }}>
+          <Text class="text-primary text-[14px] font-medium">{n().kind === 'apk' ? U.download : U.guide}</Text>
+        </View>
+      </If>
     </View>
   )
 }
@@ -33,7 +50,7 @@ export function SettingsPage(props: { onDiagnostics: () => void }) {
   const appInfo = signal<{ version: string; build: string } | undefined>(undefined)
   const appInfoFailed = signal(false)
   host.call<{ version: string; build: string }>('app.info').then((v) => appInfo.set(v), () => appInfoFailed.set(true))
-  const computer = signal<{ name: string; companionVersion: string; dshVersion: string; progress: boolean } | undefined>(undefined)
+  const computer = signal<{ name: string; companionVersion: string; release: string; dshVersion: string; progress: boolean } | undefined>(undefined)
   const granted = signal<boolean | undefined>(undefined)
   const load = () => dsh().computer().then((c) => computer.set(c), () => {})
   // Direct or through a relay: the tunnel asks the computer (link.path; a direct path can come a little later).
@@ -48,6 +65,8 @@ export function SettingsPage(props: { onDiagnostics: () => void }) {
   effect(() => { if (connection() === 'online' && !computer()) load() })
   const allow = () => host.call<{ granted?: boolean }>('notify.request').then((v) => { granted.set(v?.granted === true); if (!v?.granted) host.call('notify.settings').catch(() => {}) }, () => {})
   const state = () => connection()
+  // Which side to update, once both versions are known; never for the sample computer.
+  const notice = () => { const a = appInfo(), c = computer(); return a && c && !trying() ? updateNotice(a.version, c.release, platform.os) : null }
   const toggle = (key: keyof NotifyPrefs, label: string, hint?: string, first?: boolean) => (
     <View class={`flex-row items-center gap-3 px-[14px] py-3 ${first ? '' : 'border-t border-border'}`}>
       <View class="flex-1 gap-[2px]">
@@ -64,6 +83,7 @@ export function SettingsPage(props: { onDiagnostics: () => void }) {
       <Label text="DSH Anywhere" />
       <Group>
         <Info first label={S.appVersion} value={appInfo() ? `${appInfo()!.version} (${appInfo()!.build})` : appInfoFailed() ? S.versionUnavailable : '…'} />
+        <If when={notice()}><UpdateRow notice={() => notice()!} /></If>
       </Group>
       <Label text={S.computer} />
       <Group>

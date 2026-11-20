@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Packs the built host (host/dist with the darwin-arm64 Tailcat helper) as the package DSH Desktop installs with one
-// command: `dsh plugin --profile desktop add <url of dsh-anywhere-darwin-arm64.tgz>`.
+// Packs the built host (host/dist with the darwin-arm64 Tailcat helper) as the npm package @jt-wang/dsh-anywhere, which
+// DSH Desktop installs with `dsh plugin --profile desktop add @jt-wang/dsh-anywhere` and updates with its own plugin
+// manager. The release workflow publishes this file to npm and attaches it to the GitHub release. Never use the bare
+// name `dsh-anywhere`: on npm that is another author's DSH plugin.
 //   node tools/pack-bundle.mjs [--out <dir>] [--host <built host dir>]
 // npm-pack layout (`package/` prefix). No scripts and no dependencies: DSH's bundled pnpm refuses packages with
 // install scripts, and ws is bundled into dist/plugin.js. The archive is byte-for-byte reproducible from one build.
@@ -19,7 +21,8 @@ for (let i = 0; i < args.length; i += 2) {
 }
 const host = flags.get('--host') ?? path.join(root, 'host'), out = flags.get('--out') ?? path.join(root, 'build', 'bundle');
 
-const NAME = 'dsh-anywhere', ROW_ID = 'dsh-anywhere', HELPER = 'dsh-tailcat-host-darwin-arm64';
+// ROW_ID stays the one every release before 0.8.1 used, so DSH sees one companion row, whichever package carries it.
+const NAME = '@jt-wang/dsh-anywhere', FILE = 'dsh-anywhere-darwin-arm64.tgz', ROW_ID = 'dsh-anywhere', HELPER = 'dsh-tailcat-host-darwin-arm64';
 const pkg = JSON.parse(readFileSync(path.join(host, 'package.json'), 'utf8'));
 for (const required of ['dist/plugin.js', 'dist/client.js', 'dist/compatibility.js'])
   if (!existsSync(path.join(host, required))) fail(`Missing ${required}. Run "npm ci && npm run build" in host/ first.`);
@@ -46,6 +49,8 @@ const renamed = `window.__ModuleLoader__.load({\n\tid: ${JSON.stringify(NAME)},`
 // its private Tailcat configuration on first start (host/src/zero-config.ts).
 const manifest = {
   name: NAME, version: pkg.version, description: 'DSH Anywhere: use DeepSeek Harness on this Mac from your phone', license: 'MIT', type: 'module',
+  // npm checks provenance against this repository; scoped packages are private unless published public.
+  repository: { type: 'git', url: 'git+https://github.com/jt-wang/dsh-anywhere.git' }, publishConfig: { access: 'public' },
   engines: { dsh: DSH_ENGINES_RANGE },
   exports: { '.': './dist/plugin.js', './client': './dist/client.js', './package.json': './package.json' },
   dsh: { bundle: { patch: './cordis.patch.yml' }, client: pkg.dsh.client },
@@ -81,7 +86,7 @@ parts.push(Buffer.alloc(1024));
 const archive = gzipSync(Buffer.concat(parts), { level: 9 });
 
 mkdirSync(out, { recursive: true });
-const target = path.join(out, `${NAME}-darwin-arm64.tgz`), staged = `${target}.${process.pid}.tmp`;
+const target = path.join(out, FILE), staged = `${target}.${process.pid}.tmp`;
 writeFileSync(staged, archive); renameSync(staged, target);
 console.log(`Packed ${files.length} files, ${statSync(target).size} bytes, engines.dsh "${DSH_ENGINES_RANGE}".`);
 console.log(target);

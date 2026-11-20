@@ -938,8 +938,10 @@ test('demo composition intentionally issues only a local fixture invitation and 
   assert.equal(pairing.status, 201);
   const grant = await pairing.json() as { deviceToken: string };
   const capabilities = await fetch(`${baseUrl}/v1/capabilities`, { headers: { authorization: `Bearer ${grant.deviceToken}` } });
-  const value = await capabilities.json() as { upstreamVersion: string; hostName: string; computerName: string };
+  const value = await capabilities.json() as { upstreamVersion: string; hostName: string; computerName: string; release: string };
   assert.equal(value.upstreamVersion, 'fixture'); assert.equal(value.hostName, FIXTURE.hostName);
+  // The phone compares this with its own version to say which side to update: it must be the app of the same release.
+  assert.equal(value.release, JSON.parse(readFileSync(new URL('../../nsh-app/nsh.json', import.meta.url), 'utf8')).version);
   assert.equal(value.computerName, await computerName());
   await demo.close(); await demo.close();
   await assert.rejects(fetch(`${baseUrl}/v1/capabilities`));
