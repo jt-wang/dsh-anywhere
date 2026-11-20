@@ -8,6 +8,7 @@ import { SessionsScreen, type Summary } from './src/sessions.tsx'
 import { ChatScreen, type ChildOf } from './src/chat.tsx'
 import { SchedulesScreen } from './src/schedules.tsx'
 import { SettingsPage } from './src/settings.tsx'
+import { DiagnosticsSettings } from './src/diagnostics-settings.tsx'
 import { HomeTabs, markSeen, progressAvailable, ProgressFeed, ProgressScreen, ProjectPage } from './src/progress.tsx'
 import { loadPrefs } from './src/prefs.ts'
 import { forkChat, RenameSheet } from './src/manage.tsx'
@@ -28,7 +29,7 @@ import './assets/fonts/Geist-Medium.ttf'
 import './assets/fonts/Geist-SemiBold.ttf'
 import './assets/fonts/GeistMono-Regular.ttf'
 
-type Route = { name: 'sessions' } | { name: 'project'; id: string; title: string } | { name: 'schedules' } | { name: 'settings' } | { name: 'chat'; session: Summary; child?: ChildOf; at?: string } | { name: 'trajectory'; session: Summary } | { name: 'details'; session: Summary }
+type Route = { name: 'sessions' } | { name: 'project'; id: string; title: string } | { name: 'schedules' } | { name: 'settings' } | { name: 'diagnostics' } | { name: 'chat'; session: Summary; child?: ChildOf; at?: string } | { name: 'trajectory'; session: Summary } | { name: 'details'; session: Summary }
   | { name: 'files'; session: Summary; path: string; file?: FileEntry } // a folder ('' the workspace root) or, with `file`, one file
   | { name: 'terminals'; session: Summary } | { name: 'terminal'; session: Summary; target: TerminalTarget; title?: string }
 const HEADER = 'bg-background text-foreground tint-foreground'
@@ -154,7 +155,9 @@ function App() {
     : route.name === 'schedules'
     ? <NavPage title={S.schedules} headerClass={HEADER} class="bg-background"><SchedulesScreen /></NavPage>
     : route.name === 'settings'
-    ? <NavPage title={S.settings} headerClass={HEADER} class="bg-background"><SettingsPage /></NavPage>
+    ? <NavPage title={S.settings} headerClass={HEADER} class="bg-background"><SettingsPage onDiagnostics={() => nav.push({ name: 'diagnostics' })} /></NavPage>
+    : route.name === 'diagnostics'
+    ? <NavPage title={S.diagnostics.title} headerClass={HEADER} class="bg-background"><DiagnosticsSettings /></NavPage>
     : route.name === 'project'
     ? <NavPage title={route.title} headerClass={HEADER} class="bg-background"><ProjectPage projectId={route.id} onOpen={openJob} /></NavPage>
     : route.name === 'sessions'

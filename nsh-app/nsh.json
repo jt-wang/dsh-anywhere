@@ -1,7 +1,7 @@
 {
   "name": "DSH",
   "id": "io.jingtao.dshanywhere",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "build": 11,
   "appearance": "system",
   "theme": {

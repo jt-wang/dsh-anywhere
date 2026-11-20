@@ -1,5 +1,19 @@
 import { expect, test } from 'nsh/test'
-import { connection, heard, interfaceRequest, network, news, reachState, started, turnErrors } from './state.ts'
+import { connection, heard, interfaceRequest, network, news, reachState, routeWords, started, turnErrors } from './state.ts'
+
+test('TailPocket route kinds distinguish DERP and private relays without inventing a city or showing empty parentheses', () => {
+  expect(routeWords({ kind: 'derp' })).toBe('Through a Tailcat relay')
+  expect(routeWords({ kind: 'derp', derpCode: ' ', derpHost: '' })).toBe('Through a Tailcat relay')
+  expect(routeWords({ kind: 'derp', derpCode: 'tok', derpHost: 'region.example.com', derpRegion: 1 })).toBe('Through a Tailcat relay (TOK)')
+  expect(routeWords({ kind: 'derp', derpHost: 'region.example.com', derpRegion: 1 })).toBe('Through a Tailcat relay (region.example.com)')
+  expect(routeWords({ kind: 'derp', derpRegion: 123 })).toBe('Through a Tailcat relay (#123)')
+  expect(routeWords({ kind: 'relay', relayHost: 'relay.example.com', derpCode: 'tok' })).toBe('Through your relay (relay.example.com)')
+  expect(routeWords({ kind: 'relay', relayHost: '' })).toBe('Through your relay')
+  expect(routeWords({ kind: 'direct' })).toBe('Direct to your computer')
+  expect(routeWords({ kind: 'lan' })).toBe('Over the local network to your computer')
+  expect(routeWords({ kind: 'unknown' })).toBe('')
+  expect(routeWords(undefined)).toBe('')
+})
 
 test('opening a generated interface asks the shell for that call\'s package and the root key, with the device key', () => {
   expect(interfaceRequest({ origin: 'http://127.0.0.1:19446', key: 'k' }, 'call/7 x', 'Tip')).toEqual({

@@ -1,5 +1,5 @@
 // Explicit local controls and an immutable export preview; only Share opens the OS sheet.
-import { effect, host, platform, signal, Text, View } from 'nsh'
+import { effect, host, platform, Scroll, signal, Text, View } from 'nsh'
 import { Switch } from 'nsh/base'
 import { CATEGORIES, diagnosticExport, diagnostics, setDiagnostics, type Category } from './diagnostics.ts'
 import { S } from './strings.ts'
@@ -12,10 +12,10 @@ export function DiagnosticsSettings() {
   diagnostics.load()
   effect(() => { diagnostics.prefs(); range(); preview.set(undefined) })
   const prefs = diagnostics.prefs
-  const toggle = (id: string, label: string, checked: () => boolean, change: (value: boolean) => void) => (
-    <View class="flex-row items-center gap-3 px-[14px] py-3 border-b border-border">
+  const toggle = (id: string, label: string, checked: () => boolean, change: (value: boolean) => void, disabled = () => false) => (
+    <View class={`flex-row items-center gap-3 px-[14px] py-3 border-b border-border ${disabled() ? 'opacity-40' : ''}`}>
       <Text class="flex-1 text-foreground text-[15px]">{label}</Text>
-      <Switch testID={`diagnostics-${id}`} accessibilityLabel={label} checked={checked()} onChange={(e) => change(e.checked)}
+      <Switch testID={`diagnostics-${id}`} accessibilityLabel={label} checked={checked()} disabled={disabled()} onChange={(e) => change(e.checked)}
         class="w-[46px] h-[28px]" trackClass="w-full h-full rounded-full bg-input checked:bg-primary justify-center px-[3px]"
         thumbClass="w-[22px] h-[22px] rounded-full bg-background shadow-sm checked:translate-x-[18px]" />
     </View>
@@ -46,12 +46,15 @@ export function DiagnosticsSettings() {
     try { await host.call('diagnostics.share', { text: value.text }) } catch { error.set(true) } finally { busy.set(false) }
   }
   return (
-    <View testID="diagnostics" class="gap-2">
+    <Scroll testID="diagnostics" class="flex-1 bg-background" contentClass="px-4 pb-10 gap-2">
       <Text class="px-2 pt-5 text-muted-foreground text-[13px] font-medium">{S.diagnostics.title}</Text>
       <View class="rounded-[14px] bg-card border border-border overflow-hidden">
-        {toggle('enabled', S.diagnostics.enabled, () => prefs().enabled, (enabled) => { setDiagnostics({ ...prefs(), enabled }) })}
-        {CATEGORIES.map((category) => toggle(category, S.diagnostics[category], () => prefs().categories[category], (value) => { setDiagnostics({ ...prefs(), categories: { ...prefs().categories, [category]: value } }) }))}
-        <Text testID="diagnostics-state" class="px-[14px] py-3 text-muted-foreground text-[13px] leading-[18px]">{prefs().enabled ? S.diagnostics.recording : S.diagnostics.off}</Text>
+        {toggle('enabled', S.diagnostics.enabled, () => prefs().enabled, (enabled) => {
+          // Loading keeps existing consent; manually re-enabling requires fresh category selection.
+          setDiagnostics({ enabled, categories: enabled ? { interaction: false, performance: false, network: false, resources: false } : prefs().categories })
+        })}
+        {CATEGORIES.map((category) => toggle(category, S.diagnostics[category], () => prefs().enabled && prefs().categories[category], (value) => { setDiagnostics({ ...prefs(), categories: { ...prefs().categories, [category]: value } }) }, () => !prefs().enabled))}
+        <Text testID="diagnostics-state" class="px-[14px] py-3 text-muted-foreground text-[13px] leading-[18px]">{!prefs().enabled ? S.diagnostics.off : CATEGORIES.some(c => prefs().categories[c]) ? S.diagnostics.recording : S.diagnostics.chooseCategories}</Text>
       </View>
       <Text class="px-2 text-muted-foreground text-[13px] leading-[18px]">{S.diagnostics.privacy}</Text>
       <Text class="px-2 text-muted-foreground text-[13px] leading-[18px]">{S.diagnostics.retention}</Text>
@@ -77,6 +80,6 @@ export function DiagnosticsSettings() {
         </View>
       </If>
       <If when={error() || diagnostics.failed()}><Text testID="diagnostics-error" class="px-2 text-destructive text-[13px] leading-[18px]">{S.diagnostics.failed}</Text></If>
-    </View>
+    </Scroll>
   )
 }

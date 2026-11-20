@@ -4,7 +4,7 @@
 //   link.pair    { text } → as link.state; the one-time QR (or a dshm1: link) to a paired device
 //   link.reset   → a new tunnel and bridge, as link.state (the app found the link dead)
 //   link.forget  → unpairs this phone on the computer (best effort) and forgets the link
-//   link.path    → { route: direct | relay | lan | unknown, relay? } how the tunnel reaches the computer now
+//   link.path    → TailPocket route metadata: kind lan | direct | derp | relay, with DERP/relay identity when known
 //   link.tailcatOnly { on? } → { on }: reach the computer over Tailcat only (no relay, no local network), kept on the phone
 //   event link.emoji { emoji } → an emoji pairing (bootstrap v2) waits for the computer's user to compare and confirm
 // Pairing follows docs/TAILCAT.md: the QR opens a short-lived pairing node; TailPocket's connectmobile pairs this phone's
@@ -83,16 +83,15 @@ final class Link {
                 reply.resolve(o)
             }
         }
-        // How the tunnel reaches the computer now: {route: "direct"}, {route: "relay", relay: code} or {route: "unknown"}.
+        // TailPocket's current route kind and DERP/relay metadata, or {route: "unknown"}.
         // Off the link's own queue: the answer may take up to three seconds (ConnectmobilePath).
         view.handle("link.path") { _, reply in
             DispatchQueue.global(qos: .utility).async {
                 let handle = Link.tunnel
                 var out: [String: Any] = ["route": "unknown"]
                 if handle >= 0, let data = ConnectmobilePath(handle, 3000).data(using: .utf8),
-                   let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let route = o["route"] as? String {
-                    out["route"] = route
-                    if let relay = o["relay"] as? String { out["relay"] = relay }
+                   let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], o["route"] is String {
+                    out = o
                 }
                 reply.resolve(out)
             }

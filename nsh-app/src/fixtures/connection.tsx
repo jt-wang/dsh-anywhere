@@ -4,6 +4,7 @@ import { mount, signal, Text, View } from 'nsh'
 import type { ConnectionState } from '../dsh.ts'
 import type { Check } from '../reach.ts'
 import { ConnectionBar, ConnectionDot, ReachSheet, type Reach } from '../status.tsx'
+import { routeWords, type LinkPath } from '../state.ts'
 
 const connection = signal<ConnectionState>('online'), network = signal(true), active = signal(true)
 const check = signal<Check | undefined>(undefined), retryAt = signal<number | undefined>(undefined), route = signal('')
@@ -11,6 +12,15 @@ const open = signal(false), onChats = signal(false), retried = signal(0), relink
 const reach: Reach = { connection, network, active, check, retryAt, routeText: route, open, retry: () => retried.update((n) => n + 1), relink: () => relinked.update((n) => n + 1) }
 const set = (label: string, f: () => void) => <View role="button" testID={label} onPress={f}><Text>{label}</Text></View>
 const failing = (c: Check) => { connection.set('offline'); check.set(c) }
+const paths: [string, LinkPath][] = [
+  ['derp-code', { kind: 'derp', derpCode: 'tok' }],
+  ['derp-host', { kind: 'derp', derpRegion: 1, derpHost: 'region.example.com' }],
+  ['derp-id', { kind: 'derp', derpRegion: 42 }],
+  ['derp-unnamed', { kind: 'derp' }],
+  ['relay-host', { kind: 'relay', relayHost: 'relay.example.com' }],
+  ['relay-unnamed', { kind: 'relay' }],
+  ['lan', { kind: 'lan' }],
+]
 
 function App() {
   return (
@@ -30,7 +40,8 @@ function App() {
         {set('refused', () => { failing({ relay: 'reachable', computer: 'reachable', access: 'refused' }); retryAt.set(undefined) })}
         {set('slow', () => { connection.set('online'); check.set({ access: 'ok', latencyMs: 2400 }) })}
         {set('next-try', () => retryAt.set(Date.now() + 8_000))}
-        {set('direct', () => route.set('Direct to your computer'))}
+        {set('direct', () => route.set(routeWords({ kind: 'direct' })))}
+        {paths.map(([id, path]) => set(id, () => route.set(routeWords(path))))}
         {set('chats', () => onChats.set(true))}
       </View>
       <Text>{`retried:${retried()} relinked:${relinked()}`}</Text>

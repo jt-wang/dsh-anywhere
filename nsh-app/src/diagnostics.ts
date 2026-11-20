@@ -6,7 +6,7 @@ export const CATEGORIES = ['interaction', 'performance', 'network', 'resources']
 export type Category = typeof CATEGORIES[number]
 export interface DiagnosticPrefs { enabled: boolean; categories: Record<Category, boolean> }
 export interface DiagnosticEvent { at: number; category: Category; event: string; fields: Record<string, string | number | boolean> }
-const DEFAULTS: DiagnosticPrefs = { enabled: false, categories: { interaction: true, performance: true, network: true, resources: true } }
+const DEFAULTS: DiagnosticPrefs = { enabled: false, categories: { interaction: false, performance: false, network: false, resources: false } }
 export const JOURNAL_BYTES = 131072, JOURNAL_EVENTS = 800, RETAIN_MS = 86400000
 const enumValue = (v: unknown, choices: readonly string[]) => typeof v === 'string' && choices.includes(v) ? v : undefined
 const numeric = (v: unknown, max = 1e12) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? Math.round(v) : undefined

@@ -4,12 +4,12 @@
 // the computer.
 import { cleanup, effect, host, openUrl, platform, Scroll, signal, Text, View, type JSX } from 'nsh'
 import { Switch } from 'nsh/base'
-import { appActive, connection, dsh, pollForeground, PRIVACY_URL, routeWords, setTailcatOnly, tailcatOnly, trying, unlink } from './state.ts'
+import { appActive, connection, dsh, pollForeground, PRIVACY_URL, routeWords, setTailcatOnly, tailcatOnly, trying, unlink, type LinkPath } from './state.ts'
 import { language, S, type Language } from './strings.ts'
 import { notifyPrefs, setLanguage, setNotify, setTheme, theme, type NotifyPrefs, type Theme } from './prefs.ts'
 import { Icon } from './ui.tsx'
 import { ProgressSetting } from './progress.tsx'
-import { DiagnosticsSettings } from './diagnostics-settings.tsx'
+import { CATEGORIES, diagnostics } from './diagnostics.ts'
 import { DesktopSettings } from './desktop-settings.tsx'
 
 function Group(props: { children?: JSX.Element | JSX.Element[] }) { return <View class="rounded-[14px] bg-card border border-border overflow-hidden">{props.children}</View> }
@@ -29,7 +29,7 @@ const LANGUAGES: { id: Language; name: () => string }[] = [
 ]
 const THEMES: { id: Theme; name: () => string }[] = [{ id: 'system', name: () => S.themeSystem }, { id: 'light', name: () => S.themeLight }, { id: 'dark', name: () => S.themeDark }]
 
-export function SettingsPage() {
+export function SettingsPage(props: { onDiagnostics: () => void }) {
   const appInfo = signal<{ version: string; build: string } | undefined>(undefined)
   const appInfoFailed = signal(false)
   host.call<{ version: string; build: string }>('app.info').then((v) => appInfo.set(v), () => appInfoFailed.set(true))
@@ -37,8 +37,8 @@ export function SettingsPage() {
   const granted = signal<boolean | undefined>(undefined)
   const load = () => dsh().computer().then((c) => computer.set(c), () => {})
   // Direct or through a relay: the tunnel asks the computer (link.path; a direct path can come a little later).
-  const route = signal<{ route: string; relay?: string } | undefined>(undefined)
-  const findRoute = () => trying() ? undefined : host.call<{ route?: string; relay?: string }>('link.path').then((v) => route.set(v?.route ? { route: v.route, ...(v.relay ? { relay: v.relay } : {}) } : undefined), () => {})
+  const route = signal<LinkPath | undefined>(undefined)
+  const findRoute = () => trying() ? undefined : host.call<LinkPath>('link.path').then((v) => route.set(v), () => {})
   const routeText = () => routeWords(route())
   const permission = () => host.call<{ granted?: boolean }>('notify.permission').then((v) => granted.set(v?.granted === true), () => {})
   load(); permission()
@@ -149,7 +149,11 @@ export function SettingsPage() {
       </If>
 
       <If when={!trying()}><DesktopSettings /></If>
-      <DiagnosticsSettings />
+      <View role="button" testID="settings-diagnostics" onPress={props.onDiagnostics} class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center gap-3 active:bg-secondary">
+        <Text class="flex-1 text-foreground text-[15px]">{S.diagnostics.title}</Text>
+        <Text testID="settings-diagnostics-state" class="text-muted-foreground text-[15px]">{diagnostics.prefs().enabled && CATEGORIES.some(c => diagnostics.prefs().categories[c]) ? S.diagnostics.statusOn : S.diagnostics.statusOff}</Text>
+        <Icon name="chevronRight" size={18} class="tint-muted-foreground" />
+      </View>
 
       <View role="link" testID="settings-privacy" onPress={() => { openUrl(PRIVACY_URL).catch(() => {}) }} class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center active:bg-secondary">
         <Text class="flex-1 text-foreground text-[15px]">{S.privacy}</Text>
