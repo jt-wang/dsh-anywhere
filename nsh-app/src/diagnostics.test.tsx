@@ -10,6 +10,7 @@ const pause = () => new Promise((resolve) => setTimeout(resolve, 10))
 test('diagnostics is opt-in, category scoped and suspended in background, including in-flight requests', async () => {
   let disk: string | null = null
   const journal = new DiagnosticJournal({ read: async () => disk, write: async (text) => { disk = text }, clear: async () => { disk = null } })
+  expect(journal.prefs()).toEqual({ enabled: false, categories: { interaction: false, performance: false, network: false, resources: false } })
   journal.record('interaction', 'ui.action', { action: 'menu' }); journal.callback()
   await journal.flush(); expect(disk).toBe(null)
   journal.configure({ ...enabled, categories: { ...enabled.categories, interaction: false } })
@@ -107,6 +108,7 @@ test('settings previews frozen metadata and only explicit Share opens the OS she
   await app.waitFor('text:Local diagnostics')
   expect(app.host.calls().some((c) => c.name === 'diagnostics.share')).toBe(false)
   await app.press('id:diagnostics-enabled')
+  await app.press('id:diagnostics-interaction')
   await app.waitFor('text:Recording selected categories on this phone.')
   await app.host.send('fixture.action', { action: 'menu', prompt: bait })
   await app.press('id:diagnostics-preview'); await app.waitFor('id:diagnostics-export-preview')
@@ -139,6 +141,7 @@ test('preference write failure never starts metrics; opting out stops them even 
   expect(app.host.calls().filter((c) => c.name === 'diagnostics.resources').some((c) => (c.data as any).enabled)).toBe(false)
   fail = false
   await app.press('id:diagnostics-enabled')
+  await app.press('id:diagnostics-resources')
   await app.waitFor('text:Recording selected categories on this phone.')
   await app.waitUntil(() => app.host.calls().some((c) => c.name === 'diagnostics.resources' && (c.data as any).enabled))
   fail = true
@@ -147,3 +150,57 @@ test('preference write failure never starts metrics; opting out stops them even 
   await app.waitUntil(() => (app.host.calls().filter((c) => c.name === 'diagnostics.resources').at(-1)?.data as any)?.enabled === false)
   expect(app.requests().length).toBe(0)
 })
+
+for (const platform of ['ios', 'android'] as const) {
+  test(`${platform}: fresh and previously disabled diagnostics stay off; enabling requires individual category consent`, async () => {
+    for (const saved of [null, JSON.stringify({ ...enabled, enabled: false })]) {
+      let preferences = saved, disk: string | null = null
+      const handlers = {
+        'diagnostics.preferences.read': () => preferences,
+        'diagnostics.preferences.write': (v: any) => { preferences = v.text },
+        'diagnostics.read': () => disk, 'diagnostics.write': (v: any) => { disk = v.text },
+        'diagnostics.resources': null, 'app.info': { version: '1.0', build: '1' },
+      }
+      const app = await open('./fixtures/diagnostics/App.tsx', { platform, locale: 'en-US', host: { handlers } })
+      await app.waitFor('id:diagnostics-enabled')
+      expect(app.shows('text:Recording selected categories on this phone.')).toBe(false)
+      for (const category of ['interaction', 'performance', 'network', 'resources']) {
+        expect(app.enabled(`id:diagnostics-${category}`)).toBe(false)
+      }
+      expect(preferences).toBe(saved) // Upgrading or viewing never rewrites existing consent.
+      await app.host.send('fixture.action', { action: 'menu' })
+      await app.host.send('diagnostics.resource', { thermal: 'fair' })
+      await app.press('id:diagnostics-preview'); await app.waitFor('text:No events in this range.')
+      expect(disk).toBe(null)
+      expect(app.host.calls().filter(c => c.name === 'diagnostics.resources').some(c => (c.data as any).enabled)).toBe(false)
+      await app.press('id:diagnostics-enabled')
+      await app.waitUntil(() => preferences !== saved)
+      expect(JSON.parse(preferences!)).toEqual({ enabled: true, categories: { interaction: false, performance: false, network: false, resources: false } })
+      expect(app.texts()).toContain('Choose categories to start recording.')
+      for (const category of ['interaction', 'performance', 'network', 'resources']) expect(app.enabled(`id:diagnostics-${category}`)).toBe(true)
+      await app.host.send('fixture.action', { action: 'menu' })
+      await app.press('id:diagnostics-preview'); await app.waitFor('text:No events in this range.')
+      expect(disk).toBe(null)
+      await app.press('id:diagnostics-interaction')
+      await app.waitFor('text:Recording selected categories on this phone.')
+      await app.host.send('fixture.action', { action: 'menu' })
+      await app.press('id:diagnostics-preview'); await app.waitFor('text:1 events')
+      expect(app.host.calls().filter(c => c.name === 'diagnostics.resources').some(c => (c.data as any).enabled)).toBe(false)
+    }
+  })
+
+  test(`${platform}: upgrade and restart preserve an existing explicit category selection`, async () => {
+    const saved = JSON.stringify({ enabled: true, categories: { interaction: true, performance: false, network: true, resources: false } })
+    let preferences = saved
+    const app = await open('./fixtures/diagnostics/App.tsx', { platform, host: { handlers: {
+      'diagnostics.preferences.read': saved, 'diagnostics.read': null, 'diagnostics.resources': null,
+      'diagnostics.preferences.write': (v: any) => { preferences = v.text },
+    } } })
+    await app.waitFor('text:Recording selected categories on this phone.')
+    expect(app.host.calls().some(c => c.name === 'diagnostics.preferences.write')).toBe(false)
+    expect(app.host.calls().filter(c => c.name === 'diagnostics.resources').some(c => (c.data as any).enabled)).toBe(false)
+    await app.press('id:diagnostics-network')
+    await app.waitUntil(() => preferences !== saved)
+    expect(JSON.parse(preferences)).toEqual({ enabled: true, categories: { interaction: true, performance: false, network: false, resources: false } })
+  })
+}

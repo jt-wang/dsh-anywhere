@@ -89,7 +89,7 @@ final class Link {
             } catch (Exception e) { out.put("error", "unreadable"); }
             reply.resolve(out);
         }).start());
-        // How the tunnel reaches the computer now: {route: "direct"}, {route: "relay", relay: code} or {route: "unknown"}.
+        // TailPocket's current route kind and DERP/relay metadata, or {route: "unknown"}.
         // Off the link's own thread: the answer may take up to three seconds (Connectmobile.path).
         view.handle("link.path", (data, reply) -> new Thread(() -> {
             long handle = tunnel;
@@ -98,7 +98,9 @@ final class Link {
             if (handle >= 0) {
                 try {
                     JSONObject o = new JSONObject(Connectmobile.path(handle, 3000));
-                    if (o.has("route")) { out.put("route", o.getString("route")); if (o.has("relay")) out.put("relay", o.getString("relay")); }
+                    if (o.has("route")) {
+                        for (java.util.Iterator<String> keys = o.keys(); keys.hasNext();) { String k = keys.next(); out.put(k, o.get(k)); }
+                    }
                 } catch (Exception e) { /* unknown */ }
             }
             reply.resolve(out);

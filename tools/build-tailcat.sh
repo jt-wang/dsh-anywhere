@@ -14,7 +14,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 module="$root/tailcat"
 go_version="1.27.4"
 tailcat_pin="github.com/tailscale/tailcat v0.6.0"
-tailpocket_pin="github.com/jt-wang/tailpocket v0.3.0" # public tag commit e1aea0fafe2341985b8a5cbd98f39d9949b0e544
+tailpocket_pin="github.com/jt-wang/tailpocket v0.3.1" # public tag commit 086e368148aac78dc7ad21eb18b3a98d69a0590a
 
 fail() { echo "build-tailcat: $*" >&2; exit 1; }
 

@@ -10,6 +10,7 @@ import { OfflineCache } from './cache.ts'
 import { oneAtATime } from './progress.ts'
 
 export interface Settings { origin: string; key: string }
+export interface LinkPath { kind?: string; derpRegion?: number; derpCode?: string; derpHost?: string; relayHost?: string }
 type LinkState = { paired: false } | { paired: true; origin: string; token: string; cacheId?: string }
 export const settings = signal<Settings | null>(null)
 export const offlineCache = signal<OfflineCache | undefined>(undefined)
@@ -119,7 +120,7 @@ async function look() {
       const asked = Date.now()
       const access = await askComputer()
       check.set({ access, ...(access === 'ok' ? { latencyMs: Date.now() - asked } : {}) })
-      const r = await host.call<{ route?: string; relay?: string }>('link.path').catch(() => undefined)
+      const r = await host.call<LinkPath>('link.path').catch(() => undefined)
       routeText.set(routeWords(r))
     } else {
       const d = await host.call<Check & { error?: string }>('link.diagnose')
@@ -130,8 +131,15 @@ async function look() {
   } catch { /* a shell without link.diagnose: the state stays as it is */ } finally { looking = false }
 }
 /** How the tunnel reaches the computer (link.path), in words; nothing while unknown. */
-export const routeWords = (r: { route?: string; relay?: string } | undefined) =>
-  r?.route === 'direct' ? S.pathDirect : r?.route === 'relay' ? S.pathRelay((r.relay ?? '').toUpperCase() || '—') : r?.route === 'lan' ? S.pathLan : ''
+export function routeWords(r: LinkPath | undefined) {
+  switch (r?.kind) {
+    case 'direct': return S.pathDirect
+    case 'lan': return S.pathLan
+    case 'relay': return S.pathPrivateRelay(r.relayHost?.trim() || undefined)
+    case 'derp': return S.pathRelay(r.derpCode?.trim().toUpperCase() || r.derpHost?.trim() || (r.derpRegion && r.derpRegion > 0 ? `#${r.derpRegion}` : undefined))
+    default: return ''
+  }
+}
 async function askComputer(): Promise<NonNullable<Check['access']>> {
   try { await dsh().computer(); return 'ok' } catch (e) { return (e as DshError).code === 'unauthorized' ? 'refused' : 'failed' }
 }

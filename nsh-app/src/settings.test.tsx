@@ -6,13 +6,14 @@ const ORIGIN = 'http://127.0.0.1:40001/dsh'
 const paired = { paired: true, origin: ORIGIN, token: 'synthetic-device-token' }
 const ok = (value: unknown) => ({ body: { type: 'server-response', rpcId: 'x', result: { ok: true, value } } })
 
-async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' }), extra: Record<string, unknown> = {}) {
+async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' }), extra: Record<string, unknown> = {}, platform: 'ios' | 'android' = 'ios') {
   const app = await open('../App.tsx', {
+    platform,
     locale: 'en-US',
     host: { handlers: {
       'app.info': info, 'network.state': { online: !offline },
       'link.state': paired, 'app.state': { active: true }, 'notify.watch': null, 'notify.clear': null, 'notify.permission': { granted },
-      'notify.request': { granted: true, decided: true }, 'notify.settings': null, 'link.forget': null, 'link.path': { route: 'relay', relay: 'tok' }, ...extra,
+      'notify.request': { granted: true, decided: true }, 'notify.settings': null, 'link.forget': null, 'link.path': { route: 'relay', kind: 'derp', derpCode: 'tok' }, ...extra,
     } },
     network: {
       [`POST ${ORIGIN}/api/session/list`]: () => ok({ items: [] }),
@@ -26,11 +27,35 @@ async function settings(granted: boolean, offline = false, info: () => unknown =
   return app
 }
 
+for (const platform of ['ios', 'android'] as const) {
+  test(`${platform}: diagnostics has one Off entry; its switches and export live only on the child page`, async () => {
+    for (const saved of [null, JSON.stringify({ enabled: false, categories: { interaction: true, performance: true, network: true, resources: true } })]) {
+      const app = await settings(true, false, undefined, {
+        'diagnostics.preferences.read': saved, 'diagnostics.read': null, 'diagnostics.resources': null,
+      }, platform)
+      expect(app.count('id:settings-diagnostics')).toBe(1)
+      expect(app.shows('id:settings-diagnostics >> text:Off')).toBe(true)
+      expect(app.shows('id:diagnostics-enabled')).toBe(false)
+      expect(app.shows('id:diagnostics-preview')).toBe(false)
+      await app.press('id:settings-diagnostics')
+      await app.waitFor('id:diagnostics-enabled')
+      expect(app.shows('id:settings-diagnostics')).toBe(false)
+      expect(app.shows('text:Off. Previously saved logs remain until cleared or replaced.')).toBe(true)
+      for (const category of ['interaction', 'performance', 'network', 'resources']) expect(app.enabled(`id:diagnostics-${category}`)).toBe(false)
+      expect(app.host.calls().filter(c => c.name === 'diagnostics.resources').some(c => (c.data as any).enabled)).toBe(false)
+      expect(app.host.calls().some(c => c.name === 'diagnostics.write' || c.name === 'diagnostics.preferences.write')).toBe(false)
+      await app.back()
+      expect(app.shows('id:settings-diagnostics >> text:Off')).toBe(true)
+      expect(app.shows('id:diagnostics-preview')).toBe(false)
+    }
+  })
+}
+
 test('Settings says which computer the phone is linked to, how, and the versions on it', async () => {
   const app = await settings(true)
   await app.waitFor('text:2.4.9 (314)')
   const t = app.texts()
-  for (const s of ['DSH Anywhere', 'Version (build)', 'Computer', 'Studio', 'End-to-end encrypted tunnel', 'Through a relay (TOK)', '0.2.1-rc.3', '0.7.13', 'Unlink', 'Appearance', 'Language', 'Notifications']) expect([s, t.includes(s)]).toEqual([s, true])
+  for (const s of ['DSH Anywhere', 'Version (build)', 'Computer', 'Studio', 'End-to-end encrypted tunnel', 'Through a Tailcat relay (TOK)', '0.2.1-rc.3', '0.7.13', 'Unlink', 'Appearance', 'Language', 'Notifications']) expect([s, t.includes(s)]).toEqual([s, true])
 })
 
 test('the installed app version remains readable without the computer; a failed read does not invent a version', async () => {
@@ -74,7 +99,7 @@ test('Tailcat only is kept by the shell, which opens a new tunnel with it; the a
     'link.state': () => { states++; return paired },
   })
   await app.waitFor('text:Tailcat only')
-  expect(app.texts().includes('Never use the relay or the local network your computer offers.')).toBe(true)
+  expect(app.texts().includes('Skip your relay and the local network. Tailcat may still use its own encrypted relay.')).toBe(true)
   const before = states
   await app.press('id:tailcat-only')
   await app.waitUntil(() => on && states > before)
@@ -82,7 +107,26 @@ test('Tailcat only is kept by the shell, which opens a new tunnel with it; the a
 })
 
 test('the same-network route is named as such', async () => {
-  const app = await settings(true, false, undefined, { 'link.path': { route: 'lan' } })
-  await app.waitFor('text:Over this Wi-Fi to your computer')
+  const app = await settings(true, false, undefined, { 'link.path': { route: 'lan', kind: 'lan' } })
+  await app.waitFor('text:Over the local network to your computer')
 })
 
+for (const platform of ['ios', 'android'] as const) {
+  test(`${platform}: settings shows the route kind and available relay identity`, async () => {
+    for (const [path, label] of [
+      [{ route: 'relay', relay: 'legacy-code', kind: 'derp', derpCode: 'tok' }, 'Through a Tailcat relay (TOK)'],
+      [{ route: 'relay', kind: 'derp', derpRegion: 1, derpHost: 'region.example.com' }, 'Through a Tailcat relay (region.example.com)'],
+      [{ route: 'relay', kind: 'derp', derpRegion: 42 }, 'Through a Tailcat relay (#42)'],
+      [{ route: 'relay', kind: 'derp' }, 'Through a Tailcat relay'],
+      [{ route: 'relay', kind: 'relay', relayHost: 'relay.example.com' }, 'Through your relay (relay.example.com)'],
+      [{ route: 'relay', kind: 'relay' }, 'Through your relay'],
+      [{ route: 'direct', kind: 'direct' }, 'Direct to your computer'],
+      [{ route: 'lan', kind: 'lan' }, 'Over the local network to your computer'],
+    ] as const) {
+      const app = await settings(true, false, undefined, { 'link.path': path }, platform)
+      await app.waitFor(`text:${label}`)
+      expect(app.texts()).toContain(label)
+      expect(app.texts().some(t => t.includes('(—)') || t.includes('()'))).toBe(false)
+    }
+  })
+}

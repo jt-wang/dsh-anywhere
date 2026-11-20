@@ -5,6 +5,31 @@ const start = () => open('./fixtures/connection.tsx', { clock: {} })
 const bar = (app: Awaited<ReturnType<typeof start>>) => app.texts().find((t) => t.startsWith('Can’t reach') || t.startsWith('Connecting') || t.startsWith('No network')) ?? null
 const late = async (app: Awaited<ReturnType<typeof start>>, step: string) => { await app.clock.runFor(100); await app.press(`id:${step}`); await app.clock.runFor(3_100) }
 
+for (const platform of ['ios', 'android'] as const) {
+  test(`${platform}: the bar and connection panel distinguish route kinds, named and unnamed relays`, async () => {
+    const app = await open('./fixtures/connection.tsx', { platform, clock: {} })
+    await app.press('id:chats')
+    for (const [step, label] of [
+      ['derp-code', 'Through a Tailcat relay (TOK)'],
+      ['derp-host', 'Through a Tailcat relay (region.example.com)'],
+      ['derp-id', 'Through a Tailcat relay (#42)'],
+      ['derp-unnamed', 'Through a Tailcat relay'],
+      ['relay-host', 'Through your relay (relay.example.com)'],
+      ['relay-unnamed', 'Through your relay'],
+      ['direct', 'Direct to your computer'],
+      ['lan', 'Over the local network to your computer'],
+    ]) {
+      await app.press(`id:${step}`); await app.clock.runFor(100)
+      expect(app.texts()).toContain(`Connected · ${label}`)
+      await app.press('id:connection'); await app.clock.runFor(400)
+      expect(app.texts()).toContain(label)
+      expect(app.texts()).toContain('Relays only forward encrypted data. They cannot read its contents.')
+      expect(app.texts().some(t => t.includes('(—)') || t.includes('()'))).toBe(false)
+      await app.back(); await app.clock.runFor(400)
+    }
+  })
+}
+
 // Seen on the Android emulator: back from the background, the connection of before had died and the first new try
 // failed too, and the red "Can’t reach your computer" showed for the second it took to get through.
 test('a connection lost and found again within a few seconds says nothing', async () => {
@@ -121,6 +146,7 @@ test('the dot opens the sheet, which goes through each part', async () => {
   await app.press('id:connection-dot')
   await app.clock.runFor(400)
   for (const t of ['Phone’s network', 'Relay', 'Your computer', 'Pairing']) expect(app.texts()).toContain(t)
+  expect(app.texts()).toContain('Relays only forward encrypted data. They cannot read its contents.')
 })
 
 // A computer that is off and one that removed this phone look the same to the tunnel, so both ways out are offered.
@@ -132,4 +158,3 @@ test('a computer not answering can also be linked again from the sheet', async (
   await app.press('id:reach-relink')
   await app.waitFor('text:retried:0 relinked:1')
 })
-

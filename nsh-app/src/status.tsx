@@ -134,6 +134,7 @@ export function ReachSheet(props: { reach?: Reach }) {
           ))}
         </View>
         <If when={online() && (r.routeText() || latency())}><Text class="mt-2 text-muted-foreground text-[13px]">{r.routeText()}</Text><If when={latency()}><Text class="text-muted-foreground text-[13px]">{latency()}</Text></If></If>
+        <Text testID="relay-privacy" class="mt-2 text-muted-foreground text-[13px] leading-[18px]">{S.relayPrivacy}</Text>
         <If when={cause() === 'refused'} else={<If when={!online() && r.network()}>
           <View role="button" testID="reach-retry" onPress={() => { r.retry(); close() }} class="mt-3 rounded-[12px] h-[44px] justify-center items-center bg-primary active:opacity-80"><Text class="text-primary-foreground text-[15px] font-medium">{S.retry}</Text></View>
         </If>}>
