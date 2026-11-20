@@ -46,6 +46,7 @@ export function SubagentsSheet(props: { open: () => boolean; onClose: () => void
                 {k().running ? <LiveDot size={8} /> : <View class="w-[8px] h-[8px] rounded-full bg-input" />}
                 <View class="flex-1 gap-[2px]">
                   <Text class="text-foreground text-[15px] leading-[21px] line-clamp-2">{k().name}</Text>
+                  <If when={k().agentName && k().agentName !== k().name}><Text testID={`subagent-name-${k().id}`} class="text-muted-foreground text-[13px]">{k().agentName}</Text></If>
                   <Text class="text-muted-foreground text-[12px]">{k().running ? `${S.subagentMode[k().mode]}, ${S.subagentRunning}` : S.subagentMode[k().mode]}</Text>
                 </View>
                 <If when={opens(k())}><Chevron dir="right" font={14} /></If>

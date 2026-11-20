@@ -23,7 +23,7 @@ export interface Call extends Step { endedAt?: number }
 export interface Turn { id: string; turn: number | undefined; calls: Call[] }
 export type Row =
   | { kind: 'user'; id: string; text: string; attachments: Attached[]; at: number; rpcId?: string }
-  | { kind: 'notice'; id: string; text: string; at: number }
+  | { kind: 'notice'; id: string; text: string; at: number; source?: 'retry'; rpcId?: string }
   | { kind: 'assistant'; id: string; text: string; at: number; streaming: boolean }
   | { kind: 'process'; id: string; steps: Step[]; entries: Entry[]; at: number }
   | { kind: 'command'; id: string; line: string; state: CommandState; text: string; at: number }
@@ -38,7 +38,7 @@ export type ProcessLabel = 'analyzing' | 'commands' | 'read' | 'edit' | 'search'
 
 type Item =
   | { type: 'user'; id: string; text: string; attachments: Attached[]; at: number; rpcId?: string }
-  | { type: 'notice' | 'assistant' | 'thought'; id: string; text: string; at: number }
+  | { type: 'notice' | 'assistant' | 'thought'; id: string; text: string; at: number; source?: 'retry'; rpcId?: string }
   | { type: 'step'; step: Step; turn?: number; endedAt?: number }
   | { type: 'command'; id: string; line: string; state: CommandState; text: string; at: number }
   | { type: 'failure'; id: string; code?: string; message: string; at: number }
@@ -237,6 +237,8 @@ export class Fold {
     if (type === 'user/message' && typeof data?.id === 'string') {
       const source = obj(data.source), shown = presentUserText(textOf(data.content), source?.kind)
       const attachments = attachmentsOf(data.content)
+      // Official empty retries are compact receipts, not new human input or a generic event trigger.
+      if (source?.kind === 'retry' && Array.isArray(data.content) && data.content.length === 0) return [{ type: 'notice', id: data.id, text: '', source: 'retry', at, ...(typeof source.rpcId === 'string' ? { rpcId: source.rpcId } : {}) }]
       // DSH appends what started a turn in its first step: that is the turn's trigger. What it adds later is context.
       if (shown.kind !== 'context' && typeof source?.kind === 'string' && !PERSON.has(source.kind)) return this.step > 1 ? [] : [{ type: 'notice', id: data.id, text: triggerTitle(source), at }]
       if (shown.kind === 'context' || (!shown.text && !attachments.length)) return []
@@ -328,7 +330,7 @@ export class Fold {
       else if (it.type === 'thought') groupFor(it.id, it.at).entries.push({ kind: 'think', id: it.id, text: it.text })
       else if (it.type === 'command') { group = undefined; out.push({ kind: 'command', id: it.id, line: it.line, state: it.state, text: it.text, at: it.at }) }
       else if (it.type === 'failure') { group = undefined; out.push({ kind: 'failure', id: it.id, ...(it.code === undefined ? {} : { code: it.code }), message: it.message, at: it.at }) }
-      else { group = undefined; out.push(it.type === 'assistant' ? { kind: 'assistant', id: this.keys.get(it.id) ?? it.id, text: it.text, at: it.at, streaming: false } : it.type === 'user' ? { kind: 'user', id: it.id, text: it.text, attachments: it.attachments, at: it.at, ...(it.rpcId ? { rpcId: it.rpcId } : {}) } : { kind: it.type, id: it.id, text: it.text, at: it.at }) }
+      else { group = undefined; out.push(it.type === 'assistant' ? { kind: 'assistant', id: this.keys.get(it.id) ?? it.id, text: it.text, at: it.at, streaming: false } : it.type === 'user' ? { kind: 'user', id: it.id, text: it.text, attachments: it.attachments, at: it.at, ...(it.rpcId ? { rpcId: it.rpcId } : {}) } : { kind: it.type, id: it.id, text: it.text, at: it.at, ...(it.source === 'retry' ? { source: 'retry' as const, ...(it.rpcId ? { rpcId: it.rpcId } : {}) } : {}) }) }
     }
     const live = this.attempt ? [...this.attempt.blocks.entries()].sort((x, y) => x[0] - y[0]).map(([, t]) => t).join('') : ''
     if (this.attempt && live) out.push({ kind: 'assistant', id: `live:${this.attempt.id}`, text: live, at: this.attempt.at, streaming: true })

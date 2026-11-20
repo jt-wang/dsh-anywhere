@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { bundleCatalog, canonical, channelMetadata, compareRuntimes, remoteContracts } from './compatibility.mjs';
+import { bundleCatalog, canonical, channelMetadata, compareRuntimes, ownerConfigs, remoteContracts, reviewChanges } from './compatibility.mjs';
 
 // Reduced literals from official 0.2.2-rc.1 SessionController/commands descriptors.
 // They exercise wire semantics; they are not a replacement for comparing actual packages.
@@ -82,4 +83,69 @@ test('channel resolution compares baseline, latest and next without upgrading or
   assert.equal(metadata.releaseKey, channelMetadata(packument, '0.2.2-rc.1', '0.2.2-rc.5').releaseKey);
   assert.throws(() => channelMetadata(packument, 'latest', 'next'), /Baseline must be an exact/);
   for (const requested of ['next;echo bad', '../runtime', '"}]', 'https://example.invalid/dsh.tgz', '0.2.3']) assert.throws(() => channelMetadata(packument, '0.2.2-rc.1', requested));
+});
+
+test('review baseline accepts only the exact reviewed before/after contract on its release pair', () => {
+  const a = { ...runtime(descriptor()), version: '0.2.2-rc.1' };
+  const b = { ...runtime(descriptor({ optional: true })), version: '0.2.2-rc.5' };
+  const fingerprint = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+  const entry = { ...compareRuntimes(a, b)[0], before: fingerprint(a.packages['dsh-api-session-controller'].remote['session/list']), after: fingerprint(b.packages['dsh-api-session-controller'].remote['session/list']), decision: 'accepted', reason: 'Reviewed optional request compatibility' };
+  const review = { schemaVersion: 1, baseline: a.version, candidate: b.version, entries: [entry] };
+  assert.equal(reviewChanges(a, b, review).acceptedChanges.length, 1);
+  assert.equal(reviewChanges(a, b, review).pendingChanges.length, 0);
+  assert.equal(reviewChanges(a, b).pendingChanges.length, 1);
+  // Neither the same release string nor a matching endpoint is a blanket exception.
+  for (const [before, after] of [
+    [a, { ...b, version: '0.2.2-rc.6' }],
+    [{ ...a, version: '0.2.2-rc.2' }, b],
+    [{ ...runtime(descriptor({ mode: 'stream' })), version: a.version }, b],
+    [a, { ...runtime(descriptor({ optional: true, result: { type: 'string' } })), version: b.version }],
+    [a, { ...runtime(descriptor({ endpoint: 'session/newMethod' })), version: b.version }],
+    [a, { packages: {}, version: b.version }],
+  ]) {
+    const result = reviewChanges(before, after, review);
+    assert.equal(result.acceptedChanges.length, 0);
+    assert.ok(result.pendingChanges.length > 0);
+  }
+  const required = reviewChanges(a, b, { ...review, entries: [{ ...entry, decision: 'mobile-change-required' }] });
+  assert.equal(required.acceptedChanges.length, 0);
+  assert.equal(required.pendingChanges[0].reason, entry.reason);
+  assert.throws(() => reviewChanges(a, b, { ...review, entries: [entry, entry] }), /Duplicate/);
+  assert.throws(() => reviewChanges(a, b, { ...review, entries: [{ ...entry, before: undefined }] }), /fingerprint/);
+});
+
+test('review baseline also binds added declarations, removed remotes and bundle catalogs', () => {
+  const fingerprint = value => value === undefined ? null : createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+  const a = { version: '0.2.2-rc.1', packages: { sdk: { declarations: {}, remote: { removed: { service: 'old' } } } }, bundleCatalog: { OPTIONAL_BUNDLES: ['old'] } };
+  const b = { version: '0.2.2-rc.5', packages: { sdk: { declarations: { 'new.d.ts': 'new-type-hash' }, remote: {} } }, bundleCatalog: { OPTIONAL_BUNDLES: ['new'] } };
+  const value = (runtime, change) => change.area === 'bundle-catalog' ? runtime.bundleCatalog[change.contract] : runtime.packages[change.package]?.[change.area][change.contract];
+  const review = { schemaVersion: 1, baseline: a.version, candidate: b.version, entries: compareRuntimes(a, b).map(change => ({ ...change, before: fingerprint(value(a, change)), after: fingerprint(value(b, change)), decision: 'accepted', reason: 'Reviewed exact catalog/type/removal' })) };
+  assert.equal(reviewChanges(a, b, review).acceptedChanges.length, 3);
+  const altered = structuredClone(b);
+  altered.packages.sdk.declarations['new.d.ts'] = 'different-type-hash';
+  altered.bundleCatalog.OPTIONAL_BUNDLES.push('unreviewed');
+  assert.equal(reviewChanges(a, altered, review).pendingChanges.length, 2);
+  assert.deepEqual(reviewChanges(b, b, review), { acceptedChanges: [], pendingChanges: [] });
+});
+
+test('owner configuration changes are reviewed even when settings RPC declarations stay identical', () => {
+  const source = `class Speech { static Config = z.object({ language: z.string().default('auto').volatile(), maxAudioBytes: z.natural().default(4096) }); transcribe() { return 'unchanged contract'; } }`;
+  const runtime = source => ({ version: '0.2.2-rc.5', packages: { speech: { declarations: { 'types.d.ts': 'same' }, remote: {}, ownerConfig: ownerConfigs(source) } } });
+  const baseline = runtime(source);
+  assert.deepEqual(baseline.packages.speech.ownerConfig['Speech.Config'].fields, ['language', 'maxAudioBytes']);
+  // Implementation-only changes and comments do not manufacture settings drift.
+  assert.deepEqual(compareRuntimes(baseline, runtime(source.replace('unchanged contract', 'new implementation') + '\n// comment')), []);
+  for (const current of [source.replace("'auto'", "'en'"), source.replace('.volatile()', ''), source.replace('4096', '8192'), source.replace('language:', 'hotwords:')]) {
+    assert.deepEqual(compareRuntimes(baseline, runtime(current)), [{ package: 'speech', area: 'ownerConfig', contract: 'Speech.Config', change: 'changed' }]);
+  }
+  const added = runtime(source.replace('language:', "enabled: z.boolean().default(true), language:"));
+  assert.ok(added.packages.speech.ownerConfig['Speech.Config'].fields.includes('enabled'));
+  assert.equal(reviewChanges(baseline, added).pendingChanges.length, 1);
+  assert.equal(compareRuntimes(baseline, runtime(''))[0].change, 'removed');
+  const variable = ownerConfigs(`const Config = z.object({ precision: z.union(['int8', 'fp32']).default('int8') });`);
+  assert.deepEqual(variable.Config.fields, ['precision']);
+  assert.throws(() => ownerConfigs(`const Config = z.object({ ...dynamicFields });`), /dynamic fields/);
+  assert.throws(() => ownerConfigs(`const Config = loadConfig();`), /no longer an inline object/);
+  // Merely fingerprint executable-looking defaults. Never call upstream code during inspection.
+  assert.deepEqual(ownerConfigs(`const Config = z.object({ language: z.string().default((() => { throw Error('must not execute'); })()) });`).Config.fields, ['language']);
 });

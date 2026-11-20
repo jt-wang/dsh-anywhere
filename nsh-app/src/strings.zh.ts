@@ -105,6 +105,7 @@ export const ZH: Strings = {
   todos: '任务', todoState: { completed: '已完成', in_progress: '进行中', pending: '待处理' },
   todoProgress: (todos: Todo[]) => { const c = counts(todos); return [c.done ? `${c.done} 已完成` : '', c.active ? `${c.active} 进行中` : '', c.pending ? `${c.pending} 待处理` : ''].filter(Boolean).join('，') },
   dsh: {
+    'client/subagent-controls-unverified': '此 DSH 版本暂不支持手机发送子代理消息或停止子代理。请更新 DSH Anywhere。',
     'session/fork-unavailable': '当前会话没有已结束的轮次',
     'session/migration-required': '请先在电脑上打开原会话完成迁移，再创建分支',
     'directory-picker/outside-home': '手机只能打开主目录和工作区中的文件夹。',

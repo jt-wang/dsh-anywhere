@@ -1,0 +1,4 @@
+{
+  "name": "Team board acceptance",
+  "capabilities": { "host": ["haptic", "link.reset"], "network": { "hosts": ["synthetic.invalid"] } }
+}

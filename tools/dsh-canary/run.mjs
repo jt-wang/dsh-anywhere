@@ -60,6 +60,21 @@ try {
       receipt.remountedCalls = 0;
       return;
     }
+    if (!options.controllerOnly && /^0\.2\.2(?:-|$)/.test(runtime.version)) {
+      assert.ok(process.execArgv.includes('--expose-internals'), 'Settings profile checks require node --expose-internals to keep Loader cache inside the isolated run');
+      mark('settings-credentials-speech-real-profile-gateway');
+      const { settingsChecks } = await import('./settings-checks.mjs');
+      receipt.phases.push(await settingsChecks({ runtimeRoot, directories }));
+    }
+    if (!options.controllerOnly) {
+      const { featureChecks, featureChecksSupported } = await import('./feature-checks.mjs');
+      if (featureChecksSupported(runtime.version)) {
+        mark('rc5-official-tasks-names-continuation-speech-contracts');
+        receipt.phases.push(await featureChecks({ runtimeRoot, directories }));
+      } else {
+        receipt.phases.push({ phase: 'rc5-official-feature-contracts', checks: [], skipped: `Version ${runtime.version} requires feature-contract compatibility review; inspected 0.2.2-rc.5 only` });
+      }
+    }
     mark('controller-create-prompt-follow-reconnect-cancel');
     const direct = await controllerChecks(runtime, directories.workspace);
     let batchIds = [];

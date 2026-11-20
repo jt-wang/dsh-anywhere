@@ -107,6 +107,7 @@ export const FR: Strings = {
   todos: 'Tâches', todoState: { completed: 'Terminée', in_progress: 'En cours', pending: 'À faire' },
   todoProgress: (todos: Todo[]) => { const c = counts(todos); return [c.done ? `${c.done} ${plural(c.done, 'terminée', 'terminées')}` : '', c.active ? `${c.active} en cours` : '', c.pending ? `${c.pending} à faire` : ''].filter(Boolean).join(', ') },
   dsh: {
+    'client/subagent-controls-unverified': 'Les commandes des sous-agents ne sont pas disponibles pour cette version de DSH. Mettez DSH Anywhere à jour.',
     'session/fork-unavailable': 'Cette discussion n’a aucun tour terminé',
     'session/migration-required': 'Ouvrez la discussion d’origine sur l’ordinateur pour terminer la migration avant de créer une branche.',
     'directory-picker/outside-home': 'Le téléphone n’ouvre que les dossiers de votre dossier personnel et de vos espaces de travail.',

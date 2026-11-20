@@ -124,8 +124,8 @@ github.com/jmespath/go-jmespath/internal/testify v1.5.1 h1:shLQSRRSCCPj3f2gpwzGw
 github.com/jmespath/go-jmespath/internal/testify v1.5.1/go.mod h1:L3OGu8Wl2/fWfCI6z80xFu9LTZmf1ZRjMHUOPmWr69U=
 github.com/jsimonetti/rtnetlink v1.4.1 h1:JfD4jthWBqZMEffc5RjgmlzpYttAVw1sdnmiNaPO3hE=
 github.com/jsimonetti/rtnetlink v1.4.1/go.mod h1:xJjT7t59UIZ62GLZbv6PLLo8VFrostJMPBAheR6OM8w=
-github.com/jt-wang/tailpocket v0.3.0-pre.9 h1:3QRkgkg+Q8YHAlOrG74U7vI+91E5cCIk9r68RnNbnL4=
-github.com/jt-wang/tailpocket v0.3.0-pre.9/go.mod h1:4gnfEuDLWIeDvymw6H62JjVd7hByySbn3WRKMjdxkpU=
+github.com/jt-wang/tailpocket v0.3.0 h1:hs8pxMVQbsm4IFxs+2A6qk588NVwIvp0BWs3SHofrpI=
+github.com/jt-wang/tailpocket v0.3.0/go.mod h1:4dszBmbpFUGu1IQwhuALbviFCsMwpZCoBYvOBLo0bY0=
 github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 h1:Z9n2FFNUXsshfwJMBgNA0RU6/i7WVaAegv3PtuIHPMs=
 github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51/go.mod h1:CzGEWj7cYgsdH8dAjBGEr58BoE7ScuLd+fwFZ44+/x8=
 github.com/klauspost/compress v1.20.2 h1:v5tiZvm1KGLyg5d5oXdXe3lsSPrbEUiKoXGia//I7Qo=

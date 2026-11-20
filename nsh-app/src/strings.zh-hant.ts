@@ -104,6 +104,7 @@ export const ZH_HANT: Strings = {
   todos: '待辦事項', todoState: { completed: '已完成', in_progress: '進行中', pending: '待處理' },
   todoProgress: (todos: Todo[]) => { const c = counts(todos); return [c.done ? `${c.done} 項已完成` : '', c.active ? `${c.active} 項進行中` : '', c.pending ? `${c.pending} 項待處理` : ''].filter(Boolean).join('，') },
   dsh: {
+    'client/subagent-controls-unverified': '此 DSH 版本暫不支援手機傳送子代理訊息或停止子代理。請更新 DSH Anywhere。',
     'session/fork-unavailable': '目前的對話沒有已完成的輪次',
     'session/migration-required': '請先在電腦上開啟原對話完成遷移，再建立分支',
     'directory-picker/outside-home': '手機只能開啟主目錄和工作區中的資料夾。',

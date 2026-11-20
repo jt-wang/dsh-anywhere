@@ -2,12 +2,13 @@
 // Storage under one key and applied at launch; DSH's own settings stay on the computer.
 import { setColorScheme, signal, Storage } from 'nsh'
 import { language, type Language } from './strings.ts'
+import { DEFAULT_WORKSPACE_VIEW, workspaceViewOf, type WorkspaceViewPrefs } from './workspace-settings-view.ts'
 
 export type Theme = 'system' | 'light' | 'dark'
 /** `answers`: an answer is ready or a turn stopped; `decisions`: the agent waits on the person; `banners`: news of
  * another chat while the app is open; `background`: the shell keeps watching running agents while the app is away. */
 export interface NotifyPrefs { answers: boolean; decisions: boolean; banners: boolean; background: boolean }
-export interface Prefs { theme: Theme; language: Language; notify: NotifyPrefs }
+export interface Prefs { theme: Theme; language: Language; notify: NotifyPrefs; workspaceView: WorkspaceViewPrefs }
 
 const KEY = 'prefs'
 const THEMES: readonly Theme[] = ['system', 'light', 'dark']
@@ -20,16 +21,38 @@ export function prefsOf(raw: string | null): Prefs {
   try { const o = raw ? JSON.parse(raw) : {}; if (o && typeof o === 'object') v = o } catch {}
   const n = v.notify && typeof v.notify === 'object' ? v.notify : {}
   const notify = Object.fromEntries(Object.entries(DEFAULT_NOTIFY).map(([k, d]) => [k, typeof n[k] === 'boolean' ? n[k] : d])) as unknown as NotifyPrefs
-  return { theme: THEMES.includes(v.theme) ? v.theme : 'system', language: LANGUAGES.includes(v.language) ? v.language : 'system', notify }
+  return { theme: THEMES.includes(v.theme) ? v.theme : 'system', language: LANGUAGES.includes(v.language) ? v.language : 'system', notify, workspaceView: workspaceViewOf(v.workspaceView) }
 }
 
 export const theme = signal<Theme>('system')
 export const notifyPrefs = signal<NotifyPrefs>(DEFAULT_NOTIFY)
+export const workspaceView = signal<WorkspaceViewPrefs>(DEFAULT_WORKSPACE_VIEW)
+let currentWorkspaceOrders: Record<string, string[]> = {}
+/** Current complete accounts include hidden archives, so filters never erase their manual slots. */
+export function rememberWorkspaceOrders(orders: Record<string, string[]>) { currentWorkspaceOrders = orders }
+export function setWorkspaceView(change: Partial<WorkspaceViewPrefs>) {
+  const previous = workspaceView()
+  const sessionOrderByAccount = change.orderBy && change.orderBy !== previous.orderBy
+    ? change.orderBy === 'manual' ? currentWorkspaceOrders : {}
+    : previous.sessionOrderByAccount
+  workspaceView.set(workspaceViewOf({ ...previous, sessionOrderByAccount, ...change })); save()
+}
+export function syncWorkspaceOrders(orders: Record<string, string[]>) {
+  rememberWorkspaceOrders(orders)
+  if (workspaceView().orderBy === 'manual' && JSON.stringify(workspaceView().sessionOrderByAccount) !== JSON.stringify(orders)) setWorkspaceView({ sessionOrderByAccount: orders })
+}
+export function moveLocalSession(account: string, id: string, before?: string) {
+  const members = currentWorkspaceOrders[account] ?? []
+  if (!members.includes(id) || before === id || (before !== undefined && !members.includes(before))) return
+  const order = members.filter(member => member !== id)
+  order.splice(before === undefined ? order.length : order.indexOf(before), 0, id)
+  setWorkspaceView({ orderBy: 'manual', sessionOrderByAccount: { ...currentWorkspaceOrders, [account]: order } })
+}
 
 /** The tag the strings follow: the picked language, else the phone's. */
 export const tagFor = (choice: Language, system: string) => (choice === 'system' ? system : choice === 'zh' ? 'zh-Hans' : choice)
 
-const save = () => { Storage.setItem(KEY, JSON.stringify({ theme: theme(), language: language(), notify: notifyPrefs() })).catch(() => {}) }
+const save = () => { Storage.setItem(KEY, JSON.stringify({ theme: theme(), language: language(), notify: notifyPrefs(), workspaceView: workspaceView() })).catch(() => {}) }
 export function setTheme(t: Theme) { theme.set(t); setColorScheme(t); save() }
 export function setLanguage(l: Language) { language.set(l); save() }
 export function setNotify(change: Partial<NotifyPrefs>) { notifyPrefs.set({ ...notifyPrefs(), ...change }); save() }
@@ -40,6 +63,7 @@ export async function loadPrefs() {
   try { raw = await Storage.getItem(KEY) } catch {}
   const p = prefsOf(raw)
   theme.set(p.theme); language.set(p.language); notifyPrefs.set(p.notify)
+  workspaceView.set(p.workspaceView)
   if (p.theme !== 'system') setColorScheme(p.theme)
 }
 

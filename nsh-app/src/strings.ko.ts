@@ -103,6 +103,7 @@ export const KO: Strings = {
   todos: '할 일', todoState: { completed: '완료', in_progress: '진행 중', pending: '대기 중' },
   todoProgress: (todos: Todo[]) => { const c = counts(todos); return [c.done ? `완료 ${c.done}개` : '', c.active ? `진행 중 ${c.active}개` : '', c.pending ? `대기 중 ${c.pending}개` : ''].filter(Boolean).join(', ') },
   dsh: {
+    'client/subagent-controls-unverified': '이 DSH 버전에서는 하위 에이전트 제어를 사용할 수 없습니다. DSH Anywhere를 업데이트하세요.',
     'session/fork-unavailable': '이 채팅에는 완료된 턴이 없습니다',
     'session/migration-required': '분기하기 전에 컴퓨터에서 원래 채팅을 열어 마이그레이션을 완료하세요.',
     'directory-picker/outside-home': '휴대폰에서는 홈 폴더와 작업 공간의 폴더만 열 수 있습니다.',
