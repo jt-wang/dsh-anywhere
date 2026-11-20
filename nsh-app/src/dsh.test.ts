@@ -226,7 +226,8 @@ test('the computer\'s own description comes from the companion beside DSH, with 
   const calls: { url: string; init: any }[] = []
   const fetchImpl = async (url: any, init: any) => { calls.push({ url, init }); return { ok: true, status: 200, json: async () => ({ hostName: 'Studio', hostVersion: '0.7.13', upstreamVersion: '0.2.1-rc.3' }) } as any }
   const dsh = new Dsh('http://127.0.0.1:19446/dsh', 'k3y', { fetch: fetchImpl, socket: (u) => new FakeSocket(u) })
-  expect(await dsh.computer()).toEqual({ name: 'Studio', companionVersion: '0.7.13', dshVersion: '0.2.1-rc.3', progress: false })
+  // A companion before 0.8.1 names no release.
+  expect(await dsh.computer()).toEqual({ name: 'Studio', companionVersion: '0.7.13', release: '', dshVersion: '0.2.1-rc.3', progress: false })
   expect(calls[0]!.url).toBe('http://127.0.0.1:19446/v1/capabilities')
   expect([calls[0]!.init.method ?? 'GET', calls[0]!.init.headers.authorization]).toEqual(['GET', 'Bearer k3y'])
 })

@@ -83,4 +83,9 @@ test('--activate refuses a profile that already runs DSH Anywhere from "dsh plug
   assert.match(refused.stderr, /dsh plugin --profile desktop remove dsh-anywhere/);
   assert.equal(profile(), before, 'profile patch unchanged');
   assert.equal(existsSync(base), false, 'nothing was installed');
+  writeFileSync(manifest, JSON.stringify({ name: 'synthetic-profile', dependencies: { '@jt-wang/dsh-anywhere': '^0.8.1' }, dsh: { profile: { bundles: ['@jt-wang/dsh-anywhere'] } } }) + '\n');
+  const scoped = run('--dsh-version', '0.2.1-rc.3', '--activate');
+  assert.notEqual(scoped.status, 0);
+  assert.match(scoped.stderr, /dsh plugin --profile desktop remove @jt-wang\/dsh-anywhere/);
+  assert.equal(existsSync(base), false, 'nothing was installed');
 });

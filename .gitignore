@@ -33,6 +33,7 @@ coverage/
 *.iml
 
 # Local acceptance artifacts
+.wrangler/
 artifacts/
 .amp/in/
 .amp/portals/

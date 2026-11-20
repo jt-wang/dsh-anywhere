@@ -1,4 +1,4 @@
-// What the companion needs when DSH loads it from the bundle row (`dsh plugin add …/dsh-anywhere-darwin-arm64.tgz`),
+// What the companion needs when DSH loads it from the bundle row (`dsh plugin add @jt-wang/dsh-anywhere`),
 // which carries no configuration: the private configuration path, the running DSH version and whether an
 // install-host companion is already set up in the same profile.
 import { readFileSync } from 'node:fs';
