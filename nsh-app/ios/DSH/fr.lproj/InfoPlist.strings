@@ -1,2 +1,3 @@
 "NSCameraUsageDescription" = "L’appareil photo lit le code d’association affiché sur l’écran de l’ordinateur.";
 "NSLocalNetworkUsageDescription" = "Sur le même réseau Wi-Fi, le téléphone se connecte directement à votre ordinateur, sans passer par un relais.";
+"NSMicrophoneUsageDescription" = "Enregistrez la voix pour la transcrire sur votre ordinateur associé et l’insérer dans le brouillon. Rien n’est envoyé au chat automatiquement.";

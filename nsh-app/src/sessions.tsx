@@ -1,6 +1,6 @@
 // The chat list, as DSH Desktop's sidebar shows it: chats under their workspaces (workspace/follow), pinned first,
 // archived hidden, a "+" to start a chat in a workspace. Subagent and blank chats stay out of the list.
-import { cleanup, createAnimatedValue, effect, LayoutAnimation, List, PanResponder, signal, Text, untracked, View } from 'nsh'
+import { cleanup, createAnimatedValue, effect, LayoutAnimation, List, locale, PanResponder, signal, Text, untracked, View } from 'nsh'
 import { Input } from 'nsh/base'
 import { chatAction, chatMenu, RenameSheet, type ChatAction } from './manage.tsx'
 import { dragTo, release, swipeThresholds } from './swipe.ts'
@@ -10,15 +10,18 @@ import { ConnectionBar, SavedCopy } from './status.tsx'
 import { NewChat } from './newchat.tsx'
 import { appActive, asks, connection, dsh, network, offlineCache, pending, pollForeground, trying } from './state.ts'
 import { oneAtATime } from './progress.ts'
-import { ago, readable, S } from './strings.ts'
+import { ago, language, readable, S } from './strings.ts'
 import { problemOf } from './files.ts'
-import { archivedChats, groupChats, searchChats, summaries, Workspaces, type ChatSummary, type Group } from './workspaces.ts'
+import { archivedChats, searchChats, summaries, Workspaces, type ChatSummary } from './workspaces.ts'
+import { moveLocalSession, rememberWorkspaceOrders, setWorkspaceView, syncWorkspaceOrders, workspaceView } from './prefs.ts'
+import { visibleWorkspaceChat, workspaceAccounts, workspaceViewRows, type WorkspaceViewRow } from './workspace-settings-view.ts'
+import { workspaceViewStrings } from './workspace-settings-view-strings.ts'
 
 export type Summary = ChatSummary
 
 type Item =
-  | { kind: 'header'; id: string; group: Group }
-  | { kind: 'chat'; id: string; chat: Summary; snippet?: string }
+  | Extract<WorkspaceViewRow, { kind: 'header' }>
+  | { kind: 'chat'; id: string; chat: Summary; snippet?: string; account?: string; depth?: number }
   | { kind: 'toggle'; id: string; count: number }
 
 export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: () => boolean; onNewChatClosed: () => void }) {
@@ -69,6 +72,13 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
     followed = true; workspaces.apply(frame); version.update((n) => n + 1)
     if (workspaces.loaded) cache?.workspaces(workspaces.snapshot())
   }, (e) => error.set(readable(e))))
+  effect(() => {
+    version()
+    const orders = workspaceAccounts(workspaces, chats(), workspaceView())
+    rememberWorkspaceOrders(orders)
+    // A bounded/offline cached list is not complete membership, and must not prune saved manual slots.
+    if (workspaces.loaded && followed && fresh()) syncWorkspaceOrders(orders)
+  })
   // Titles match at once; DSH's full-text search adds hits when the install has its index (it can be turned off).
   let searchTimer: ReturnType<typeof setTimeout> | undefined
   const search = (text: string) => {
@@ -85,14 +95,23 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
   const searching = () => Boolean(query().trim())
   const items = (): Item[] => {
     version()
-    if (searching()) return searchChats(chats(), query(), hits()).map((c) => ({ kind: 'chat' as const, id: `r:${c.sessionId}`, chat: { ...c, title: c.title || S.untitled }, snippet: c.snippet }))
+    const prefs = workspaceView()
+    if (searching()) return searchChats(chats().filter(c => visibleWorkspaceChat(workspaces, c.sessionId, prefs.archivedFilter)), query(), hits().filter(h => visibleWorkspaceChat(workspaces, h.sessionId, prefs.archivedFilter))).map((c) => ({ kind: 'chat' as const, id: `r:${c.sessionId}`, chat: { ...c, title: c.title || S.untitled }, snippet: c.snippet }))
     const row = (c: Summary): Item => ({ kind: 'chat', id: c.sessionId, chat: c })
     const archived = archivedChats(workspaces, chats())
     return [
-      ...groupChats(workspaces, chats()).flatMap((g): Item[] => [{ kind: 'header', id: `h:${g.id}`, group: g }, ...g.chats.map(row)]),
+      ...workspaceViewRows(workspaces, chats(), prefs),
       // Archived is a header of its own that opens and closes, its chats under it.
-      ...(archived.length ? [{ kind: 'toggle' as const, id: 'toggle', count: archived.length }, ...(showArchived() ? archived.map(row) : [])] : []),
+      ...(prefs.archivedFilter === 'default' && archived.length ? [{ kind: 'toggle' as const, id: 'toggle', count: archived.length }, ...(showArchived() ? archived.map(row) : [])] : []),
     ]
+  }
+  const localMove = (item: Extract<Item, { kind: 'chat' }>, down: boolean) => {
+    if (item.account === undefined) return
+    const pinned = (id: string) => workspaces.pinned.includes(id) && !workspaces.archived.has(id)
+    const members = workspaceViewRows(workspaces, chats(), workspaceView()).filter((r): r is Extract<WorkspaceViewRow, { kind: 'chat' }> => r.kind === 'chat' && r.account === item.account && pinned(r.id) === pinned(item.chat.sessionId)).map(r => r.id)
+    const at = members.indexOf(item.chat.sessionId)
+    if ((!down && at <= 0) || (down && at >= members.length - 1)) return
+    moveLocalSession(item.account, item.chat.sessionId, members[at + (down ? 2 : -1)])
   }
   const menu = (chat: Summary) => chatMenu(chat, { pinned: workspaces.pinned.includes(chat.sessionId), archived: workspaces.archived.has(chat.sessionId) }, () => renaming.set(chat), (m) => error.set(m), props.onOpen)
   const sheetOpen = () => props.newChat() || startIn() !== undefined
@@ -112,9 +131,14 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
       <List each={items()} keyExtractor={(i) => i.id} estimatedItemSize={56} refreshing={refreshing()} onRefresh={pull} testID="sessions" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
         {(i) => (
           <>
-            <If when={i().kind === 'chat'}><ChatRow chat={() => (i() as Extract<Item, { kind: 'chat' }>).chat} snippet={() => (i() as Extract<Item, { kind: 'chat' }>).snippet} onOpen={props.onOpen} onMenu={menu}
+            <If when={i().kind === 'chat'}><View style={{ marginLeft: ((i() as Extract<Item, { kind: 'chat' }>).depth ?? 0) * 12 }}><ChatRow chat={() => (i() as Extract<Item, { kind: 'chat' }>).chat} snippet={() => (i() as Extract<Item, { kind: 'chat' }>).snippet} onOpen={props.onOpen} onMenu={menu}
               pinned={() => (version(), workspaces.pinned.includes((i() as Extract<Item, { kind: 'chat' }>).chat.sessionId))}
-              archived={() => (version(), workspaces.archived.has((i() as Extract<Item, { kind: 'chat' }>).chat.sessionId))} onError={(m) => error.set(m)} /></If>
+              archived={() => (version(), workspaces.archived.has((i() as Extract<Item, { kind: 'chat' }>).chat.sessionId))} onError={(m) => error.set(m)} />
+              <If when={workspaceView().orderBy === 'manual' && (i() as Extract<Item, { kind: 'chat' }>).account !== undefined && !searching()}><View class="flex-row justify-end px-3">
+                <IconButton name="arrowUp" testID={`local-chat-up-${(i() as Extract<Item, { kind: 'chat' }>).chat.sessionId}`} label={workspaceViewStrings(language() === 'system' ? locale() : language()).up} onPress={() => localMove(i() as Extract<Item, { kind: 'chat' }>, false)} />
+                <IconButton name="chevronDown" testID={`local-chat-down-${(i() as Extract<Item, { kind: 'chat' }>).chat.sessionId}`} label={workspaceViewStrings(language() === 'system' ? locale() : language()).down} onPress={() => localMove(i() as Extract<Item, { kind: 'chat' }>, true)} />
+              </View></If>
+            </View></If>
             <If when={i().kind === 'toggle'}>
               <View role="button" testID="toggle-archived" accessibilityState={{ expanded: showArchived() }} onPress={() => { haptic('tick'); showArchived.update((v) => !v) }}
                 class="self-start flex-row items-center gap-[5px] ml-2 mt-4 pl-3 pr-2 py-2 rounded-[8px] active:bg-secondary">
@@ -124,11 +148,14 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
               </View>
             </If>
             <If when={i().kind === 'header'}>
-              <View class="flex-row items-center gap-[6px] pl-5 pr-3 pt-4 pb-[2px]">
-                <If when={(i() as Extract<Item, { kind: 'header' }>).group.workspace}><Icon name="folder" size={14} /></If>
-                <Text class="flex-1 text-muted-foreground text-[13px] font-medium line-clamp-1">{(i() as Extract<Item, { kind: 'header' }>).group.title}</Text>
-                <If when={(i() as Extract<Item, { kind: 'header' }>).group.workspace}>
-                  <IconButton name="plus" label={S.newChat} testID={`new-in-${(i() as Extract<Item, { kind: 'header' }>).group.id}`} onPress={() => startIn.set((i() as Extract<Item, { kind: 'header' }>).group.id)}
+              <View class="flex-row items-center gap-[6px] pl-5 pr-3 pt-4 pb-[2px]" style={{ marginLeft: (i() as Extract<Item, { kind: 'header' }>).depth * 12 }}>
+                <View role="button" testID={`workspace-group-${(i() as Extract<Item, { kind: 'header' }>).id}`} accessibilityLabel={(i() as Extract<Item, { kind: 'header' }>).title} accessibilityState={{ expanded: (i() as Extract<Item, { kind: 'header' }>).expanded }} class="flex-1 min-h-[44px] flex-row items-center gap-2" onPress={() => { const g = i() as Extract<Item, { kind: 'header' }>; setWorkspaceView({ groupExpansion: { ...workspaceView().groupExpansion, [g.workspaceId ?? '']: !g.expanded } }) }}>
+                  <Chevron dir={(i() as Extract<Item, { kind: 'header' }>).expanded ? 'down' : 'right'} font={13} />
+                  <If when={(i() as Extract<Item, { kind: 'header' }>).workspaceId}><Icon name="folder" size={14} /></If>
+                  <Text class="flex-1 text-muted-foreground text-[13px] font-medium line-clamp-1">{(i() as Extract<Item, { kind: 'header' }>).title}</Text>
+                </View>
+                <If when={(i() as Extract<Item, { kind: 'header' }>).workspaceId}>
+                  <IconButton name="plus" label={S.newChat} testID={`new-in-${(i() as Extract<Item, { kind: 'header' }>).workspaceId}`} onPress={() => { const id = (i() as Extract<Item, { kind: 'header' }>).workspaceId!; setWorkspaceView({ groupExpansion: { ...workspaceView().groupExpansion, [id]: true } }); startIn.set(id) }}
                     size={16} class="w-[28px] h-[28px]" iconClass="tint-muted-foreground" />
                 </If>
               </View>

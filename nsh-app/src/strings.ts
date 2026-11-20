@@ -122,6 +122,7 @@ const EN = {
   todoProgress: (todos: Todo[]) => { const c = counts(todos); return [c.done ? `${c.done} completed` : '', c.active ? `${c.active} in progress` : '', c.pending ? `${c.pending} pending` : ''].filter(Boolean).join(', ') },
   /** DSH refusals Desktop words itself (dsh-client-ui-workspace). */
   dsh: {
+    'client/subagent-controls-unverified': 'Subagent controls are unavailable for this DSH version. Update DSH Anywhere.',
     'session/fork-unavailable': 'This session has no completed turn',
     'session/migration-required': 'Open the original session on the computer to complete migration before creating a branch.',
     // The folder picker's refusals (DSH's directoryPicker codes, and the companion's: host/src/folders.ts).
@@ -306,6 +307,7 @@ const RU: Strings = {
   todos: 'Задачи', todoState: { completed: 'Выполнена', in_progress: 'В работе', pending: 'Ожидает' },
   todoProgress: (todos: Todo[]) => { const c = counts(todos); return [c.done ? `${c.done} ${ruPlural(c.done, 'выполнена', 'выполнены', 'выполнено')}` : '', c.active ? `${c.active} в работе` : '', c.pending ? `${c.pending} ${ruPlural(c.pending, 'ожидает', 'ожидают', 'ожидают')}` : ''].filter(Boolean).join(', ') },
   dsh: {
+    'client/subagent-controls-unverified': 'Управление субагентами недоступно для этой версии DSH. Обновите DSH Anywhere.',
     'session/fork-unavailable': 'В этом чате ещё нет завершённого хода',
     'session/migration-required': 'Откройте исходный чат на компьютере, чтобы завершить миграцию, и только потом создавайте ответвление.',
     'directory-picker/outside-home': 'Телефон открывает папки только в домашней папке и в рабочих папках.',

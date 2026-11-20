@@ -90,7 +90,8 @@ jobs:
           runtime="$HOME/Documents/DeepSeekHarness/cache/dsh-baseline/runtime"
           mkdir -p "$runtime" && cd "$runtime"
           echo '{"private":true}' > package.json
-          npm install --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund --save-exact "@deepseek-ai/dsh@$DSH_BASELINE"
+          # rc.1's main package omits CUA; inspect its separately published contract too, without activating it.
+          npm install --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund --save-exact "@deepseek-ai/dsh@$DSH_BASELINE" "@deepseek-ai/dsh-cua@$DSH_BASELINE"
           cp package-lock.json "$DSH_REPORT/baseline-package-lock.json"
           echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
       - name: Compare actual official contracts and report mobile review candidates
@@ -100,7 +101,7 @@ jobs:
         env:
           BASELINE_ROOT: ${{ steps.baseline.outputs.runtime }}
           CANDIDATE_ROOT: ${{ steps.stage.outputs.runtime }}
-        run: node tools/dsh-canary/compatibility.mjs compare --baseline-root "$BASELINE_ROOT" --runtime-root "$CANDIDATE_ROOT" --output-dir "$DSH_REPORT"
+        run: node tools/dsh-canary/compatibility.mjs compare --baseline-root "$BASELINE_ROOT" --runtime-root "$CANDIDATE_ROOT" --review-baseline tools/dsh-canary/reviewed-rc5.json --output-dir "$DSH_REPORT"
       - name: The companion accepts this version
         env:
           DSH_VERSION: ${{ steps.stage.outputs.version }}
@@ -113,7 +114,7 @@ jobs:
       - name: Type check against this runtime
         run: node tools/dsh-canary/typecheck.mjs "${{ steps.stage.outputs.runtime }}"
       - name: Full canary (real SessionController + companion adapter)
-        run: node tools/dsh-canary/run.mjs --runtime-root "${{ steps.stage.outputs.runtime }}"
+        run: node --expose-internals tools/dsh-canary/run.mjs --runtime-root "${{ steps.stage.outputs.runtime }}"
       - name: Registry-mode profile insertion
         run: node --expose-internals tools/dsh-canary/run.mjs --registry-check --port 19446 --runtime-root "${{ steps.stage.outputs.runtime }}"
       - name: Compatibility summary

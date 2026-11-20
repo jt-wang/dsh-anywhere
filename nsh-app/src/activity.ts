@@ -4,10 +4,11 @@
 import { isLive, type Job } from './jobs.ts'
 import type { Todo } from './fold.ts'
 import type { Child } from './subagents.ts'
+import type { TeamBoardState } from './team-board.ts'
 
 import type { GoalPhase } from './controls.ts'
 
-export interface Activity { todos: Todo[]; jobs: Job[]; children: Child[]; context?: { used: number; window: number; percent: number }; goal?: { objective: string; phase: GoalPhase } }
+export interface Activity { todos: Todo[]; jobs: Job[]; children: Child[]; context?: { used: number; window: number; percent: number }; goal?: { objective: string; phase: GoalPhase }; team?: TeamBoardState }
 
 export function activeOf(a: Activity) {
   const todos = a.todos.filter((t) => t.status !== 'completed').length
@@ -25,3 +26,4 @@ export function todoParts(todos: Todo[]) {
 }
 
 export const shows = (a: Activity) => !!a.context || !!a.goal || a.todos.length > 0 || a.jobs.length > 0 || a.children.length > 0
+  || !!a.team && (a.team.kind === 'error' || a.team.kind === 'ready' && (a.team.enabled || a.team.tasks.length > 0 || a.team.failure !== undefined))

@@ -10,7 +10,9 @@ const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.
 const require = createRequire(path.join(project, 'host/package.json'));
 const ts = require('typescript');
 const hash = value => createHash('sha256').update(value).digest('hex');
-const monitored = ['dsh-api-session-controller', 'dsh-commands', 'dsh-llm', 'dsh-session', 'dsh-subagent', 'dsh-agent-team', 'dsh-experimental-agent-team', 'dsh-user-questions', 'dsh-user-approval', 'dsh-schedule', 'dsh-tools', 'dsh-tool-ask-user'];
+const settingsPackages = ['dsh-api-settings-controller', 'dsh-settings', 'dsh-experimental-api-speech-to-text', 'dsh-experimental-speech-to-text', 'dsh-experimental-speech-to-text-sensevoice', 'dsh-experimental-client-ui-voice-input'];
+const settingsDomains = ['dsh-agent-default-model', 'dsh-permission-presets', 'dsh-client-locale', 'dsh-client-ui-theme', 'dsh-client-ui-settings', 'dsh-client-ui-chat', 'dsh-client-ui-conversation', 'dsh-session-log-deepseek', 'dsh-llm-pi-ai', 'dsh-llm-deepseek-api-key', 'dsh-llm-deepseek-account', 'dsh-web', 'dsh-web-deepseek-api', 'dsh-web-search-deepseek', 'dsh-tool-subagent', 'dsh-bash-local', 'dsh-pwsh-local', 'dsh-agent-loop', 'dsh-api-workspace-controller', 'dsh-agent-preset-registry', 'dsh-cua', 'dsh-deepseek-account', 'dsh-host-plugin-inventory'];
+const monitored = ['dsh-api-session-controller', 'dsh-commands', 'dsh-llm', 'dsh-session', 'dsh-subagent', 'dsh-agent-team', 'dsh-experimental-agent-team', 'dsh-user-questions', 'dsh-user-approval', 'dsh-schedule', 'dsh-tools', 'dsh-tool-ask-user', ...settingsPackages, ...settingsDomains];
 const teamPackages = ['dsh-agent-team', 'dsh-experimental-agent-team'];
 const exactVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/;
 const keyOf = node => node.name && (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) ? node.name.text : undefined;
@@ -126,6 +128,40 @@ function declarationHash(source) {
   while (scanner.scan() !== ts.SyntaxKind.EndOfFileToken) tokens.push(scanner.getTokenText());
   return hash(JSON.stringify(tokens));
 }
+// Settings.describe reads owner runtime.Config, not a fixed settings RPC schema.
+// Fingerprint the actual schema expressions (including defaults/volatile/validation), never evaluate them.
+export function ownerConfigs(source) {
+  const ast = ts.createSourceFile('owner.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  assert.equal(ast.parseDiagnostics.length, 0, 'Invalid owner configuration syntax');
+  const result = {};
+  function visit(node) {
+    const variable = ts.isVariableDeclaration(node) && /^Config(?:\$\d+)?$/.test(node.name.getText(ast));
+    const member = ts.isPropertyDeclaration(node) && keyOf(node) === 'Config';
+    if (variable || member) {
+      assert.ok(node.initializer, 'Owner Config has no inspectable initializer');
+      let owner = node.parent;
+      while (member && owner && !ts.isVariableDeclaration(owner) && !ts.isClassDeclaration(owner)) owner = owner.parent;
+      const name = variable ? node.name.getText(ast) : `${owner?.name?.getText(ast) ?? 'default'}.Config`;
+      assert.ok(!(name in result), `Duplicate owner Config ${name}`);
+      let schema;
+      function findSchema(expression) {
+        if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === 'object' && ts.isObjectLiteralExpression(expression.arguments[0])) schema ??= expression.arguments[0];
+        ts.forEachChild(expression, findSchema);
+      }
+      findSchema(node.initializer);
+      assert.ok(schema, `Owner Config ${name} is no longer an inline object schema; inspect its source`);
+      const fields = schema.properties.map(field => {
+        const key = keyOf(field);
+        assert.ok(key && ts.isPropertyAssignment(field), `Owner Config ${name} contains dynamic fields; inspect its source`);
+        return key;
+      }).sort();
+      result[name] = { fingerprint: declarationHash(node.initializer.getText(ast)), fields };
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  return result;
+}
 export async function inspectRuntime(root) {
   const scope = path.join(root, 'node_modules/@deepseek-ai');
   const manifest = JSON.parse(await readFile(path.join(scope, 'dsh/package.json'), 'utf8'));
@@ -150,7 +186,8 @@ export async function inspectRuntime(root) {
     let remote = {};
     try { remote = remoteContracts(await readFile(path.join(pkg, 'lib/typert.remote-client.js'), 'utf8')); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
-    packages[entry.name] = { version: meta.version, declarations, remote };
+    const ownerConfig = settingsPackages.includes(entry.name) ? ownerConfigs(await readFile(path.join(pkg, 'lib/index.js'), 'utf8')) : {};
+    packages[entry.name] = { version: meta.version, declarations, remote, ownerConfig };
   }
   for (const name of monitored.filter(name => !teamPackages.includes(name))) assert.ok(packages[name], `Missing monitored package ${name}`);
   assert.ok(teamPackages.some(name => packages[name]), 'Missing both inspected Team package generations');
@@ -163,7 +200,7 @@ export function compareRuntimes(baseline, candidate) {
   }
   for (const name of new Set([...Object.keys(baseline.packages), ...Object.keys(candidate.packages)])) {
     const before = baseline.packages[name], after = candidate.packages[name];
-    for (const area of ['declarations', 'remote']) {
+    for (const area of ['declarations', 'remote', 'ownerConfig']) {
       for (const key of new Set([...Object.keys(before?.[area] ?? {}), ...Object.keys(after?.[area] ?? {})])) {
         const a = before?.[area]?.[key], b = after?.[area]?.[key];
         if (JSON.stringify(a) !== JSON.stringify(b)) changes.push({ package: name, area, contract: key, change: a === undefined ? 'added' : b === undefined ? 'removed' : 'changed' });
@@ -171,6 +208,34 @@ export function compareRuntimes(baseline, candidate) {
     }
   }
   return changes;
+}
+// Review exceptions bind both sides of one contract, not a package/version-wide waiver.
+export function reviewChanges(baseline, candidate, review) {
+  const changes = compareRuntimes(baseline, candidate);
+  const fingerprint = (runtime, change) => {
+    const value = change.area === 'bundle-catalog' ? runtime.bundleCatalog?.[change.contract] : runtime.packages[change.package]?.[change.area]?.[change.contract];
+    return value === undefined ? null : hash(JSON.stringify(canonical(value)));
+  };
+  if (review) {
+    assert.equal(review.schemaVersion, 1, 'Unsupported review baseline');
+    assert.ok(Array.isArray(review.entries), 'Missing review entries');
+    const keys = new Set();
+    for (const entry of review.entries) {
+      const key = JSON.stringify([entry.package, entry.area, entry.contract]);
+      assert.ok(!keys.has(key), 'Duplicate reviewed contract');
+      keys.add(key);
+      assert.ok(['accepted', 'mobile-change-required'].includes(entry.decision) && entry.reason?.trim(), 'Missing review decision/reason');
+      for (const side of ['before', 'after']) assert.ok(entry[side] === null || /^[a-f0-9]{64}$/.test(entry[side]), 'Invalid reviewed fingerprint');
+    }
+  }
+  const entries = review?.baseline === baseline.version && review?.candidate === candidate.version ? review.entries : [];
+  const acceptedChanges = [], pendingChanges = [];
+  for (const change of changes) {
+    const entry = entries.find(entry => entry.package === change.package && entry.area === change.area && entry.contract === change.contract && entry.before === fingerprint(baseline, change) && entry.after === fingerprint(candidate, change));
+    if (entry?.decision === 'accepted') acceptedChanges.push({ ...change, reason: entry.reason });
+    else pendingChanges.push({ ...change, reason: entry?.reason ?? 'Unreviewed contract or changed release/fingerprint' });
+  }
+  return { acceptedChanges, pendingChanges };
 }
 async function mobileReferences() {
   const references = {};
@@ -191,6 +256,7 @@ async function mobileReferences() {
 }
 const limits = [
   'Static inspection does not execute upstream code and is not feature parity or live acceptance.',
+  'Settings monitoring includes declarations/Remote contracts of the named settings domains. Inline Config expression fingerprints cover the six settings/voice packages only; other owner defaults, activation profiles and installation-specific values also require live describe/readback.',
   'Any monitored descriptor/declaration drift needs review, including compatible additions and schema annotation edits. No automatic baseline update or upgrade.',
   'Mobile references are literal rpc/stream call sites, not proof of rendering, permissions or behavior. Dynamic/wrapped calls may be missed.',
   'Official descriptors sometimes report jsonSchemaError (notably follow/control). These remain explicitly opaque; declaration drift is still checked, not schema compatibility.',
@@ -199,14 +265,20 @@ const limits = [
   'Existing real SessionController, adapter, todo, subagent and registry canaries remain separate semantic gates.',
   'Account announcements are not phone background delivery. Native background notifications, physical devices, approval/question continuation and all provider/tool combinations are not proven by this report.',
 ];
-export async function reportCompatibility(baselineRoot, candidateRoot) {
+export async function reportCompatibility(baselineRoot, candidateRoot, review) {
   const [baseline, candidate, mobile] = await Promise.all([inspectRuntime(baselineRoot), inspectRuntime(candidateRoot), mobileReferences()]);
   const changes = compareRuntimes(baseline, candidate);
+  const { acceptedChanges, pendingChanges } = reviewChanges(baseline, candidate, review);
   const mobileFeatureGaps = [];
   for (const [name, pkg] of Object.entries(candidate.packages)) {
     for (const endpoint of Object.keys(pkg.remote)) if (!mobile[endpoint]) mobileFeatureGaps.push({ package: name, endpoint, status: 'no-literal-mobile-reference', action: 'review relevance; not automatically a missing feature' });
   }
-  return { schemaVersion: 1, kind: 'official-dsh-contract-review', status: changes.length ? 'review-required' : 'no-monitored-static-drift', generatedAt: new Date().toISOString(), baseline, candidate, changes, mobileReferences: mobile, mobileFeatureGaps, limits };
+  const settingsReview = changes.filter(change => change.area === 'ownerConfig').map(change => {
+    const before = baseline.packages[change.package]?.ownerConfig[change.contract]?.fields ?? [];
+    const after = candidate.packages[change.package]?.ownerConfig[change.contract]?.fields ?? [];
+    return { ...change, addedFields: after.filter(field => !before.includes(field)), removedFields: before.filter(field => !after.includes(field)), action: 'Review phone settings coverage and read/write/readback support before adaptation' };
+  });
+  return { schemaVersion: 1, kind: 'official-dsh-contract-review', status: pendingChanges.length ? 'review-required' : changes.length ? 'reviewed-static-drift' : 'no-monitored-static-drift', generatedAt: new Date().toISOString(), baseline, candidate, changes, acceptedChanges, pendingChanges, mobileReferences: mobile, mobileFeatureGaps, settingsReview, limits };
 }
 async function jsonFetch(url, github = false, body) {
   const response = await fetch(url, { signal: AbortSignal.timeout(30_000), ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}), headers: github ? { accept: 'application/vnd.github+json', ...(body ? { 'content-type': 'application/json' } : {}), ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}) } : {} });
@@ -230,7 +302,7 @@ async function main() {
   const [mode, ...args] = process.argv.slice(2);
   const options = {};
   for (let i = 0; i < args.length; i += 2) {
-    assert.ok(['--baseline-root', '--runtime-root', '--output-dir', '--baseline-version', '--requested'].includes(args[i]) && args[i + 1] && !options[args[i]], 'Unknown, duplicate or incomplete option');
+    assert.ok(['--baseline-root', '--runtime-root', '--output-dir', '--baseline-version', '--requested', '--review-baseline'].includes(args[i]) && args[i + 1] && !options[args[i]], 'Unknown, duplicate or incomplete option');
     options[args[i]] = args[i + 1];
   }
   const output = options['--output-dir'];
@@ -258,12 +330,13 @@ async function main() {
   assert.equal(mode, 'compare', 'Use metadata or compare');
   assert.ok(options['--baseline-root'] && options['--runtime-root'], 'Both inspected runtime roots are required');
   try {
-    const report = await reportCompatibility(options['--baseline-root'], options['--runtime-root']);
+    const review = options['--review-baseline'] ? JSON.parse(await readFile(options['--review-baseline'], 'utf8')) : undefined;
+    const report = await reportCompatibility(options['--baseline-root'], options['--runtime-root'], review);
     await writeFile(path.join(output, 'compatibility.json'), JSON.stringify(report, null, 2));
-    const summary = [`## Official DSH compatibility: ${report.status}`, '', `Inspected baseline **${report.baseline.version}** → candidate **${report.candidate.version}**.`, '', `${report.changes.length} monitored contract/declaration changes; ${report.mobileFeatureGaps.length} endpoints without a literal mobile reference (review candidates, not parity verdicts).`, '', ...report.changes.map(change => `- ${change.change}: ${change.package} / ${change.area} / ${change.contract}`), '', '### Limits', ...report.limits.map(limit => `- ${limit}`), '', 'See compatibility.json for complete contracts, evidence inventory and mobile call sites.'].join('\n');
-    await writeFile(path.join(output, 'compatibility.md'), `${summary}\n`);
+    const summary = [`## Official DSH compatibility: ${report.status}`, '', `Inspected baseline **${report.baseline.version}** → candidate **${report.candidate.version}**.`, '', `${report.changes.length} monitored contract/declaration changes: ${report.acceptedChanges.length} explicitly accepted, ${report.pendingChanges.length} pending. ${report.mobileFeatureGaps.length} endpoints without a literal mobile reference (review candidates, not parity verdicts).`, '', '### Pending changes', ...report.pendingChanges.map(change => `- ${change.change}: ${change.package} / ${change.area} / ${change.contract}: ${change.reason}`), '', '### Accepted changes', ...report.acceptedChanges.map(change => `- ${change.change}: ${change.package} / ${change.area} / ${change.contract}: ${change.reason}`), '', '### Limits', ...report.limits.map(limit => `- ${limit}`), '', 'See compatibility.json for complete contracts, evidence inventory and mobile call sites.'].join('\n');
+    await writeFile(path.join(output, 'compatibility.md'), `${summary}\n\n### Settings owner review candidates\n${report.settingsReview.map(change => `- ${change.package} / ${change.contract}: added [${change.addedFields.join(', ')}], removed [${change.removedFields.join(', ')}]; ${change.action}`).join('\n')}\n`);
     console.log(summary);
-    process.exitCode = report.changes.length ? 2 : 0;
+    process.exitCode = report.pendingChanges.length ? 2 : 0;
   } catch (error) {
     await writeFile(path.join(output, 'compatibility.json'), JSON.stringify({ schemaVersion: 1, status: 'inspection-failed', error: error.message, limits }, null, 2));
     throw error;

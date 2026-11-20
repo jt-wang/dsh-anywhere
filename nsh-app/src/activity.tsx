@@ -3,23 +3,26 @@
 // its own at the top, then the chat's work: the goal, the to-dos, the subagents and the background jobs. Active items lead; finished ones fold under a line of their own. Pinned,
 // the whole panel sits above the composer instead and the header button steps aside (for every chat, kept on the phone);
 // while the person types it is one line, unless they turn that off in its menu.
-import { cleanup, effect, keyboardFrame, Overlay, Scroll, signal, Storage, Text, View, type Bounds, type Signal, type ViewRef } from 'nsh'
+import { cleanup, effect, keyboardFrame, Overlay, Scroll, signal, Storage, Text, untracked, View, type Bounds, type Signal, type ViewRef } from 'nsh'
 import { activeOf, shows, todoParts, type Activity } from './activity.ts'
 import { detailsOf, tokens } from './details.ts'
 import { isLive, sections, type Job } from './jobs.ts'
 import type { Todo } from './fold.ts'
 import type { Child } from './subagents.ts'
-import { dsh, pollForeground } from './state.ts'
+import { TeamBoard } from './team-board.tsx'
+import { teamBoardOf, teamBoardOffline, type TeamBoardState } from './team-board.ts'
+import { dsh, network, pollForeground, trying } from './state.ts'
 import { S } from './strings.ts'
 import { chooseAction, haptic, Chevron, Icon, IconButton, LiveDot } from './ui.tsx'
 
 export interface ChatActivity {
   todos: Signal<Todo[]>; jobs: Signal<Job[]>; children: Signal<Child[]>; context: Signal<Activity['context']>; goal: Signal<Activity['goal']>
+  team: Signal<TeamBoardState>
   open: Signal<boolean>; closedAt: { at: number }
 }
 
 export function createActivity(): ChatActivity {
-  return { todos: signal<Todo[]>([]), jobs: signal<Job[]>([]), children: signal<Child[]>([]), context: signal<Activity['context']>(undefined), goal: signal<Activity['goal']>(undefined), open: signal(false), closedAt: { at: 0 } }
+  return { todos: signal<Todo[]>([]), jobs: signal<Job[]>([]), children: signal<Child[]>([]), context: signal<Activity['context']>(undefined), goal: signal<Activity['goal']>(undefined), team: signal<TeamBoardState>({ kind: 'loading' }), open: signal(false), closedAt: { at: 0 } }
 }
 
 const PINNED = 'activityPinned'
@@ -34,12 +37,20 @@ const fold = signal(true)
 Storage.getItem(FOLD).then((v) => fold.set(v !== '0'), () => {})
 function setFold(on: boolean) { fold.set(on); (on ? Storage.removeItem(FOLD) : Storage.setItem(FOLD, '0')).catch(() => {}) }
 
-const read = (a: ChatActivity): Activity => ({ todos: a.todos(), jobs: a.jobs(), children: a.children(), context: a.context(), goal: a.goal() })
+const read = (a: ChatActivity): Activity => ({ todos: a.todos(), jobs: a.jobs(), children: a.children(), context: a.context(), goal: a.goal(), team: a.team() })
 
 /** The chat's context use (Desktop's meter) and goal, with a 30 s foreground fallback. */
 export function followDetails(sessionId: string, a: ChatActivity) {
-  const load = () => dsh().rpc('session/projections', { request: { sessionId } }).then((v) => { const d = detailsOf(v); a.context.set(d.context); a.goal.set(d.goal) }, () => {})
-  pollForeground(load)
+  let stopped = false
+  cleanup(() => { stopped = true })
+  effect(() => { if (!network() && !trying()) untracked(() => a.team.set(teamBoardOffline(a.team()))) })
+  const load = () => dsh().rpc('session/projections', { request: { sessionId } }).then((v) => {
+    if (stopped) return
+    const d = detailsOf(v), team = teamBoardOf(v)
+    a.context.set(d.context); a.goal.set(d.goal); a.team.set(!network() && !trying() ? teamBoardOffline(team) : team)
+  }, () => { if (!stopped) a.team.set(teamBoardOffline(a.team())) })
+  // Caller may invalidate on official team/* or subagent/catalog follow records; never reduce tasks locally.
+  return pollForeground(load)
 }
 
 export function ActivityButton(props: { activity: ChatActivity }) {
@@ -172,11 +183,14 @@ function Contents(props: { activity: ChatActivity; done: () => void; percentAbov
           {todos().done.map((t) => <Item dot="done" text={t.content} />)}
         </Folded>
       </If>
+      <If when={a.team().kind !== 'loading' && a.team().kind !== 'unavailable'}>
+        <TeamBoard board={a.team} onOpenChild={(c) => go(() => props.onOpenChild(a.children().find(k => k.id === c.id) ?? c))} />
+      </If>
       <If when={a.children().length}>
         <Section icon="bot" title={S.subagentsTitle} count={counts().subagents} testID="activity-subagents" onPress={() => go(props.openChildren)} />
-        <Each of={kids().live} key={(c) => c.id}>{(c) => <Item dot="live" text={c().name} onPress={() => go(() => props.onOpenChild(c()))} />}</Each>
+        <Each of={kids().live} key={(c) => c.id}>{(c) => <Item dot="live" text={c().agentName && c().agentName !== c().name ? `${c().name} (${c().agentName})` : c().name} onPress={() => go(() => props.onOpenChild(c()))} />}</Each>
         <Folded count={kids().settled.length} label={S.finishedCount} testID="activity-subagents-done">
-          {kids().settled.map((c) => <Item dot="done" text={c.name} onPress={() => go(() => props.onOpenChild(c))} />)}
+          {kids().settled.map((c) => <Item dot="done" text={c.agentName && c.agentName !== c.name ? `${c.name} (${c.agentName})` : c.name} onPress={() => go(() => props.onOpenChild(c))} />)}
         </Folded>
       </If>
       <If when={a.jobs().length}>

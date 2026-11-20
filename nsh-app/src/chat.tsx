@@ -5,7 +5,7 @@ import { BlankChat } from './blankchat.tsx'
 import { cleanup, computed, createMotion, effect, Image, untracked, keyboardFrame, LayoutAnimation, List, safeAreaInsets, signal, Text, View, type InputRef, type ListRef } from 'nsh'
 import { Input, TextView } from 'nsh/base'
 import { doneTitle, Fold, headline, keepUnchanged, liveText, toolLabel, turnEnds, type Attached, type Entry, type LiveLine, type Row, type Step, type Todo } from './fold.ts'
-import { appActive, connection, dsh, interfaceError, offlineCache, openInterface } from './state.ts'
+import { appActive, connection, dsh, interfaceError, offlineCache, openInterface, trying } from './state.ts'
 import { readable, S } from './strings.ts'
 import { ModelPicker } from './picker.tsx'
 import { Asks } from './asks.tsx'
@@ -14,6 +14,7 @@ import { haptic, Chevron, Icon, IconButton, LiveDot } from './ui.tsx'
 import { appear, FRESH_MS, rise, STANDARD } from './motion.ts'
 import { copyText, messageMenu } from './copy.tsx'
 import { addAttachment, DraftChips, forget, SentAttachments } from './attachments.tsx'
+import { VoiceInput } from './voice.tsx'
 import { promptContent, type Draft } from './attach.ts'
 import { awaitingFirstStep, outgoing, retext, settle, type Outgoing } from './outbox.ts'
 import { Bubble, OutgoingView, WorkingRow } from './sent.tsx'
@@ -27,11 +28,14 @@ import type { Job } from './jobs.ts'
 import { commandsOf, insertMention, isSuggestion, mentionAt, referencesOf, referenceText, route, skillsOf, slashQuery, suggest, type Command, type Reference, type Skill, type Suggestion } from './commands.ts'
 import { ControlsSheet, followReferences, Suggestions, type Run } from './commandbar.tsx'
 import type { Selection } from './models.ts'
-import { addressOf, composerOf, followUp, type Child, type Subagent } from './subagents.ts'
+import { addressOf, composerOf, followUp, interruptChild, type Child, type Subagent } from './subagents.ts'
 import { followChildren, SubagentsDock, SubagentsSheet } from './subagents.tsx'
 import { ActivityDock, ActivityPanel, followDetails, type ChatActivity } from './activity.tsx'
 import { mentionsInto } from './files.ts'
 import { followsEnd, PADDING } from './scroll.ts'
+import { Continuation, type ContinuationView as ContinuationState } from './continuation.ts'
+import { ContinuationView } from './continuation-view.tsx'
+import { C } from './continuation-strings.ts'
 
 type Process = Extract<Row, { kind: 'process' }>
 type CommandRow = Extract<Row, { kind: 'command' }>
@@ -74,11 +78,12 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   const openKids = () => { loadKids(); kidsOpen.set(true) }
   // The header's activity button reads what this chat follows; a chat without one (a child) docks its items instead.
   const activity = props.activity
+  let refreshActivity: (() => Promise<void>) | undefined
   if (activity) {
     effect(() => activity.todos.set(todos()))
     effect(() => activity.jobs.set(jobs()))
     effect(() => activity.children.set(kids()))
-    followDetails(props.sessionId, activity)
+    refreshActivity = followDetails(props.sessionId, activity)
   }
   const commands = signal<Command[]>([])
   const skills = signal<Skill[]>([])
@@ -101,6 +106,20 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   const fresh = (id: string) => Date.now() - (bornAt.get(id) ?? 0) < FRESH_MS
   const line = signal<LiveLine>({ detail: '' })
   const showLine = steady<LiveLine>((l) => line.set(l))
+  const continuationState = signal<ContinuationState>({ status: 'loading' })
+  const historyRevision = signal(0)
+  const continuation = new Continuation(dsh(), props.sessionId, (v) => continuationState.set(v))
+  cleanup(() => continuation.dispose())
+  // Like Desktop, ordinary sessions only; never send a child an empty follow-up.
+  const failedEnding = computed(() => { const last = rows().at(-1); return !child && !running() && last?.kind === 'failure' ? Number(last.id.slice('failure:'.length)) : undefined })
+  const continuationBlocked = (): 'offline' | 'draft' | undefined => !appActive() || connection() !== 'online' || !live() ? 'offline' : draft().trim() || attached().length || uploading() || outbox().length ? 'draft' : undefined
+  const refreshContinuation = () => { const ending = failedEnding(); if (ending !== undefined && !continuationBlocked()) void continuation.refresh(ending) }
+  const continueGeneration = () => { const ending = failedEnding(); if (ending !== undefined) void continuation.send(ending, () => failedEnding() === ending && !continuationBlocked() && !fold.running) }
+  effect(() => {
+    historyRevision()
+    const ending = failedEnding(), blocked = continuationBlocked()
+    untracked(() => { continuation.invalidate(); if (ending !== undefined && !blocked) void continuation.refresh(ending) })
+  })
   // Frames arrive token by token; the screen redraws at most every 60 ms.
   const flush = () => {
     scheduled = false
@@ -110,15 +129,21 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
     for (const r of fold.rows()) if (!bornAt.has(r.id)) bornAt.set(r.id, now)
     showLine(fold.live())
     rows.set(keepUnchanged(rows(), fold.rows())); running.set(fold.running); model.set(fold.model); inbox.set(fold.inbox); todos.set(fold.todos); if (fold.subagents !== subagents()) subagents.set(fold.subagents); if (fold.title) props.onTitle(fold.title); loaded.set(true)
+    for (const r of rows()) if (r.kind === 'notice' && r.source === 'retry') continuation.receipt(r.rpcId)
     live.set(true); copiedAt.set(Date.now()); cache?.history(props.sessionId, rows())
     const s = settle(outbox(), rows())
     for (const [row, id] of s.arrived) { arrivedAs.set(row, id); outbox().find((o) => o.id === id)?.drafts.forEach(forget) }
     if (s.outbox !== outbox()) outbox.set(s.outbox)
+    historyRevision.update((n) => n + 1)
     // A queued message that starts its turn goes to the top of the screen, as one just sent does.
     for (const id of s.started) pin(id)
   }
   const stop = dsh().stream('session/follow', { request: { address: child ? addressOf(child.parentSessionId, child.subagent) : { kind: 'session', sessionId: props.sessionId }, assistantStream: true, maxMessages: 100 } },
-    (frame) => { fold.apply(frame); error.set(''); if (!scheduled) { scheduled = true; flushTimer = setTimeout(flush, 60) } },
+    (frame) => {
+      const f = frame as { type?: string; event?: { type?: string } }
+      if (f?.type === 'snapshot' || (f?.type === 'event' && ['team/task', 'team/mode', 'subagent/catalog'].includes(f.event?.type ?? ''))) void refreshActivity?.()
+      continuation.invalidate(); fold.apply(frame); error.set(''); if (!scheduled) { scheduled = true; flushTimer = setTimeout(flush, 60) }
+    },
     (e) => error.set(readable(e)))
   cleanup(stop)
   cleanup(() => { clearTimeout(flushTimer); if (scheduled) flush(); cache?.flush() })
@@ -207,8 +232,8 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
     mark(o.id, { state: 'sending', error: undefined, sentAt: Date.now(), acceptedAt: undefined })
     try {
       const content = promptContent(o.text, o.drafts)
-      // A child's follow-up joins its inbox through the parent, as Desktop's composer routes it.
-      if (child) await dsh().rpc('subagents/prompt', followUp(child.parentSessionId, props.sessionId, o.id, content))
+      // A child's follow-up joins its inbox using this computer's released control contract.
+      if (child) await followUp(dsh(), child.parentSessionId, props.sessionId, o.id, content)
       else await dsh().rpc('session/prompt', { request: { requestId: o.id, sessionId: props.sessionId, mode: 'queue', content } })
       haptic('confirm')
       if (outbox().some((x) => x.id === o.id)) mark(o.id, { state: 'queued', acceptedAt: Date.now() })
@@ -272,7 +297,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   }
   const cancel = async () => {
     try {
-      if (child) await dsh().rpc('subagents/interruptByParent', { childSessionId: props.sessionId, parentSessionId: child.parentSessionId, mode: 'continuable' })
+      if (child) await interruptChild(dsh(), child.parentSessionId, props.sessionId)
       else await dsh().rpc('session/cancel', { request: { sessionId: props.sessionId } })
     } catch (e) { error.set(readable(e)) }
   }
@@ -289,6 +314,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
         onScroll={(e) => { scrollY.set(e.offset.y); atBottom.set(e.offset.y + e.size.height >= e.contentSize.height - 80) }}>
         {(r) => <RowView sessionId={props.sessionId} item={r} line={line} live={() => running() && r().id === lastProcess()} open={() => open().has(r().id)} toggle={() => toggle(r().id)}
           thinkingOpen={() => !foldedThinking().has(r().id)} toggleThinking={() => toggleThinking(r().id)}
+          continuation={{ visible: () => failedEnding() !== undefined && r().id === `failure:${failedEnding()}`, state: continuationState, blocked: continuationBlocked, send: continueGeneration, refresh: refreshContinuation }}
           onHeight={(h) => measure(r().id, h)} busy={running} retry={(o) => deliver(o)} ends={() => ends().has(r().id)} fresh={fresh} />}
       </List>
       <If when={readingThink()}>
@@ -340,6 +366,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
             onSelectionChange={(e) => caret.set(e.end)}
             onContentSizeChange={(e) => composerHeight.set(Math.min(Math.max(e.size.height, LINE), LINE * 6))}
             style={{ height: composerHeight() + 16 }} class="bg-transparent px-[14px] pt-[10px] pb-[6px] text-foreground placeholder:text-muted-foreground text-[15px] leading-[22px]" />
+          <If when={!child && !trying()}><VoiceInput disabled={!appActive() || connection() !== 'online' || !live()} onText={text => draft.set(draft() + (draft().trim() ? ' ' : '') + text)} onError={message => error.set(message)} /></If>
           <View class="flex-row items-center px-[6px] pb-[6px] gap-[2px]">
             {/* A child takes text: no uploads, commands or model of its own from the phone. */}
             <If when={!child}>
@@ -369,7 +396,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
 }
 
 /** One cell; it reads `props.item()` where it is used because the List reuses cells for other rows. */
-function RowView(props: { sessionId: string; item: () => Item; line: () => LiveLine; live: () => boolean; open: () => boolean; toggle: () => void; thinkingOpen: () => boolean; toggleThinking: () => void; onHeight: (h: number) => void; busy: () => boolean; retry: (o: Outgoing) => void; ends: () => boolean; fresh: (id: string) => boolean }) {
+function RowView(props: { sessionId: string; item: () => Item; line: () => LiveLine; live: () => boolean; open: () => boolean; toggle: () => void; thinkingOpen: () => boolean; toggleThinking: () => void; onHeight: (h: number) => void; busy: () => boolean; retry: (o: Outgoing) => void; ends: () => boolean; fresh: (id: string) => boolean; continuation: { visible: () => boolean; state: () => ContinuationState; blocked: () => 'offline' | 'draft' | undefined; send: () => void; refresh: () => void } }) {
   const kind = () => props.item().kind
   const sent = () => { const i = props.item(); return i.kind === 'outgoing' ? [i.message] : [] }
   const text = () => (props.item() as { text?: string }).text ?? ''
@@ -388,8 +415,9 @@ function RowView(props: { sessionId: string; item: () => Item; line: () => LiveL
       <Each of={sent()} key={(o) => o.id}>{(o) => <OutgoingView message={o} busy={props.busy} retry={() => props.retry(o())} />}</Each>
       <Each of={kind() === 'command' ? [props.item() as CommandRow] : []} key={(c) => c.id}>{(c) => <CommandView command={c} />}</Each>
       <Each of={kind() === 'failure' ? [props.item() as Extract<Row, { kind: 'failure' }>] : []} key={(f) => f.id}>{(f) => <FailureView failure={f} />}</Each>
+      <If when={props.continuation.visible()}><ContinuationView {...props.continuation} /></If>
       <If when={kind() === 'notice'}>
-        <Text class="text-muted-foreground text-[13px] leading-[18px] line-clamp-3">{text()}</Text>
+        <Text testID={(props.item() as Extract<Row, { kind: 'notice' }>).source === 'retry' ? 'continuation-receipt' : undefined} class="text-muted-foreground text-[13px] leading-[18px] line-clamp-3">{(props.item() as Extract<Row, { kind: 'notice' }>).source === 'retry' ? C.receipt : text()}</Text>
       </If>
       <Each of={kind() === 'assistant' ? [props.item().id] : []} key={(id) => id}>{(id) => { const m = createMotion(props.fresh(id()) ? { enter: appear } : {}); return (
         <View class="self-stretch" onLongPress={() => messageMenu(text(), true)} testID="reply" style={m.style}>

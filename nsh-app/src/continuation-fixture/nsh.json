@@ -1,0 +1,4 @@
+{
+  "name": "Manual continuation checks",
+  "capabilities": { "host": ["haptic"], "network": { "hosts": ["*"] }, "clipboard": true }
+}

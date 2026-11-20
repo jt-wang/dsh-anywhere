@@ -108,6 +108,7 @@ export const ES: Strings = {
   todos: 'Tareas', todoState: { completed: 'Completada', in_progress: 'En curso', pending: 'Pendiente' },
   todoProgress: (todos: Todo[]) => { const c = counts(todos); return [c.done ? `${c.done} ${plural(c.done, 'completada', 'completadas')}` : '', c.active ? `${c.active} en curso` : '', c.pending ? `${c.pending} ${plural(c.pending, 'pendiente', 'pendientes')}` : ''].filter(Boolean).join(', ') },
   dsh: {
+    'client/subagent-controls-unverified': 'Los controles de subagentes no están disponibles para esta versión de DSH. Actualiza DSH Anywhere.',
     'session/fork-unavailable': 'Este chat no tiene ningún turno completado',
     'session/migration-required': 'Abre el chat original en la computadora para completar la migración antes de crear una rama.',
     'directory-picker/outside-home': 'El teléfono solo abre carpetas dentro de tu carpeta de inicio y tus espacios de trabajo.',

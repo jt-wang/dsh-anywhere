@@ -61,6 +61,7 @@ final class ShellController: UIViewController {
     private var modules: Modules!
     private var network: NetworkWatch!
     private var diagnostics: Diagnostics!
+    private var voice: Voice!
 
     init(pair: String?) {
         pairAtStart = pair
@@ -96,6 +97,8 @@ final class ShellController: UIViewController {
         link.attach(app) // the link to the owner's computer (`link.*`)
         files = Files(host: self, link: link)
         files.attach(app) // a file for a message (`files.pick`)
+        voice = Voice()
+        voice.attach(app) // foreground microphone capture (`voice.*`)
         Haptics.attach(app) // the phone's feedback (`haptic`)
         network = NetworkWatch()
         network.attach(app) // whether the phone has a network (`network.state`, `network`)

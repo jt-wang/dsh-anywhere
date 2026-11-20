@@ -10,6 +10,7 @@ import { notifyPrefs, setLanguage, setNotify, setTheme, theme, type NotifyPrefs,
 import { Icon } from './ui.tsx'
 import { ProgressSetting } from './progress.tsx'
 import { DiagnosticsSettings } from './diagnostics-settings.tsx'
+import { DesktopSettings } from './desktop-settings.tsx'
 
 function Group(props: { children?: JSX.Element | JSX.Element[] }) { return <View class="rounded-[14px] bg-card border border-border overflow-hidden">{props.children}</View> }
 function Label(props: { text: string }) { return <Text class="px-2 pt-5 pb-[6px] text-muted-foreground text-[13px] font-medium">{props.text}</Text> }
@@ -147,6 +148,7 @@ export function SettingsPage() {
         <ProgressSetting />
       </If>
 
+      <If when={!trying()}><DesktopSettings /></If>
       <DiagnosticsSettings />
 
       <View role="link" testID="settings-privacy" onPress={() => { openUrl(PRIVACY_URL).catch(() => {}) }} class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center active:bg-secondary">

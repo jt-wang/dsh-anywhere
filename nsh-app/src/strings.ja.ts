@@ -101,6 +101,7 @@ export const JA: Strings = {
   todos: 'ToDo', todoState: { completed: '完了', in_progress: '進行中', pending: '未着手' },
   todoProgress: (todos: Todo[]) => { const c = counts(todos); return [c.done ? `${c.done}件完了` : '', c.active ? `${c.active}件進行中` : '', c.pending ? `${c.pending}件未着手` : ''].filter(Boolean).join('、') },
   dsh: {
+    'client/subagent-controls-unverified': 'この DSH バージョンではサブエージェントを操作できません。DSH Anywhere を更新してください。',
     'session/fork-unavailable': 'このチャットには完了したターンがありません',
     'session/migration-required': 'フォークする前に、パソコンで元のチャットを開いて移行を完了してください。',
     'directory-picker/outside-home': 'スマートフォンで開けるのは、ホームフォルダとワークスペース内のフォルダだけです。',

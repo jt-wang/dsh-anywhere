@@ -17,6 +17,7 @@ public final class MainActivity extends Activity {
     private NetworkWatch network;
     private Notify notify;
     private Diagnostics diagnostics;
+    private Voice voice;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -44,6 +45,8 @@ public final class MainActivity extends Activity {
         link.attach(app); // the link to the owner's computer (`link.*`)
         files = new Files(this, link);
         files.attach(app); // a file for a message (`files.pick`)
+        voice = new Voice(this);
+        voice.attach(app); // foreground microphone capture (`voice.*`)
         Haptics.attach(this, app); // the phone's feedback (`haptic`)
         network = new NetworkWatch(this);
         network.attach(app); // whether the phone has a network (`network.state`, `network`)
@@ -107,14 +110,15 @@ public final class MainActivity extends Activity {
     }
 
     @Override
-    protected void onStart() { super.onStart(); if (diagnostics != null) diagnostics.active(true); if (notify != null) notify.activeChanged(true); }
+    protected void onStart() { super.onStart(); if (voice != null) voice.active(true); if (diagnostics != null) diagnostics.active(true); if (notify != null) notify.activeChanged(true); }
 
     @Override
-    protected void onStop() { if (diagnostics != null) diagnostics.active(false); if (notify != null) notify.activeChanged(false); super.onStop(); }
+    protected void onStop() { if (voice != null) voice.active(false); if (diagnostics != null) diagnostics.active(false); if (notify != null) notify.activeChanged(false); super.onStop(); }
 
     @Override
     public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
+        if (voice != null) voice.permissionResult(request);
         if (notify != null) notify.permissionResult(request);
     }
 
@@ -139,6 +143,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (voice != null) voice.active(false);
         if (network != null) network.detach();
         if (diagnostics != null) diagnostics.detach();
         app.destroy();

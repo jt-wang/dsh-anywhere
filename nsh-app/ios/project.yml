@@ -67,6 +67,7 @@ targets:
         # for it; every build still needs the answer, and an unanswered one cannot reach testers.
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Камера читает код подключения на экране компьютера.
+        NSMicrophoneUsageDescription: Record speech to transcribe on your linked computer and insert into your draft. Nothing is sent to the chat automatically.
         NSLocalNetworkUsageDescription: On the same Wi-Fi, the phone reaches your computer directly instead of through a relay.
         # Plain http only to this device's loopback (the companion's tunnel ends there); everything else needs TLS.
         NSAppTransportSecurity:

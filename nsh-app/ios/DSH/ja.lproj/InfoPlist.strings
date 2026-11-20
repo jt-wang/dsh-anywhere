@@ -1,2 +1,3 @@
 "NSCameraUsageDescription" = "パソコンの画面に表示されたペアリングコードをカメラで読み取ります。";
 "NSLocalNetworkUsageDescription" = "同じ Wi-Fi では、スマートフォンがリレーを介さずパソコンに直接接続します。";
+"NSMicrophoneUsageDescription" = "音声を録音し、接続したコンピュータで文字起こしして下書きに入力します。チャットには自動送信しません。";

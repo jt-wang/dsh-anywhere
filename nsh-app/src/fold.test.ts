@@ -317,3 +317,15 @@ test('a sent message\'s row keeps the request id it was sent with, so the phone 
   fold.apply(snapshot([ev('user/message', { id: 'u1', role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user', rpcId: 'phone-1' } }), user('u2', 'hi')]))
   expect(fold.rows().map((r) => (r.kind === 'user' ? r.rpcId : undefined))).toEqual(['phone-1', undefined])
 })
+
+test('official empty retry is a compact attributed receipt, including step 2 and reconnect; never human input', () => {
+  seq = 0
+  const fold = new Fold()
+  const records = [user('u1', 'original'), ev('step/start', { step: 2 }), ev('user/message', { id: 'retry', source: { kind: 'retry', rpcId: 'phone-continue-1' }, content: [] })]
+  fold.apply(snapshot(records))
+  const expected = [{ kind: 'notice', id: 'retry', text: '', source: 'retry', rpcId: 'phone-continue-1', at: (records[2] as any).event.time }]
+  expect(fold.rows().filter((r) => r.kind === 'notice')).toEqual(expected)
+  expect(fold.rows().filter((r) => r.kind === 'user').length).toBe(1)
+  fold.apply(snapshot(records))
+  expect(fold.rows().filter((r) => r.kind === 'notice')).toEqual(expected)
+})
