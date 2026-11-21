@@ -42,7 +42,7 @@ class TestAdapter implements HostAdapter {
 }
 
 async function setup(t: TestContext, adapter: HostAdapter = new TestAdapter()) {
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-mobile-server-')));
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-anywhere-server-')));
   mkdirSync(join(dir, 'alpha')); mkdirSync(join(dir, 'beta'));
   const config: HostConfiguration = { hostName: 'Test fixture only', bind: '127.0.0.1', port: 0, statePath: join(dir, 'host.sqlite'), allowInsecureLoopback: true, workspaces: ['alpha', 'beta'].map(id => ({ id, name: id, path: join(dir, id) })) };
   const host = await startHostServer({ config, adapter });
@@ -77,7 +77,7 @@ async function rawStream(port: number, token: string, tls?: { name: string; ca: 
 
 for (const transport of ['http', 'tls'] as const) for (const how of ['half-close (what a Tailcat forward sends)', 'full close'] as const)
   test(`a phone that leaves a chat frees its stream slot at once: ${transport}, ${how}`, async t => {
-    const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-mobile-slots-')));
+    const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-anywhere-slots-')));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     mkdirSync(join(dir, 'alpha'));
     const name = 'h-0123456789abcdef0123456789abcdef.dsh.invalid', identity = generateServerIdentity(name);
@@ -329,7 +329,7 @@ test('GET and SSE authorize the authoritative point snapshot without scanning th
 });
 
 for (const lane of ['', '/events']) test(`a broken point ${lane || 'GET'} hides unreadable and archived sessions before exposing an opening error`, async t => {
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-mobile-broken-read-')));
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-anywhere-broken-read-')));
   for (const id of ['alpha', 'beta']) mkdirSync(join(dir, id));
   const workspaces = ['alpha', 'beta'].map(id => ({ id, name: id, path: join(dir, id) }));
   const baseSource = await createWorkspaceSource({ workspaces }), archived = new Set<string>();
@@ -569,7 +569,7 @@ test('empty DSH cursor -1 is preserved and long message text is not silently tru
 });
 
 test('local CLI initializes state and issues only intentional invitation output; devices/revoke never disclose credentials', async t => {
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-mobile-cli-')));
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-anywhere-cli-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const configPath = join(dir, 'private.config.json');
   let output = '', errors = '';
@@ -801,7 +801,7 @@ test('idle permission rechecks cannot republish obsolete history across an async
   const watching = new Promise<void>(resolve => { watchStarted = resolve; });
   const publishUpdate = new Promise<void>(resolve => { publish = resolve; });
   let reads = 0, watchOpen = false;
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-mobile-stream-order-')));
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-anywhere-stream-order-')));
   const adapter = new TestAdapter();
   const current = structuredClone(snapshot);
   current.messages = [{ id: 'new', role: 'assistant', text: 'NEW AUTHORITATIVE TEXT', createdAt: 2 }]; current.cursor = 2;

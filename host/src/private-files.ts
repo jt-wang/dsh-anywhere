@@ -36,16 +36,16 @@ function windowsAcl(path: string, create: boolean, directory: boolean): void {
   // A pwsh parent can export PSModulePath entries for PowerShell 7, which
   // Windows PowerShell 5.1 cannot load. Pin its own built-in security module;
   // never resolve ACL commands through inherited or user-provided modules.
-  const script = `$ErrorActionPreference='Stop'; Import-Module (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop; $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User; $p=$env:DSHM_PRIVATE_PATH;
-if ($env:DSHM_ACL_CREATE -eq '1') {
- if ($env:DSHM_ACL_DIRECTORY -eq '1') { $a=[Security.AccessControl.DirectorySecurity]::new(); $r=[Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow') }
+  const script = `$ErrorActionPreference='Stop'; Import-Module (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop; $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User; $p=$env:DSHA_PRIVATE_PATH;
+if ($env:DSHA_ACL_CREATE -eq '1') {
+ if ($env:DSHA_ACL_DIRECTORY -eq '1') { $a=[Security.AccessControl.DirectorySecurity]::new(); $r=[Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow') }
  else { $a=[Security.AccessControl.FileSecurity]::new(); $r=[Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','Allow') }
  $a.SetOwner($sid); $a.SetAccessRuleProtection($true,$false); $a.AddAccessRule($r); Set-Acl -LiteralPath $p -AclObject $a
 }
 $walk=$p; while ($walk) { if ((Get-Item -LiteralPath $walk -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Redirected path' }; $walk=Split-Path -Path $walk -Parent }; 
 $a=Get-Acl -LiteralPath $p; $rules=@($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]));
 if ($a.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $sid.Value -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -cne $sid.Value -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne 'FullControl') { throw 'Unsafe ACL' }`;
-  try { execFileSync(windowsPowerShell(), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { env: { ...process.env, DSHM_PRIVATE_PATH: path, DSHM_ACL_CREATE: create ? '1' : '0', DSHM_ACL_DIRECTORY: directory ? '1' : '0' }, stdio: 'ignore', windowsHide: true, timeout: 15000 }); }
+  try { execFileSync(windowsPowerShell(), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { env: { ...process.env, DSHA_PRIVATE_PATH: path, DSHA_ACL_CREATE: create ? '1' : '0', DSHA_ACL_DIRECTORY: directory ? '1' : '0' }, stdio: 'ignore', windowsHide: true, timeout: 15000 }); }
   catch { throw new HostError('unsafe_private_path'); }
 }
 export async function assertPrivate(path: string): Promise<void> {

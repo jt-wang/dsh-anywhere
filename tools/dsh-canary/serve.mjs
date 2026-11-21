@@ -47,7 +47,7 @@ export async function serve({ runtime, directories, runRoot, projectRoot, option
   }
   try {
     host = await startHostServer({
-      config: { hostName: 'DSH Mobile isolated real-DSH canary', bind: '127.0.0.1', port: options.port, allowInsecureLoopback: true, statePath: path.join(directories.home, 'mobile-state.sqlite'), workspaces: [workspace] },
+      config: { hostName: 'DSH Anywhere isolated real-DSH canary', bind: '127.0.0.1', port: options.port, allowInsecureLoopback: true, statePath: path.join(directories.home, 'mobile-state.sqlite'), workspaces: [workspace] },
       adapter: safeAdapter,
     });
     const { baseUrl } = await host.start();

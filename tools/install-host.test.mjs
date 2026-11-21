@@ -18,7 +18,7 @@ function sandbox(t) {
   writeFileSync(path.join(dshHome, 'profiles', 'desktop', 'package.json'), '{"name":"synthetic-profile"}\n');
   const run = (...args) => spawnSync(process.execPath, [installer, '--profile', 'desktop', '--dsh-home', dshHome, ...args, ...(args.includes('--activate') ? ['--no-wait'] : [])],
     { env: { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, '.local', 'share') }, encoding: 'utf8' });
-  const base = process.platform === 'darwin' ? path.join(home, 'Library', 'Application Support', 'DSHMobile') : path.join(home, '.local', 'share', 'DSHMobile');
+  const base = process.platform === 'darwin' ? path.join(home, 'Library', 'Application Support', 'DSHAnywhere') : path.join(home, '.local', 'share', 'DSHAnywhere');
   const declared = () => JSON.parse(readFileSync(path.join(base, 'host', 'host.json'), 'utf8')).dshVersion;
   const profile = () => readFileSync(path.join(dshHome, 'profiles', 'desktop', 'cordis.patch.yml'), 'utf8');
   return { run, declared, profile, base, manifest: path.join(dshHome, 'profiles', 'desktop', 'package.json') };

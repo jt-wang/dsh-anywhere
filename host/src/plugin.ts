@@ -23,7 +23,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isCompatibleDshVersion } from './compatibility.ts';
 import { setupTailcat } from './setup-tailcat.ts';
-import { defaultConfigPath, legacyCompanionActive, runningDshVersion } from './zero-config.ts';
+import { currentConfigPath, legacyCompanionActive, legacyConfigPath, runningDshVersion } from './zero-config.ts';
 import type { ProfileFacts } from './zero-config.ts';
 import progressPlugin from './progress-plugin.ts';
 import type { ProgressPluginConfig, ProgressService } from './progress-plugin.ts';
@@ -67,7 +67,7 @@ export interface CompanionContext {
   /** Mounts a child plugin; it is unloaded with the companion. */
   plugin?(plugin: typeof progressPlugin, config: ProgressPluginConfig): { dispose(): unknown };
 }
-export const name = 'dsh-mobile-companion';
+export const name = 'dsh-anywhere';
 export const version = HOST_VERSION;
 // Inspected rc.2 Cordis has required-only injection; production Web composition
 // supplies both services. The adapter itself permits a preset-free composition.
@@ -112,7 +112,11 @@ function eventBridge(ctx: CompanionContext): DshEvents {
 export async function apply(ctx: CompanionContext, input: Config | BundleConfig | undefined): Promise<() => Promise<void>> {
   const bundled = isBundleRow(input);
   // dshVersion is filled in below, once the running DSH's version is known.
-  const config: Config = bundled ? { ...(input ?? {}), configPath: defaultConfigPath(), dshVersion: '' } : input as Config;
+  // The private folder moves from DSHMobile to DSHAnywhere here, before anything (even the log) writes to either; not
+  // while an install-host companion's block, which names the old folder, is in the profile (that start then refuses).
+  const profile = bundled ? ctx.get?.('profileContext') : undefined;
+  const legacyActive = bundled && legacyCompanionActive(profile);
+  const config: Config = bundled ? { ...(input ?? {}), configPath: legacyActive ? legacyConfigPath() : currentConfigPath(), dshVersion: '' } : input as Config;
   let adapter: Awaited<ReturnType<typeof createDshAdapter>> | undefined;
   let questions: ReturnType<typeof createQuestionBridge> | undefined;
   let progressFiber: { dispose(): unknown } | undefined;
@@ -121,8 +125,7 @@ export async function apply(ctx: CompanionContext, input: Config | BundleConfig 
   log('starting', HOST_VERSION);
   try {
     if (bundled) {
-      const profile = ctx.get?.('profileContext');
-      if (legacyCompanionActive(profile)) throw new HostError('companion_conflict');
+      if (legacyActive) throw new HostError('companion_conflict');
       const version = runningDshVersion(profile);
       if (version === undefined || !isCompatibleDshVersion(version)) throw new HostError('unsupported_dsh_version');
       config.dshVersion = version;

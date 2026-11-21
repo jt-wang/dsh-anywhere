@@ -3,6 +3,7 @@
 // (inspected DSH 0.2.2-rc.1 and 0.2.1-rc.3).
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshSessionController } from './dsh-adapter.ts';
+import { adoptLegacyFolder } from './zero-config.ts';
 import type { ProgressSources } from './progress.ts';
 import type { DshWorkspaceRegistry } from './workspace-source.ts';
 
@@ -11,10 +12,10 @@ export interface DshLlmStream {
   stream(options: { provider: string; model: string; system: string; messages: { role: 'user'; content: { type: 'text'; text: string }[] }[]; signal: AbortSignal }): AsyncIterable<{ type: string; text?: string }>;
 }
 
-/** Where the split is kept: `<DSH home>/dsh-mobile/progress` (profileContext.home, the Harness home), else the folder the
- * plugin's row names. */
+/** Where the split is kept: `<DSH home>/dsh-anywhere/progress` (profileContext.home, the Harness home), else the folder the
+ * plugin's row names. A `<DSH home>/dsh-mobile` folder from 0.8.2 and earlier is moved to `dsh-anywhere` first. */
 export function progressDirectory(profile: { home?: unknown } | undefined, fallback: unknown): string | undefined {
-  if (typeof profile?.home === 'string' && isAbsolute(profile.home)) return join(profile.home, 'dsh-mobile', 'progress');
+  if (typeof profile?.home === 'string' && isAbsolute(profile.home)) return join(adoptLegacyFolder(join(profile.home, 'dsh-mobile'), join(profile.home, 'dsh-anywhere')), 'progress');
   return typeof fallback === 'string' && isAbsolute(fallback) ? fallback : undefined;
 }
 

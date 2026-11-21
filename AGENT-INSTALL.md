@@ -12,7 +12,11 @@ has no Linux or Windows on Arm app, so neither does DSH Anywhere.
 | DSH Desktop | `/Applications/DeepSeek Harness.app` | installed for the current user, in the folder the person chose (Start menu → DeepSeek Harness → right-click → Open file location) |
 | DSH home (`DSH_HOME`, if set, replaces it) | `~/.dsh` | `%USERPROFILE%\.dsh` |
 | `dsh` if it is not on PATH | `"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"` | `"<DSH Desktop folder>\resources\runtime\cli\bin\dsh.cmd"` |
-| DSH Anywhere's private folder (below: *the private folder*) | `~/Library/Application Support/DSHMobile` | `%LOCALAPPDATA%\DSHMobile` |
+| DSH Anywhere's private folder (below: *the private folder*) | `~/Library/Application Support/DSHAnywhere` | `%LOCALAPPDATA%\DSHAnywhere` |
+
+DSH Anywhere 0.8.2 and earlier, from when the project was called DSH Mobile, kept the private folder under the name
+`DSHMobile` in the same place. The companion renames it to `DSHAnywhere` on its first start; paired phones and settings
+move with it. Leave both folders alone.
 
 On Windows, run the commands below in PowerShell, with the paths of the Windows column.
 

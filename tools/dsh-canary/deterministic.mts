@@ -3,16 +3,16 @@ import { EventEmitter } from 'node:events';
 import type { LlmAdapter, GenerateOptions, StreamChunk, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm';
 import type { CredentialProvider, CredentialKey, CredentialRecord } from '@deepseek-ai/dsh-credentials';
 
-export const PROVIDER = 'dsh-mobile-canary';
+export const PROVIDER = 'dsh-anywhere-canary';
 export const MODEL = 'deterministic-text-v1';
-export const ANDROID_PROMPT = 'DSH_MOBILE_CANARY_ANDROID: synthetic emulator prompt.';
+export const ANDROID_PROMPT = 'DSH_ANYWHERE_CANARY_ANDROID: synthetic emulator prompt.';
 export const ANDROID_ANSWER = 'CANARY_SERVE_OK — deterministic real DSH; no external model.';
 export const PROMPTS = {
-  live: 'DSH_MOBILE_CANARY_LIVE: synthetic prompt; return CANARY_OK.',
-  reconnect: 'DSH_MOBILE_CANARY_RECONNECT: synthetic prompt; complete while observer is disconnected.',
-  cancel: 'DSH_MOBILE_CANARY_CANCEL: synthetic prompt; wait until explicitly cancelled.',
-  mobile: 'DSH_MOBILE_CANARY_MOBILE: synthetic prompt through the real companion adapter.',
-  mobileCancel: 'DSH_MOBILE_CANARY_MOBILE_CANCEL: synthetic companion cancellation test.',
+  live: 'DSH_ANYWHERE_CANARY_LIVE: synthetic prompt; return CANARY_OK.',
+  reconnect: 'DSH_ANYWHERE_CANARY_RECONNECT: synthetic prompt; complete while observer is disconnected.',
+  cancel: 'DSH_ANYWHERE_CANARY_CANCEL: synthetic prompt; wait until explicitly cancelled.',
+  mobile: 'DSH_ANYWHERE_CANARY_MOBILE: synthetic prompt through the real companion adapter.',
+  mobileCancel: 'DSH_ANYWHERE_CANARY_MOBILE_CANCEL: synthetic companion cancellation test.',
 } as const;
 export const ANSWERS = {
   live: 'CANARY_OK — deterministic official LLM adapter; no external model.',

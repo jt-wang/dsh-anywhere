@@ -10,7 +10,7 @@ import { installIsolation } from './isolation.mjs';
 
 // Separate node --test process: guard must never run inside the user's DSH process.
 test('process-local isolation denies sockets, HTTP, subprocesses and outside writes before effects', async () => {
-  const approvedCache = path.join(os.homedir(), 'Documents', 'DeepSeekHarness', 'cache', 'dsh-mobile', 'canary');
+  const approvedCache = path.join(os.homedir(), 'Documents', 'DeepSeekHarness', 'cache', 'dsh-anywhere', 'canary');
   await fs.mkdir(approvedCache, { recursive: true });
   const root = await fs.mkdtemp(path.join(approvedCache, 'guard-test-'));
   const scratch = path.join(root, 'scratch');

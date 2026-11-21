@@ -23,7 +23,7 @@ function plugins(t) {
 
 test('the loader runs the version its config names, with the rest of the config', async t => {
   const loader = await import(pathToFileURL(path.join(plugins(t), 'companion.js')).href);
-  assert.equal(loader.name, 'dsh-mobile-companion');
+  assert.equal(loader.name, 'dsh-anywhere');
   assert.deepEqual(loader.inject, ['sessionController', 'agentPresets']);
   const ctx = { ran: [] };
   const stop = await loader.apply(ctx, { version: '1.0.0', dshVersion: '0.2.1-rc.3', configPath: '/x/host.json' });

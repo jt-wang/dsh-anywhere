@@ -7,6 +7,8 @@
 // The runtime folder holds node_modules/@deepseek-ai/dsh (npm install @deepseek-ai/dsh). Everything DSH, pnpm and the
 // companion write goes to one new temp folder: HOME, USERPROFILE, LOCALAPPDATA, APPDATA, XDG_* and DSH_HOME point there.
 // Without --port the companion creates its configuration itself on first start (port 19445), as for a user.
+// --legacy-folder starts from a private folder that 0.8.2 and earlier left under the old name DSHMobile: the companion must
+// move it to DSHAnywhere and keep its identity.
 // Prints statuses only, never keys or tokens. Exit code 0 only when the phone paired and read.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
@@ -14,10 +16,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const [tarball, phone, runtimeRoot, flag, portText] = process.argv.slice(2);
-if (!tarball || !phone || !runtimeRoot || (flag !== undefined && (flag !== '--port' || !/^\d+$/.test(portText ?? '')))) {
-  console.error('Usage: node tools/computer-e2e.mjs <dsh-anywhere.tgz> <phone binary> <DSH runtime folder> [--port <companion port>]'); process.exit(2);
+const [tarball, phone, runtimeRoot, ...rest] = process.argv.slice(2);
+const options = new Map();
+for (let i = 0; i < rest.length; i++) {
+  if (rest[i] === '--legacy-folder') options.set('legacy', true);
+  else if (rest[i] === '--port' && /^\d+$/.test(rest[i + 1] ?? '')) options.set('port', rest[++i]);
+  else options.set('bad', true);
 }
+if (!tarball || !phone || !runtimeRoot || options.has('bad')) {
+  console.error('Usage: node tools/computer-e2e.mjs <dsh-anywhere.tgz> <phone binary> <DSH runtime folder> [--port <companion port>] [--legacy-folder]'); process.exit(2);
+}
+const portText = options.get('port');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fail = message => { throw new Error(message); };
 const step = message => console.log(`[e2e] ${message}`);
@@ -35,7 +44,7 @@ const env = { ...process.env, HOME: home, USERPROFILE: home, DSH_HOME: path.join
   COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' };
 for (const dir of [home, env.LOCALAPPDATA, env.APPDATA]) mkdirSync(dir, { recursive: true });
 // The companion's own path rule (host/src/zero-config.ts), evaluated for the scratch environment.
-const { defaultConfigPath } = await import(pathToFileURL(path.join(root, 'host', 'dist', 'zero-config.js')).href);
+const { dataFolder, defaultConfigPath, LEGACY_DATA_FOLDER } = await import(pathToFileURL(path.join(root, 'host', 'dist', 'zero-config.js')).href);
 const configPath = defaultConfigPath(process.platform, env, home), logPath = path.join(path.dirname(configPath), 'companion.log');
 const companionLog = () => existsSync(logPath) ? readFileSync(logPath, 'utf8') : '';
 step(`${process.platform}-${process.arch}, Node ${process.version}, DSH ${dshManifest.version}, private folder <home>/${path.relative(home, path.dirname(configPath)).split(path.sep).join('/')}`);
@@ -53,10 +62,15 @@ try {
   const profile = JSON.parse(readFileSync(path.join(env.DSH_HOME, 'profiles', 'web', 'package.json'), 'utf8'));
   if (!profile.dsh?.profile?.bundles?.includes('@jt-wang/dsh-anywhere')) fail('the profile does not list @jt-wang/dsh-anywhere');
   step('dsh plugin add: exit 0, @jt-wang/dsh-anywhere in dsh.profile.bundles');
-  if (portText !== undefined) {
-    // A computer that already runs a companion on 19445: create the same configuration on another port first.
+  const legacyFolder = dataFolder(process.platform, env, home, LEGACY_DATA_FOLDER);
+  let legacyHostId;
+  if (portText !== undefined || options.has('legacy')) {
+    // A computer that already runs a companion on 19445 (--port), or one with an old DSHMobile folder (--legacy-folder):
+    // create the configuration first, with setup-tailcat as earlier releases did.
+    const target = options.has('legacy') ? path.join(legacyFolder, 'host', 'host.json') : configPath;
     const { runAdminCli } = await import(pathToFileURL(path.join(root, 'host', 'dist', 'cli.js')).href);
-    if (await runAdminCli(['setup-tailcat', '--config', configPath, '--dsh-version', dshManifest.version, '--port', portText], { out: () => {}, error: text => process.stderr.write(text) }) !== 0) fail('setup-tailcat failed');
+    if (await runAdminCli(['setup-tailcat', '--config', target, '--dsh-version', dshManifest.version, ...(portText ? ['--port', portText] : [])], { out: () => {}, error: text => process.stderr.write(text) }) !== 0) fail('setup-tailcat failed');
+    if (options.has('legacy')) { legacyHostId = JSON.parse(readFileSync(target, 'utf8')).tailcat.hostId; step('an old DSHMobile private folder is in place'); }
   }
 
   // 2. DSH boots the profile; the companion starts from the bundle row and writes `running <version>`.
@@ -74,6 +88,12 @@ try {
   const host = JSON.parse(readFileSync(configPath, 'utf8'));
   step(`DSH booted the profile; companion.log: ${companionLog().trim().split('\n').at(-1).replace(/^\S+\s+/, '')}; transport ${host.tailcat ? 'tailcat' : 'direct'}, port ${host.port}`);
   if (!host.tailcat) fail('the companion did not set up Tailcat');
+  if (legacyHostId !== undefined) {
+    if (existsSync(legacyFolder)) fail('the old DSHMobile folder is still there');
+    if (host.tailcat.hostId !== legacyHostId) fail('the moved folder has another identity');
+    if (JSON.stringify(host).includes(LEGACY_DATA_FOLDER)) fail('host.json still names the old folder');
+    step('the companion moved DSHMobile to DSHAnywhere and kept its identity');
+  }
 
   // 3. The computer's owner pairs a phone (what Settings → Mobile → Pair a phone does), answering the emoji question
   // with yes only when the phone shows the same four.

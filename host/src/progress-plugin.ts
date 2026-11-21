@@ -28,7 +28,7 @@ export interface ProgressContext {
   logger?: { warn(message: string): void };
 }
 
-export const name = 'dsh-mobile-progress';
+export const name = 'dsh-anywhere-progress';
 export const inject = ['sessionController'];
 
 export async function apply(ctx: ProgressContext, config: ProgressPluginConfig | undefined): Promise<() => Promise<void>> {

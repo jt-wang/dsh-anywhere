@@ -40,7 +40,7 @@ export async function registryChecks({ runtime, loader, directories, runRoot, pr
   // JSON is also valid YAML; use the installed profile patch reader, not an
   // invented patch algorithm or a direct invocation of companion.apply().
   await writeFile(patchFile, JSON.stringify(patches, null, 2), { flag: 'wx', mode: 0o600 });
-  const profilePatches = boot.loadOptionalPatches('dsh-mobile-canary', patchFile);
+  const profilePatches = boot.loadOptionalPatches('dsh-anywhere-canary', patchFile);
   assert.equal(profilePatches.at(-1).insert[0].name, pluginUrl);
   // Mount the subagent providers before the profile Loader so this synthetic
   // Loader does not treat their late registration as a profile update.

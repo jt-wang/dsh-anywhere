@@ -36,7 +36,7 @@ export function generateServerIdentity(dnsName: string, validDays = 825, now = D
   const spki = publicKey.export({ type: 'spki', format: 'der' });
   const serial = randomBytes(16); serial[0] = (serial[0]! & 0x7f) | 0x40; // Positive, no leading zero byte.
   const ecdsaSha256 = sequence(oid('1.2.840.10045.4.3.2'));
-  const name = sequence(tlv(0x31, sequence(oid('2.5.4.3'), tlv(0x0c, Buffer.from('DSH Mobile companion', 'utf8')))));
+  const name = sequence(tlv(0x31, sequence(oid('2.5.4.3'), tlv(0x0c, Buffer.from('DSH Anywhere companion', 'utf8')))));
   const keyBits = spki.subarray(spki.length - 65); // Uncompressed EC point inside the SPKI BIT STRING.
   const extensions = sequence(
     extension('2.5.29.19', true, sequence()), // basicConstraints: cA FALSE.

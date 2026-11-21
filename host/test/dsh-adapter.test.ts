@@ -19,7 +19,7 @@ import { NotificationFeed } from '../src/notifications.ts';
 import { computerName } from '../src/computer-name.ts';
 
 async function harness(t: { after: (fn: () => Promise<void>) => void }, pollIntervalMs = 10000) {
-  const dir = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-mobile-adapter-')));
+  const dir = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-anywhere-adapter-')));
   const alpha = join(dir, 'alpha');
   await mkdir(alpha);
   const frame = structuredClone(opening);
@@ -512,8 +512,8 @@ test('the explicitly labelled fixture responds locally after delay, deduplicates
     assert.equal((await adapter.snapshot(FIXTURE.existingSessionId, signal)).messages[0]?.text, FIXTURE.existingMessage);
     const created = await adapter.createSession({ workspaceId: FIXTURE.workspaceId, requestId }, signal, FIXTURE.workspaceId);
     assert.equal((await adapter.snapshot(created.sessionId, signal)).session.title, FIXTURE.createdSessionTitle);
-    await adapter.prompt(created.sessionId, 'DSH_MOBILE_ACCEPTANCE_SYNTHETIC_PROMPT_V1', requestId, signal, FIXTURE.workspaceId);
-    await adapter.prompt(created.sessionId, 'DSH_MOBILE_ACCEPTANCE_SYNTHETIC_PROMPT_V1', requestId, signal, FIXTURE.workspaceId);
+    await adapter.prompt(created.sessionId, 'DSH_ANYWHERE_ACCEPTANCE_SYNTHETIC_PROMPT_V1', requestId, signal, FIXTURE.workspaceId);
+    await adapter.prompt(created.sessionId, 'DSH_ANYWHERE_ACCEPTANCE_SYNTHETIC_PROMPT_V1', requestId, signal, FIXTURE.workspaceId);
     const watching = adapter.watch(created.sessionId, signal)[Symbol.asyncIterator]();
     assert.equal((await watching.next()).value.activity, 'running');
     assert.equal((await watching.next()).value.messages.at(-1)?.text, FIXTURE.expectedAssistantText);
@@ -524,9 +524,9 @@ test('the explicitly labelled fixture responds locally after delay, deduplicates
   } finally { adapter.dispose(); }
 });
 
-test('the plugin composes and disposes with actual installed Cordis and harmless controller stubs', { skip: !process.env.DSH_MOBILE_CORDIS_MODULE }, async (t) => {
+test('the plugin composes and disposes with actual installed Cordis and harmless controller stubs', { skip: !process.env.DSH_ANYWHERE_CORDIS_MODULE }, async (t) => {
   const h = await harness(t);
-  const { Context } = await import(pathToFileURL(process.env.DSH_MOBILE_CORDIS_MODULE!).href);
+  const { Context } = await import(pathToFileURL(process.env.DSH_ANYWHERE_CORDIS_MODULE!).href);
   const ctx = new Context();
   ctx.provide('sessionController', h.controller);
   ctx.provide('agentPresets', { async remoteExportList() { return { presets: [] }; } });
@@ -571,9 +571,9 @@ test('the plugin composes and disposes with actual installed Cordis and harmless
   await assert.rejects(fetch(`http://127.0.0.1:${port}/v1/capabilities`));
 });
 
-test('installed Cordis resolves registry through get without required inject and fails closed after service loss', { skip: !process.env.DSH_MOBILE_CORDIS_MODULE }, async t => {
+test('installed Cordis resolves registry through get without required inject and fails closed after service loss', { skip: !process.env.DSH_ANYWHERE_CORDIS_MODULE }, async t => {
   const h = await harness(t);
-  const { Context, Service } = await import(pathToFileURL(process.env.DSH_MOBILE_CORDIS_MODULE!).href);
+  const { Context, Service } = await import(pathToFileURL(process.env.DSH_ANYWHERE_CORDIS_MODULE!).href);
   const ctx = new Context();
   ctx.provide('sessionController', h.controller);
   ctx.provide('agentPresets', { async remoteExportList() { return { presets: [] }; } });
@@ -606,9 +606,9 @@ test('installed Cordis resolves registry through get without required inject and
   assert.equal((await response.json()).error.code, 'workspace_registry_unavailable');
 });
 
-test('installed Cordis tracing proxies keep registry revisions current but provider replacement during I/O fails closed', { skip: !process.env.DSH_MOBILE_CORDIS_MODULE }, async t => {
+test('installed Cordis tracing proxies keep registry revisions current but provider replacement during I/O fails closed', { skip: !process.env.DSH_ANYWHERE_CORDIS_MODULE }, async t => {
   const h = await harness(t);
-  const { Context, Service } = await import(pathToFileURL(process.env.DSH_MOBILE_CORDIS_MODULE!).href);
+  const { Context, Service } = await import(pathToFileURL(process.env.DSH_ANYWHERE_CORDIS_MODULE!).href);
   const ctx = new Context();
   h.closeBeforeCleanup(() => ctx.fiber.dispose());
   let status = async () => 'ok' as const;

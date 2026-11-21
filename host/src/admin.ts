@@ -113,9 +113,9 @@ export function createMobileAdminRoutes(options: AdminOptions): MobileAdminRoute
   };
 
   return [
-    { path: '/api/dsh-mobile/status', methods: ['GET'], requestBody: 'buffered', fetch: status },
-    { path: '/api/dsh-mobile/devices', methods: ['GET'], requestBody: 'buffered', fetch: devices },
-    { path: '/api/dsh-mobile/pair', methods: ['POST'], requestBody: 'buffered', fetch: pair },
-    { path: '/api/dsh-mobile/revoke', methods: ['POST'], requestBody: 'buffered', fetch: revoke },
+    { path: '/api/dsh-anywhere/status', methods: ['GET'], requestBody: 'buffered', fetch: status },
+    { path: '/api/dsh-anywhere/devices', methods: ['GET'], requestBody: 'buffered', fetch: devices },
+    { path: '/api/dsh-anywhere/pair', methods: ['POST'], requestBody: 'buffered', fetch: pair },
+    { path: '/api/dsh-anywhere/revoke', methods: ['POST'], requestBody: 'buffered', fetch: revoke },
   ];
 }

@@ -1,4 +1,4 @@
-module dshmobile.local/tailcat
+module dshanywhere.local/tailcat
 
 go 1.27.1
 

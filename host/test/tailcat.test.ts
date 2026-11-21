@@ -68,7 +68,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 async function tailcatSetup(t: TestContext) {
-  const dir = temp(t, 'dsh-mobile-tailcat-'), configPath = join(dir, 'companion', 'host.json');
+  const dir = temp(t, 'dsh-anywhere-tailcat-'), configPath = join(dir, 'companion', 'host.json');
   const result = await setupTailcat({ configPath, port: await freePort(), dshVersion: DSH, hostName: 'Synthetic Mac' });
   return { dir, configPath, result, config: await loadConfiguration(configPath) };
 }

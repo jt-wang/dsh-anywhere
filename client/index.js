@@ -1,7 +1,7 @@
 import React from 'react';
 
 const h = React.createElement;
-const API = '/api/dsh-mobile';
+const API = '/api/dsh-anywhere';
 
 async function request(path, init) {
   const response = await fetch(`${API}/${path}`, {
@@ -141,7 +141,7 @@ export function InterfaceCard(props) {
   );
 }
 
-export const name = 'dsh-mobile-client';
+export const name = 'dsh-anywhere-client';
 export const inject = ['slots'];
 
 export function apply(ctx) {
@@ -150,9 +150,9 @@ export function apply(ctx) {
     id: 'mobile',
     order: 60,
     label: () => 'Mobile',
-  }, MobileSection)), 'dsh-mobile: settings section');
+  }, MobileSection)), 'dsh-anywhere: settings section');
   ctx.effect(() => ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview',
     key: 'show_interface',
-  }, InterfaceCard)), 'dsh-mobile: show_interface card');
+  }, InterfaceCard)), 'dsh-anywhere: show_interface card');
 }

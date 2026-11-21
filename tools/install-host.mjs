@@ -49,9 +49,12 @@ if (flags.has('--activate')) {
   if (installed) fail(`The ${name} profile already runs DSH Anywhere, installed with "dsh plugin add". Keep that install, or remove it first: dsh plugin --profile ${name} remove ${installed}`);
 }
 
-const base = process.platform === 'darwin'
-  ? path.join(homedir(), 'Library', 'Application Support', 'DSHMobile')
-  : path.join(process.env.XDG_DATA_HOME && path.isAbsolute(process.env.XDG_DATA_HOME) ? process.env.XDG_DATA_HOME : path.join(homedir(), '.local', 'share'), 'DSHMobile');
+// The companion's private folder (host/src/zero-config.ts). An install from before the rename keeps using its DSHMobile
+// folder, which its profile block names; the companion moves it to DSHAnywhere once that block is gone.
+const folder = name => process.platform === 'darwin'
+  ? path.join(homedir(), 'Library', 'Application Support', name)
+  : path.join(process.env.XDG_DATA_HOME && path.isAbsolute(process.env.XDG_DATA_HOME) ? process.env.XDG_DATA_HOME : path.join(homedir(), '.local', 'share'), name);
+const base = !existsSync(folder('DSHAnywhere')) && existsSync(folder('DSHMobile')) ? folder('DSHMobile') : folder('DSHAnywhere');
 const pluginBase = path.join(base, 'plugin'), backups = path.join(base, 'backups'), receiptPath = path.join(base, 'install-receipt.json');
 const configPath = path.resolve(flags.get('--config') ?? path.join(base, 'host', 'host.json'));
 if (!path.isAbsolute(flags.get('--config') ?? configPath)) fail('--config must be an absolute path.');
@@ -184,7 +187,7 @@ function write(expected, next) {
   privateDirectory(backups);
   writeFileSync(path.join(backups, `cordis.patch-${randomUUID()}.yml`), expected, { mode: 0o600, flag: 'wx' });
   if (readPatch() !== expected) fail('Concurrent profile change detected after backup; no overwrite.');
-  const temporary = `${patchPath}.dsh-mobile-${randomUUID()}`;
+  const temporary = `${patchPath}.dsh-anywhere-${randomUUID()}`;
   writeFileSync(temporary, next, { flag: 'wx', mode: existsSync(patchPath) ? statSync(patchPath).mode & 0o777 : 0o644 });
   renameSync(temporary, patchPath);
   console.log('Profile backed up; only the marked companion block changed.');

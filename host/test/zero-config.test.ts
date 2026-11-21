@@ -3,7 +3,7 @@
 // HOME points at a throwaway directory, so the default private path is a temp path.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,8 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import plugin from '../src/plugin.ts';
 import { HOST_VERSION } from '../src/phone.ts';
-import { defaultConfigPath, legacyCompanionActive, runningDshVersion } from '../src/zero-config.ts';
+import { currentConfigPath, dataFolder, defaultConfigPath, LEGACY_DATA_FOLDER, legacyCompanionActive, runningDshVersion } from '../src/zero-config.ts';
+import { setupTailcat } from '../src/setup-tailcat.ts';
 import { SHIPPED_COMPUTERS } from '../src/tailcat-connector.ts';
 
 const FAKE_HELPER = fileURLToPath(new URL('./fixtures/fake-tailcat-helper.mjs', import.meta.url));
@@ -65,22 +66,21 @@ async function freePort(): Promise<number> {
 
 test('the default private configuration is the path the installers use, on each computer', t => {
   sandbox(t);
-  // Macs (Apple silicon and Intel) keep the folder every earlier release used, so their paired phones stay paired.
-  assert.equal(defaultConfigPath('darwin', {}, '/synthetic-home'), '/synthetic-home/Library/Application Support/DSHMobile/host/host.json');
-  assert.equal(defaultConfigPath('win32', { LOCALAPPDATA: 'D:\\synthetic-home\\AppData\\Local' }, 'D:\\synthetic-home'), 'D:\\synthetic-home\\AppData\\Local\\DSHMobile\\host\\host.json');
-  assert.equal(defaultConfigPath('win32', {}, 'D:\\synthetic-home'), 'D:\\synthetic-home\\AppData\\Local\\DSHMobile\\host\\host.json');
-  assert.equal(defaultConfigPath('linux', { XDG_DATA_HOME: '/data' }, '/synthetic-home'), '/data/DSHMobile/host/host.json');
-  assert.equal(defaultConfigPath('linux', { XDG_DATA_HOME: 'relative' }, '/synthetic-home'), '/synthetic-home/.local/share/DSHMobile/host/host.json');
-  const expected = process.platform === 'darwin' ? join(process.env.HOME!, 'Library', 'Application Support', 'DSHMobile', 'host', 'host.json')
-    : process.platform === 'win32' ? join(process.env.LOCALAPPDATA!, 'DSHMobile', 'host', 'host.json')
-    : join(process.env.HOME!, '.local', 'share', 'DSHMobile', 'host', 'host.json');
+  // Macs (Apple silicon and Intel) share one rule; the folder is DSHAnywhere everywhere (old DSHMobile folders move, below).
+  assert.equal(defaultConfigPath('darwin', {}, '/synthetic-home'), '/synthetic-home/Library/Application Support/DSHAnywhere/host/host.json');
+  assert.equal(defaultConfigPath('win32', { LOCALAPPDATA: 'D:\\synthetic-home\\AppData\\Local' }, 'D:\\synthetic-home'), 'D:\\synthetic-home\\AppData\\Local\\DSHAnywhere\\host\\host.json');
+  assert.equal(defaultConfigPath('win32', {}, 'D:\\synthetic-home'), 'D:\\synthetic-home\\AppData\\Local\\DSHAnywhere\\host\\host.json');
+  assert.equal(defaultConfigPath('linux', { XDG_DATA_HOME: '/data' }, '/synthetic-home'), '/data/DSHAnywhere/host/host.json');
+  assert.equal(defaultConfigPath('linux', { XDG_DATA_HOME: 'relative' }, '/synthetic-home'), '/synthetic-home/.local/share/DSHAnywhere/host/host.json');
+  const expected = process.platform === 'darwin' ? join(process.env.HOME!, 'Library', 'Application Support', 'DSHAnywhere', 'host', 'host.json')
+    : process.platform === 'win32' ? join(process.env.LOCALAPPDATA!, 'DSHAnywhere', 'host', 'host.json')
+    : join(process.env.HOME!, '.local', 'share', 'DSHAnywhere', 'host', 'host.json');
   assert.equal(defaultConfigPath(), expected);
-  const installer = readFileSync(new URL('../../tools/install-host.mjs', import.meta.url), 'utf8');
-  assert.match(installer, /path\.join\(homedir\(\), 'Library', 'Application Support', 'DSHMobile'\)/);
-  assert.match(installer, /path\.join\(base, 'host', 'host\.json'\)/);
-  const windowsInstaller = readFileSync(new URL('../../tools/install-host.ps1', import.meta.url), 'utf8');
-  assert.match(windowsInstaller, /Join-Path \$env:LOCALAPPDATA 'DSHMobile'/);
-  assert.match(windowsInstaller, /Join-Path \$base 'host\/host\.json'/);
+  // The source installers name the same folders: the new one, or an old one that an install-host block still uses.
+  for (const file of ['install-host.mjs']) {
+    const installer = readFileSync(new URL(`../../tools/${file}`, import.meta.url), 'utf8');
+    assert.match(installer, /'DSHAnywhere'/, file); assert.match(installer, /'DSHMobile'/, file);
+  }
 });
 
 test('the running DSH version is the version of the app-boot package beside the installation anchor', t => {
@@ -120,6 +120,73 @@ test('a bundle row with no configuration sets up Tailcat once, with the running 
   t.after(stop);
   assert.equal(JSON.parse(readFileSync(configPath, 'utf8')).tailcat.hostId, hostId, 'never regenerated');
   assert.match(readFileSync(join(configPath, '..', 'companion.log'), 'utf8'), new RegExp(`running ${HOST_VERSION.replaceAll('.', '\\.')}`));
+});
+
+/** A private folder as 0.8.2 and earlier left it, under the old name: setup-tailcat's files plus a paired-phone database. */
+async function legacyFolder(): Promise<{ legacy: string; current: string; hostId: string }> {
+  const legacy = dataFolder(process.platform, process.env, process.env.HOME!, LEGACY_DATA_FOLDER), current = dataFolder();
+  await setupTailcat({ configPath: join(legacy, 'host', 'host.json'), dshVersion: '0.2.1-rc.3' });
+  writeFileSync(join(legacy, 'host', 'state', 'host.sqlite'), 'paired phones');
+  return { legacy, current, hostId: JSON.parse(readFileSync(join(legacy, 'host', 'host.json'), 'utf8')).tailcat.hostId };
+}
+/** The moved folder is the old one under the new name, and host.json names only files in it. */
+async function assertMoved(legacy: string, current: string, hostId: string) {
+  assert.equal(existsSync(legacy), false, 'the old folder is gone');
+  const configPath = join(current, 'host', 'host.json'), text = readFileSync(configPath, 'utf8');
+  assert.equal(text.includes(LEGACY_DATA_FOLDER), false, 'host.json names no file in the old folder');
+  assert.equal(JSON.parse(text).tailcat.hostId, hostId, 'same identity: paired phones keep working');
+  assert.equal(readFileSync(join(current, 'host', 'state', 'host.sqlite'), 'utf8'), 'paired phones');
+  if (process.platform !== 'win32') assert.equal(statSync(configPath).mode & 0o077, 0, 'owner-only');
+  // The companion's own check of an existing configuration accepts it as it is (no new identity).
+  assert.equal((await setupTailcat({ configPath, dshVersion: '0.2.1-rc.3' })).existing, true);
+}
+
+test('an old DSHMobile folder moves to DSHAnywhere once, with its identity and paired phones', async t => {
+  sandbox(t);
+  const { legacy, current, hostId } = await legacyFolder();
+  assert.equal(currentConfigPath(), join(current, 'host', 'host.json'));
+  await assertMoved(legacy, current, hostId);
+  assert.equal(currentConfigPath(), join(current, 'host', 'host.json'), 'a second start changes nothing');
+  await assertMoved(legacy, current, hostId);
+});
+
+test('a new install uses DSHAnywhere and creates nothing until setup', t => {
+  sandbox(t);
+  assert.equal(currentConfigPath(), join(dataFolder(), 'host', 'host.json'));
+  assert.equal(existsSync(dataFolder()), false);
+  assert.equal(existsSync(dataFolder(process.platform, process.env, process.env.HOME!, LEGACY_DATA_FOLDER)), false);
+});
+
+test('a move interrupted before or during the host.json rewrite is finished by the next start', async t => {
+  sandbox(t);
+  const { legacy, current, hostId } = await legacyFolder();
+  // Stopped right after the rename: the folder is new, host.json still names the old one.
+  renameSync(legacy, current);
+  // Stopped during the rewrite: a half-written staged file next to the untouched host.json.
+  writeFileSync(join(current, 'host', 'host.json.moving'), '{"half');
+  assert.equal(currentConfigPath(), join(current, 'host', 'host.json'));
+  await assertMoved(legacy, current, hostId);
+  assert.equal(existsSync(join(current, 'host', 'host.json.moving')), false);
+});
+
+test('an existing DSHAnywhere folder is never overwritten by an old DSHMobile one', async t => {
+  sandbox(t);
+  const { legacy, current } = await legacyFolder();
+  mkdirSync(join(current, 'host'), { recursive: true });
+  writeFileSync(join(current, 'host', 'host.json'), '{"newer":true}');
+  assert.equal(currentConfigPath(), join(current, 'host', 'host.json'));
+  assert.equal(readFileSync(join(current, 'host', 'host.json'), 'utf8'), '{"newer":true}');
+  assert.ok(existsSync(join(legacy, 'host', 'state', 'host.sqlite')), 'the old folder is left as it was');
+});
+
+test('the folder does not move while an install-host companion, which names the old folder, is in the profile', async t => {
+  const root = sandbox(t);
+  const { legacy, current } = await legacyFolder();
+  const block = profile(root, '# DSH-MOBILE-COMPANION-BEGIN v1 id=dsh-mobile-companion\n- insert: []\n# DSH-MOBILE-COMPANION-END v1 id=dsh-mobile-companion\n');
+  await assert.rejects(plugin.apply(context({ profileContext: { installAnchor: installation(root, '0.2.1-rc.3'), ...block } }), {} as any), { code: 'companion_conflict' });
+  assert.ok(existsSync(join(legacy, 'host', 'host.json')));
+  assert.equal(existsSync(current), false);
+  assert.match(readFileSync(join(legacy, 'host', 'companion.log'), 'utf8'), /failed \S+ companion_conflict/);
 });
 
 test('a bundle row fails closed without a supported DSH version and creates nothing', async t => {

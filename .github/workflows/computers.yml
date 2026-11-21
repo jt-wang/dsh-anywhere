@@ -41,10 +41,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: macOS Apple silicon, os: macos-26, helper: darwin-arm64, pack: all }
-          - { name: macOS Intel, os: macos-26-intel, helper: darwin-amd64, pack: all }
-          - { name: Windows x64, os: windows-latest, helper: windows-amd64, pack: windows-amd64 }
-          - { name: Linux x64 (dsh web), os: ubuntu-24.04, helper: linux-amd64, pack: linux-amd64 }
+          # Macs start from a DSHMobile folder an earlier release left (it must move to DSHAnywhere); the others start empty.
+          - { name: macOS Apple silicon, os: macos-26, helper: darwin-arm64, pack: all, e2e: --legacy-folder }
+          - { name: macOS Intel, os: macos-26-intel, helper: darwin-amd64, pack: all, e2e: --legacy-folder }
+          - { name: Windows x64, os: windows-latest, helper: windows-amd64, pack: windows-amd64, e2e: '' }
+          - { name: Linux x64 (dsh web), os: ubuntu-24.04, helper: linux-amd64, pack: linux-amd64, e2e: '' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
@@ -73,7 +74,7 @@ jobs:
         run: |
           HELPERS_ONLY=1 tools/build-tailcat.sh
           file host/dist/tailcat/dsh-tailcat-host-darwin-*
-          codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64 host/dist/tailcat/dsh-tailcat-host-darwin-amd64
+          codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64
       - name: Build this computer's Tailcat helper
         if: runner.os != 'macOS'
         working-directory: tailcat
@@ -108,7 +109,9 @@ jobs:
           echo '{"private":true}' > package.json
           npm install --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund --save-exact "@deepseek-ai/dsh@$DSH_E2E_VERSION"
       - name: DSH starts the companion and a phone pairs over Tailcat
-        run: node tools/computer-e2e.mjs "$RUNNER_TEMP/pack/dsh-anywhere.tgz" "$RUNNER_TEMP/phone$(go env GOEXE)" "$RUNNER_TEMP/dsh" 2>&1 | tee "$RUNNER_TEMP/pairing.log"
+        env:
+          E2E: ${{ matrix.e2e }}
+        run: node tools/computer-e2e.mjs "$RUNNER_TEMP/pack/dsh-anywhere.tgz" "$RUNNER_TEMP/phone$(go env GOEXE)" "$RUNNER_TEMP/dsh" $E2E 2>&1 | tee "$RUNNER_TEMP/pairing.log"
       # The pairing as the computer and the phone saw it (statuses and emoji only; no key, token or address is printed).
       - name: Keep the pairing log
         if: always()

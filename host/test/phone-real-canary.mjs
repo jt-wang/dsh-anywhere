@@ -16,7 +16,7 @@ import { createQuestionBridge } from '../src/question-bridge.ts';
 
 const installation = await realpath(path.join(os.homedir(), 'Documents', 'DeepSeekHarness'));
 const runtimeRoot = path.join(installation, 'runtime');
-const cache = path.join(installation, 'cache', 'dsh-mobile', 'canary'); await mkdir(cache, { recursive: true });
+const cache = path.join(installation, 'cache', 'dsh-anywhere', 'canary'); await mkdir(cache, { recursive: true });
 const runRoot = await mkdtemp(path.join(cache, 'phone-'));
 const directories = Object.fromEntries(['home', 'workspace', 'temp'].map(name => [name, path.join(runRoot, name)]));
 directories.sessions = path.join(directories.home, 'sessions'); directories.storages = path.join(directories.home, 'storages');

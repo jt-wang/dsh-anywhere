@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           HELPERS_ONLY=1 tools/build-tailcat.sh
-          codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64 host/dist/tailcat/dsh-tailcat-host-darwin-amd64
+          codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64
           (cd host && npm ci && npm run build)
           node --test tools/pack-bundle.test.mjs
           node tools/pack-bundle.mjs --out "$RUNNER_TEMP/npm"
