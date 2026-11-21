@@ -118,9 +118,10 @@ test('a bundle row with no configuration sets up Tailcat once, with the running 
   // Second start reuses the identity. Point it at the fake helper and a free port (the default 19445 may be in use here).
   writeFileSync(configPath, JSON.stringify({ ...created, port: await freePort(), tailcat: { ...created.tailcat, helperPath: FAKE_HELPER } }, null, 2), { mode: 0o600 });
   const stop = await plugin.apply(ctx, undefined as any);
-  t.after(stop);
-  assert.equal(JSON.parse(readFileSync(configPath, 'utf8')).tailcat.hostId, hostId, 'never regenerated');
-  assert.match(readFileSync(join(configPath, '..', 'companion.log'), 'utf8'), new RegExp(`running ${HOST_VERSION.replaceAll('.', '\\.')}`));
+  try { // stopped here, not in t.after: the sandbox's removal runs first there, and Windows cannot delete the open database
+    assert.equal(JSON.parse(readFileSync(configPath, 'utf8')).tailcat.hostId, hostId, 'never regenerated');
+    assert.match(readFileSync(join(configPath, '..', 'companion.log'), 'utf8'), new RegExp(`running ${HOST_VERSION.replaceAll('.', '\\.')}`));
+  } finally { await stop(); }
 });
 
 /** Mode bits on a Mac and Linux; on Windows, which has none, the ACL: only this user, nothing inherited. */

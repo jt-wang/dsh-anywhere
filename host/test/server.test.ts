@@ -78,14 +78,13 @@ async function rawStream(port: number, token: string, tls?: { name: string; ca: 
 for (const transport of ['http', 'tls'] as const) for (const how of ['half-close (what a Tailcat forward sends)', 'full close'] as const)
   test(`a phone that leaves a chat frees its stream slot at once: ${transport}, ${how}`, async t => {
     const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-anywhere-slots-')));
-    t.after(() => rmSync(dir, { recursive: true, force: true }));
     mkdirSync(join(dir, 'alpha'));
     const name = 'h-0123456789abcdef0123456789abcdef.dsh.invalid', identity = generateServerIdentity(name);
     writeFileSync(join(dir, 'cert.pem'), identity.certPem); writeFileSync(join(dir, 'key.pem'), identity.keyPem, { mode: 0o600 });
     const config: HostConfiguration = { hostName: 'Test fixture only', bind: '127.0.0.1', port: 0, statePath: join(dir, 'host.sqlite'), allowInsecureLoopback: true,
       workspaces: [{ id: 'alpha', name: 'alpha', path: join(dir, 'alpha') }], ...(transport === 'tls' ? { tls: { certPath: join(dir, 'cert.pem'), keyPath: join(dir, 'key.pem') } } : {}) };
     const host = await startHostServer({ config, adapter: new TestAdapter() });
-    t.after(() => host.close());
+    t.after(async () => { await host.close(); rmSync(dir, { recursive: true, force: true }); }); // closed first: Windows cannot delete an open database
     const port = Number(new URL((await host.start()).baseUrl).port);
     const offer = host.state.createPairing({ readWorkspaceIds: ['alpha'], executeWorkspaceIds: [] });
     const { deviceToken } = host.state.consumePairing(offer.pairingToken, 'Fixture phone');

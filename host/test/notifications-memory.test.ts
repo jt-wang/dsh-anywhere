@@ -11,7 +11,8 @@ import { test } from 'node:test';
 import { promisify } from 'node:util';
 
 for (const [path, what] of [['event', 'DSH events'], ['page', 'notification pages'], ['reconcile', 'notification checks']] as const) {
-  test(`${what} leave no memory behind`, { timeout: 120_000 }, async t => {
+  // 60,000 DSH events write the state database 60,000 times: about 15 s on a Mac, more than 120 s on GitHub's Windows.
+  test(`${what} leave no memory behind`, { timeout: process.platform === 'win32' ? 600_000 : 120_000 }, async t => {
     // In a process of its own, outside the test runner, with the heap settled after every 10,000 calls.
     const script = fileURLToPath(new URL('./notifications-memory-calls.mts', import.meta.url));
     const { stdout } = await promisify(execFile)(process.execPath, ['--expose-gc', script, path, '6']);
