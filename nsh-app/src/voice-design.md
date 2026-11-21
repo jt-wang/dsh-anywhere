@@ -46,42 +46,72 @@ cancel only discards the result**: the shared `Dsh.rpc` has no per-request cance
 timeout. The host may finish recognition; UI says so. We do not retry recording or transcription automatically,
 and do not claim remote cancellation or exactly-once inference.
 
-## Chat integration (owned by caller)
+## The flow (0.1.13)
+
+DSH's own plugin is the reference (`client-ui-voice-input@0.2.2-rc.5`: README "an outline microphone icon between the
+model selector and Send"; `VoiceInput.tsx:161` and `VoiceSetupDialog.tsx`: an unprepared local provider opens a setup
+dialog, Go to setup / Later; `Waveform.tsx`: a level waveform while recording, Cancel and Stop; `readiness.ts`:
+readiness is the host's `speech/follow` stream; `PreparationCard.tsx`: per-step progress and bytes, `setupEstimate`).
+The phone extends it, with the same calls (`speech/catalog`, `speech/prepare`, `speech/follow`, `speech/transcribe`):
+
+1. **Entry**: a 36 pt outline mic in the composer toolbar, immediately before Send, tinted like the attach and
+   controls buttons. A child chat has none.
+2. **Readiness before any microphone use** (`voiceReadiness`): a tap reads the catalog first. A sheet explains instead
+   of recording when the plugin is off or DSH predates it (catalog 404: "In DSH Desktop, open Plugins and turn on
+   Voice input"), only cloud is offered (choose the local service), the model is not prepared (size and time from
+   `setupEstimate`, a one-tap **Download on computer** = `speech/prepare`, then live steps and MB from `speech/follow`
+   until it turns into **Record**), the computer is out of reach, or the app is the sample (Try it).
+3. **Permission**: `voice.permission` (iOS `AVAudioApplication.recordPermission`; Android `checkSelfPermission` plus a
+   remembered "asked" and `shouldShowRequestPermissionRationale`, since Android has no "never asked") is read before
+   recording. Undetermined: an explanation sheet, Continue goes on to the system prompt, Not now never asks. Denied
+   (or refused at the prompt): a sheet with **Open Settings** (`voice.settings`).
+4. **Recording**: the toolbar becomes Cancel, a red dot and `m:ss / 1:00`, a 32-bar level meter (native
+   `voice.level {id, level}` events, 0–1 on a 50 dB scale, every 80 ms on iOS and every buffer on Android) and a
+   primary Done (check) in Send's place. The timer starts at the first level, when the microphone is live, not at
+   the permission prompt. Recording stops itself at the limit (min of 60 s and the host's catalog limits).
+5. **Transcribing**: the bar says "Transcribing on your computer…"; the text is appended to the **current** draft for
+   editing. Nothing is sent: `onText` is never wired to send.
+6. **Failures** under the text field, each with its reason and next step, in eight languages, dismissable:
+   `microphone`, `interrupted`, `offline`, `transcription`, `empty`, `limits`, `busy`, else generic. The native take
+   ends, so the microphone is released, on every path (stop, cancel, failure, interruption, background, disabled).
 
 ```tsx
-import { VoiceInput } from './voice.tsx'
-
-<VoiceInput disabled={/* offline, read-only, sample mode, or composer unavailable */}
-  onText={text => draft.set(draft() + (draft().trim() ? ' ' : '') + text)}
-  onError={message => error.set(message)} />
+const voice = createVoiceInput({ disabled: () => !!child || !appActive(),
+  blocked: () => trying() ? 'sample' : connection() !== 'online' || !live() ? 'offline' : undefined,
+  onText: text => draft.set(draft() + (draft().trim() ? ' ' : '') + text) })
+// under the text field: <voice.Status />; the toolbar: <If when={voice.active()} else={…, <voice.Button />, Send}><voice.Bar /></If>
+// anywhere in the screen: <voice.Sheet />
 ```
 
-Use the **current** draft when the callback runs, not its value when recording began. Mount per chat and unmount
-on chat switch; otherwise explicitly disable before switching. Do not wire `onText` to prompt/send. Empty
-recognition and failures leave the draft alone. Optional `io` is for synthetic component tests only.
+## 0.1.13: why 0.1.12 failed and what each failure says
 
-## Verification and remaining acceptance
+`host.call` rejects after **30 s** unless the call passes `timeout` (NSH `nsh-core/src/runtime/host.rs:23`,
+`DEFAULT_TIMEOUT`). `voice.record` answers only when the take ends, so any take longer than 30 s, the first
+permission prompt included, showed "Voice input failed", while the native recorder kept the microphone and refused
+the next take with `voice/busy`. `voice.record` now passes `{ timeout: 0 }`; the native side bounds the take (60 s
+timer on iOS, watchdog on Android). Regression: `voice.test.tsx` "a take that ends after 30 seconds" (real time: a
+headless step waits for the native answer, so a manual clock cannot pass it); it fails on 0.1.12 with the screenshot's
+text.
 
-- `nsh test src/voice.test.ts`: 10 passed; `nsh test src/voice.test.tsx`: 3 passed (headless synthetic UI).
-- Full `nsh test`: 478 passed / 0 failed during shared-worktree development. `nsh check`: exit 0 on the later run.
-  An earlier check caught unrelated in-progress continuation fixture API/type errors; those were not edited here.
-- Java 17 compile of `Voice.java` against Android SDK 36 and the real pinned NSH Java source: passed.
-  `VoiceWaveTest` on JUnit 4.13.2: 2 passed. This is not an APK/device microphone test.
-- `.amp/in/orb-backup/voice-gateway/real-speech.mjs` runs the official Gateway + SpeechController + SpeechToText
-  in a fresh isolated composition. Actual `Dsh` frames/path and **production Android WAV encoder output** reach
-  an explicitly synthetic local PCM-verifier provider. It covers draft insertion, cloud-default avoidance,
-  provider failure, empty text, invalid WAV/base64, size/permission rejection, late-result cancellation, and official
-  transport cancellation propagation. Zero cloud calls, agent/model calls, external network/subprocess/outside
-  writes/listeners. Receipt: `/tmp/voice-real-gateway.json`. This uses an in-memory fetch transport adapter, not TLS.
-- No Android devices were attached. Xcode/iOS SDK are unavailable in the orb; no Mac satellite was touched.
-  Native permission flows, real microphone samples, interruptions/routes, WAV output from AVFoundation, SenseVoice
-  model accuracy/latency, physical devices, signed release/store permission declarations remain **unaccepted**.
+Failures name their side, as DSH's own kinds do (`interrupted`, `deviceMissing`, `failed: {message}`): native
+`voice/microphone` (session or recorder would not start, or not one sample arrived), `voice/interrupted` (iOS
+interruption began: a call, Siri or another app's recording), `voice/offline` (Dsh `network`, `timeout`, `http/*`),
+`voice/transcription` (DSH's `speech/*` errors), else the generic text. iOS also reads the recorded file in a loop:
+one `AVAudioFile.read` returned 30720 of 32421 frames on the iOS 27 simulator, cutting the end off.
 
-Mac owner: run `NSH_SOURCE=<the existing patched pinned NSH checkout> nsh-app/ios/build.sh`, then an unsigned
-Release device build if desired using the generated `nsh-app/ios/DSH.xcodeproj`. Check generated/built Info.plist
-for `NSMicrophoneUsageDescription` and all eight localized `InfoPlist.strings`. Run on a fresh simulator for
-permission allow/deny/cancel, background and interruption behavior (simulator is not a physical mic acceptance),
-then use a physical iPhone and Android with a prepared official local model: speak, stop, confirm only draft
-insertion; test cancel during permission/capture/transcription, 60-second limit, no-speech, offline, background,
-repeat recording and chat switch. Ensure microphone indicators stop and no audio file remains after settlement.
-The release owner must perform real ASR/device acceptance before claiming this feature release-ready.
+Measured 2026-11-21 on an isolated DSH 0.2.2-rc.5 web host with the official voice bundle (scratch HOME): SenseVoice
+answers in 0.08 s warm and 0.61 s from `standby` for a 2.8 s clip, so the phone's 20 s RPC timeout was not the cause;
+the WAV the real `Voice.swift` produced on the iOS 27 simulator passes `speech/transcribe`'s validation. On the
+simulator (with a NativeShell stub and permission granted in the test), stop returns the whole canonical WAV, an
+interruption ends the take with `voice/interrupted`, and the next take records. Physical-device microphone, route and
+screen-recording behavior remain unaccepted.
+
+## Verification (0.1.13)
+
+- `nsh test src/voice.test.tsx`: 11 passed, one per state (ready → timer and level → draft; cancel; download sheet →
+  prepare → progress → Record; plugin off; offline and sample; primer; denied and Open Settings; each failure's text;
+  localized copy; background and disabled cancel; the >30 s take). `src/voice.test.ts`: 10 passed.
+- iOS SwiftPM probe on the iOS 27 simulator (NativeShell stub, permission granted in the test): whole WAV returned,
+  interruption → `voice/interrupted` then a new take, 12 takes in a row, levels stream (18 in 1.5 s) and stop with the take.
+- Screenshots of every state, light and dark, on the iOS simulator and the Android emulator: release acceptance report.
+- Physical-device microphone, routes and screen recording remain device acceptance, not simulator evidence.

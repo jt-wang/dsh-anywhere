@@ -14,7 +14,7 @@ import { haptic, Chevron, Icon, IconButton, LiveDot } from './ui.tsx'
 import { appear, FRESH_MS, rise, STANDARD } from './motion.ts'
 import { copyText, messageMenu } from './copy.tsx'
 import { addAttachment, DraftChips, forget, SentAttachments } from './attachments.tsx'
-import { VoiceInput } from './voice.tsx'
+import { createVoiceInput } from './voice.tsx'
 import { promptContent, type Draft } from './attach.ts'
 import { awaitingFirstStep, outgoing, retext, settle, type Outgoing } from './outbox.ts'
 import { Bubble, OutgoingView, WorkingRow } from './sent.tsx'
@@ -62,6 +62,11 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   const loaded = signal(Boolean(saved?.at))
   const error = signal('')
   const draft = signal(saved?.draft ?? '')
+  // A subagent's chat takes text only; a take is cancelled whenever sending could not reach the computer.
+  // A tap without a computer to transcribe explains why (the sample, or the computer out of reach) instead of recording.
+  const voice = createVoiceInput({ disabled: () => !!child || !appActive(),
+    blocked: () => trying() ? 'sample' : connection() !== 'online' || !live() ? 'offline' : undefined,
+    onText: (text) => draft.set(draft() + (draft().trim() ? ' ' : '') + text) })
   effect(() => { cache?.draft(props.sessionId, draft()) })
   const attached = signal<Draft[]>([])
   const uploading = signal(false)
@@ -338,6 +343,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
       <JobsSheet open={jobsOpen} onClose={() => jobsOpen.set(false)} sessionId={props.sessionId} jobs={jobs} />
       <SubagentsSheet open={kidsOpen} onClose={() => kidsOpen.set(false)} kids={kids} onOpen={(c) => props.onOpenChild?.(c)} />
       <If when={activity}><ActivityPanel activity={activity!} openJobs={() => jobsOpen.set(true)} openChildren={openKids} onOpenChild={(c) => props.onOpenChild?.(c)} /></If>
+      <voice.Sheet />
       <ControlsSheet open={controlsOpen} onClose={() => controlsOpen.set(false)} sessionId={props.sessionId} commands={commands} skills={skills} run={execute} insert={(t) => setDraft(t)} reload={loadCommands} />
       <View class="px-3 pt-1" style={{ paddingBottom: 8 + (keyboardFrame().height > 0 ? 0 : insets().bottom) }}>
         <Asks sessionId={props.sessionId} onError={(m) => error.set(m)} />
@@ -366,8 +372,10 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
             onSelectionChange={(e) => caret.set(e.end)}
             onContentSizeChange={(e) => composerHeight.set(Math.min(Math.max(e.size.height, LINE), LINE * 6))}
             style={{ height: composerHeight() + 16 }} class="bg-transparent px-[14px] pt-[10px] pb-[6px] text-foreground placeholder:text-muted-foreground text-[15px] leading-[22px]" />
-          <If when={!child && !trying()}><VoiceInput disabled={!appActive() || connection() !== 'online' || !live()} onText={text => draft.set(draft() + (draft().trim() ? ' ' : '') + text)} onError={message => error.set(message)} /></If>
-          <View class="flex-row items-center px-[6px] pb-[6px] gap-[2px]">
+          <voice.Status />
+          {/* While a take is under way its bar takes the toolbar's place: Cancel, timer and level, Done. */}
+          <View class="flex-row items-center px-[6px] pb-[6px] gap-[2px] min-h-[42px]">
+            <If when={voice.active()} else={<>
             {/* A child takes text: no uploads, commands or model of its own from the phone. */}
             <If when={!child}>
               <IconButton name="plus" label={S.attach} testID="attach" iconClass="tint-muted-foreground"
@@ -376,6 +384,8 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
               <ModelPicker sessionId={props.sessionId} selection={model} onSelected={(s) => { fold.model = s; model.set(s) }} onError={(m) => error.set(m)} />
             </If>
             <View class="flex-1" />
+            {/* The microphone sits beside Send, as in DSH's own composer (voice-design.md). */}
+            <If when={!child}><voice.Button /></If>
             {/* While the agent works, Stop stays and a typed message queues beside it (t3code's Queue + Stop). */}
             <If when={running()}>
               <View role="button" accessibilityLabel={S.stop} testID="stop" onPress={cancel} hitSlop={6} class={`w-[32px] h-[32px] rounded-full items-center justify-center active:opacity-80 ${canSend() ? 'bg-secondary' : 'bg-primary'}`}>
@@ -387,6 +397,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
                 <Icon name="arrowUp" size={18} class={canSend() ? 'tint-primary-foreground' : 'tint-muted-foreground'} />
               </View>
             </If>
+            </>}><voice.Bar /></If>
           </View>
         </View>
         </If>

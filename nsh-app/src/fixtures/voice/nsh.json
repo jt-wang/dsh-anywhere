@@ -1,0 +1,9 @@
+{
+  "name": "Voice checks",
+  "capabilities": {
+    "host": [
+      "voice.*",
+      "fixture.*"
+    ]
+  }
+}

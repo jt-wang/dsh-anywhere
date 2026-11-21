@@ -38,6 +38,16 @@ public final class MainActivity extends Activity {
                 reply.reject("app.info/unavailable");
             }
         });
+        // Android 13+'s per-app language (res/xml/locales_config.xml), one setting with the app's own: {tag} sets it,
+        // '' for the phone's; it answers what is set now.
+        app.handle("app.language", (data, reply) -> runOnUiThread(() -> {
+            if (Build.VERSION.SDK_INT < 33) { reply.resolve(java.util.Map.of("supported", false)); return; }
+            android.app.LocaleManager locales = getSystemService(android.app.LocaleManager.class);
+            Object tag = data instanceof java.util.Map ? ((java.util.Map<?, ?>) data).get("tag") : null;
+            if (tag instanceof String) locales.setApplicationLocales(((String) tag).isEmpty() ? android.os.LocaleList.getEmptyLocaleList() : android.os.LocaleList.forLanguageTags((String) tag));
+            android.os.LocaleList now = locales.getApplicationLocales();
+            reply.resolve(java.util.Map.of("supported", true, "tag", now.isEmpty() ? "" : now.get(0).toLanguageTag()));
+        }));
         diagnostics = new Diagnostics(this);
         diagnostics.attach(app);
         new Modules(this).attach(app); // generated interfaces (`ui.open`)

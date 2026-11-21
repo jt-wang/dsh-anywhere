@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The languages the app is written in (nsh-app/src/strings*.ts), for Android 13+'s per-app language. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="zh-Hans" />
+    <locale android:name="zh-Hant" />
+    <locale android:name="es" />
+    <locale android:name="fr" />
+    <locale android:name="ko" />
+    <locale android:name="ja" />
+    <locale android:name="ru" />
+</locale-config>
