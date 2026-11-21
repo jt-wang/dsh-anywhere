@@ -1,11 +1,11 @@
 // The model and thinking-depth picker under the composer (where Claude's and ChatGPT's apps keep theirs): the chat's
 // current model as a label; a press opens a sheet of DSH's routable models by provider and the chosen model's depths.
 import { Scroll, signal, Text, View } from 'nsh'
-import { Sheet, Switch } from 'nsh/base'
+import { Switch } from 'nsh/base'
 import { catalogOf, findModel, modelLabel, teamModeOf, type Catalog, type Selection, type TeamMode } from './models.ts'
 import { dsh } from './state.ts'
 import { readable, S } from './strings.ts'
-import { DropdownButton, Grabber, haptic, SCRIM, SHEET, sheetBottom, sheetMax } from './ui.tsx'
+import { BottomSheet, DropdownButton, Grabber, haptic, sheetBottom, sheetMax } from './ui.tsx'
 
 let cached: Catalog | undefined
 
@@ -59,8 +59,8 @@ export function ModelPicker(props: { sessionId: string; selection: () => Selecti
   return (
     <>
       <DropdownButton testID="model" accessibilityLabel={S.model} onPress={() => { open.set(true); load(); refreshTeam() }} label={modelLabel(catalog(), current()) || S.model} />
-      <Sheet open={open()} onOpenChange={(e) => open.set(e.open)} closeOnSwipe popupClass={SHEET} backdropStyle={SCRIM}>
-        <View class="pt-3" style={{ maxHeight: sheetMax(640), paddingBottom: sheetBottom() }}>
+      <BottomSheet open={open()} onOpenChange={(e) => open.set(e.open)}>
+        <View class="pt-3" style={{ maxHeight: sheetMax(640), paddingBottom: sheetBottom() }} testID="model-sheet">
           <Grabber />
           <Text class="px-5 text-foreground text-[15px] font-semibold mb-1">{S.model}</Text>
           <Scroll style={{ flexShrink: 1 }} contentClass="pb-2">
@@ -121,7 +121,7 @@ export function ModelPicker(props: { sessionId: string; selection: () => Selecti
             </View>
           </If>
         </View>
-      </Sheet>
+      </BottomSheet>
     </>
   )
 }

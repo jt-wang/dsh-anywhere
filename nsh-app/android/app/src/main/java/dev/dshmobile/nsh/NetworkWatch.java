@@ -25,7 +25,8 @@ final class NetworkWatch {
     void attach(NshView view) {
         view.handle("network.state", (data, reply) -> reply.resolve(Map.of("online", online())));
         callback = new ConnectivityManager.NetworkCallback() {
-            @Override public void onAvailable(Network network) { view.post(() -> view.send("network", Map.of("online", true))); }
+            // A new network can change the route to the computer: the path watch asks at once.
+            @Override public void onAvailable(Network network) { dev.dshmobile.tailcat.dshtailcat.Dshtailcat.nudgePath(); view.post(() -> view.send("network", Map.of("online", true))); }
             // The default network is gone; a network that takes over arrives as onAvailable right after.
             @Override public void onLost(Network network) { view.post(() -> view.send("network", Map.of("online", false))); }
         };

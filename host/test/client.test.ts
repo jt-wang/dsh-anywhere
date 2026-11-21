@@ -57,3 +57,27 @@ test('active phones come first, newest first; revoked phones are folded apart', 
   assert.deepEqual(active.map((d: { deviceId: string }) => d.deviceId), ['new', 'old']);
   assert.deepEqual(revoked.map((d: { deviceId: string }) => d.deviceId), ['new-revoked', 'old-revoked']);
 });
+
+// Seen in review (2026-11-21): the card said "Turned on dsh-experimental-voice-input-bundle", "Changed settings: model
+// default.reasoningEffort" and "Saved the key deepseek". It names what changed as DSH Desktop does.
+test('the phone changes card names plugins, providers and settings as DSH Desktop does, never by their ids', async () => {
+  const { changeText } = await load();
+  const voice = '@deepseek-ai/dsh-experimental-voice-input-bundle';
+  const lines = [
+    changeText({ method: 'pluginManager/setBundleEnabled', target: `${voice} on`, label: { title: { en: 'Voice input', zh: '语音输入' } } }),
+    changeText({ method: 'pluginManager/setBundleEnabled', target: '@deepseek-ai/dsh-cua-bundle off', label: { title: 'Computer use' } }),
+    changeText({ method: 'pluginManager/installBundle', target: '@deepseek-ai/dsh-experimental-auto-review', label: { title: { en: 'Auto authorization review' } } }),
+    changeText({ method: 'settings/mutate', target: 'llm providers.deepseek.reasoningEffort', label: { provider: 'DeepSeek', field: 'reasoningEffort' } }),
+    changeText({ method: 'settings/mutate', target: 'agent-preset-registry selectedDefault', label: { defaultAgent: true } }),
+    changeText({ method: 'settings/mutate', target: 'session maxTurnSteps' }),
+    changeText({ method: 'credentials/set', target: 'DEEPSEEK_API_KEY', label: { provider: 'DeepSeek' } }),
+    changeText({ method: 'credentials/unset', target: 'OPEN_ROUTER_API_KEY' }),
+    changeText({ method: 'speech/configure', target: 'language' }),
+  ];
+  assert.deepEqual(lines, [
+    'Turned on Voice input', 'Turned off Computer use', 'Installed Auto authorization review',
+    'Changed a DeepSeek setting: Reasoning effort', 'Changed the default agent', 'Changed the setting “Max turn steps”',
+    'Saved the DeepSeek API key', 'Removed the Open router API key', 'Changed the voice input language',
+  ]);
+  assert.ok(lines.every(l => !/@|dsh-|_API_KEY|\.|agent-preset|selectedDefault|reasoningEffort/.test(l)), 'no package, key or setting id shows');
+});

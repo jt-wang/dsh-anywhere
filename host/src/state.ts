@@ -3,6 +3,7 @@ import { mkdirSync, openSync, closeSync, chmodSync, existsSync, renameSync, rmSy
 import { dirname, isAbsolute } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { HostError } from './errors.ts';
+import type { ChangeLabel } from './dsh-relay.ts';
 import type { CommandReceipt, DeviceGrants } from './types.ts';
 
 export interface AuthorizedDevice { deviceId: string; deviceName: string; grants: DeviceGrants; createdAt: number }
@@ -79,6 +80,7 @@ export class HostState {
       CREATE TABLE IF NOT EXISTS mobile_created_sessions (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL) STRICT;
       CREATE TABLE IF NOT EXISTS notification_state (id TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
       CREATE TABLE IF NOT EXISTS runtime_lock (id INTEGER PRIMARY KEY CHECK(id=1), owner TEXT NOT NULL, pid INTEGER NOT NULL) STRICT;
+      CREATE TABLE IF NOT EXISTS phone_changes (id INTEGER PRIMARY KEY, device_id TEXT NOT NULL, device_name TEXT NOT NULL, method TEXT NOT NULL, target TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL) STRICT;
     `);
     // Early development databases have no scope column; unknown prior scope fails closed.
     if (!this.db.prepare('PRAGMA table_info(commands)').all().some(column => column.name === 'workspace_id')) this.db.exec('ALTER TABLE commands ADD COLUMN workspace_id TEXT');
@@ -328,6 +330,20 @@ export class HostState {
   }
   private device(row: Row): AuthorizedDevice {
     return { deviceId: String(row.id), deviceName: String(row.name), grants: validateGrants(JSON.parse(String(row.grants)) as DeviceGrants), createdAt: Number(row.created_at) };
+  }
+  /** Keeps a change of the computer's settings or plugins a phone asked for (dsh-relay.ts phoneChange), the last 200. */
+  recordPhoneChange(device: AuthorizedDevice, method: string, target: string, label?: ChangeLabel): void {
+    const named = label ? JSON.stringify(label).slice(0, 4000) : '';
+    this.db.prepare('INSERT INTO phone_changes (device_id, device_name, method, target, label, at) VALUES (?, ?, ?, ?, ?, ?)').run(device.deviceId, device.deviceName, method, target, named, this.now());
+    this.db.exec('DELETE FROM phone_changes WHERE id NOT IN (SELECT id FROM phone_changes ORDER BY id DESC LIMIT 200)');
+  }
+  /** The changes phones asked for, newest first. */
+  listPhoneChanges(): { deviceId: string; deviceName: string; method: string; target: string; label?: ChangeLabel; at: number }[] {
+    const labelOf = (raw: unknown): ChangeLabel | undefined => { try { return raw ? JSON.parse(String(raw)) as ChangeLabel : undefined; } catch { return undefined; } };
+    return this.db.prepare('SELECT * FROM phone_changes ORDER BY id DESC').all().map(row => {
+      const label = labelOf(row.label);
+      return { deviceId: String(row.device_id), deviceName: String(row.device_name), method: String(row.method), target: String(row.target), ...label ? { label } : {}, at: Number(row.at) };
+    });
   }
   listDevices(): DeviceSummary[] {
     return this.db.prepare('SELECT * FROM devices ORDER BY created_at, id').all().map(row => ({ ...this.device(row), revokedAt: row.revoked_at === null ? null : Number(row.revoked_at) }));

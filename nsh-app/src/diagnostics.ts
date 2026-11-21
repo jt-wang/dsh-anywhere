@@ -21,6 +21,12 @@ export function diagnosticEvent(category: unknown, event: unknown, input: unknow
     const action = enumValue(v.action, ['menu', 'new_chat', 'settings', 'back', 'refresh'])
     if (!action) return
     fields.action = action
+  } else if (category === 'interaction' && event === 'computer.change_failed') {
+    // A change the phone asked the computer for (a plugin, voice input) and DSH's reason code: an identifier, not text.
+    const target = enumValue(v.target, ['plugin', 'voice'])
+    const code = typeof v.code === 'string' && /^[A-Za-z0-9][A-Za-z0-9/_.-]{0,63}$/.test(v.code) ? v.code : undefined
+    if (!target || !code) return
+    fields.target = target; fields.code = code
   } else if (category === 'interaction' && event === 'app.lifecycle') {
     const state = enumValue(v.state, ['foreground', 'background'])
     if (!state) return

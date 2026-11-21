@@ -53,6 +53,8 @@ test('diagnostic export is event-specific allowlisted metadata, with fresh ident
   const e = diagnosticEvent('network', 'rpc.complete', { operation: 'list', outcome: 'http_error', durationMs: 31.4, status: 503, bytesReceived: 55, prompt: bait, url: bait, error: bait, requestId: bait }, at)!
   expect(e.fields).toEqual({ operation: 'list', outcome: 'http_error', durationMs: 31, status: 503, bytesReceived: 55, bytesSource: 'content_length' })
   expect(diagnosticEvent('interaction', 'ui.action', { action: bait }, at)).toBe(undefined)
+  expect(diagnosticEvent('interaction', 'computer.change_failed', { target: 'voice', code: 'stop-profile', message: bait }, at)!.fields).toEqual({ target: 'voice', code: 'stop-profile' })
+  expect(diagnosticEvent('interaction', 'computer.change_failed', { target: 'plugin', code: bait }, at)).toBe(undefined)
   expect(diagnosticEvent('network', bait, { operation: 'list' }, at)).toBe(undefined)
   const forged = { ...e, fields: { ...e.fields, keyboard: bait }, sessionId: bait }
   const info = { version: '2.4.9', build: '314', os: '27.2', deviceClass: 'phone', runtime: bait }

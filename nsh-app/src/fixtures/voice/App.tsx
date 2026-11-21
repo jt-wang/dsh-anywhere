@@ -28,6 +28,15 @@ function App() {
           if (world().catalog === 'offline') throw error('network')
           return catalog() as any
         }
+        // DSH's plugin manager (plugins.ts): `bundle` 'none' has no voice bundle; `enable` 'restart' | 'fail' says how
+        // turning it on ends, else it turns on and the speech API answers from then on.
+        if (name === 'pluginManager/listBundles') return (world().bundle === 'none' ? [] : [{ name: '@deepseek-ai/dsh-experimental-voice-input-bundle', official: true, availability: 'installation', enabled: false, installed: true, optional: true, removable: false, rows: [], overrides: [] }]) as any
+        if (name === 'pluginManager/setBundleEnabled') {
+          if (world().enable === 'fail') return { changed: false, application: 'failed', stage: 'enable', target: 'voice', error: { code: 'incompatible-version' } } as any
+          if (world().enable === 'hang') return new Promise(() => {})
+          world.set({ ...world(), catalog: undefined, phase: 'unprepared' })
+          return { changed: true, application: world().enable === 'restart' ? 'restart-required' : 'applied', stage: 'enable', target: 'voice', enabled: true } as any
+        }
         if (name === 'speech/prepare') { world.set({ ...world(), phase: 'downloading' }); setTimeout(() => follow?.(catalog()), 0); return null as any }
         if (world().transcribe === 'hang') return new Promise(() => {})
         if (world().transcribe) throw error(world().transcribe)

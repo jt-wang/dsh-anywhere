@@ -2,15 +2,16 @@
 // /v1/capabilities; whether it is reached now; how: Tailcat's end-to-end encrypted tunnel, direct or through a relay),
 // Unlink, and the phone's own settings (prefs.ts): appearance, language, notifications. DSH's own settings stay on
 // the computer.
-import { cleanup, effect, host, openUrl, platform, Scroll, signal, Text, View, type JSX } from 'nsh'
+import { cleanup, effect, host, locale, openUrl, platform, Scroll, signal, Text, View, type JSX } from 'nsh'
 import { Switch } from 'nsh/base'
-import { appActive, connection, dsh, pollForeground, PRIVACY_URL, routeWords, setTailcatOnly, tailcatOnly, trying, unlink, type LinkPath } from './state.ts'
+import { appActive, connection, dsh, PRIVACY_URL, routeText, setTailcatOnly, tailcatOnly, trying, unlink } from './state.ts'
 import { language, S, type Language } from './strings.ts'
 import { notifyPrefs, setLanguage, setNotify, setTheme, theme, type NotifyPrefs, type Theme } from './prefs.ts'
 import { chooseAction, Icon } from './ui.tsx'
 import { ProgressSetting } from './progress.tsx'
 import { CATEGORIES, diagnostics } from './diagnostics.ts'
 import { DesktopSettings } from './desktop-settings.tsx'
+import { pluginStrings } from './plugins-strings.ts'
 import { APK_URL, U, UPDATE_GUIDE_URL, updateNotice, type UpdateNotice } from './updates.ts'
 
 function Group(props: { children?: JSX.Element | JSX.Element[] }) { return <View class="rounded-[14px] bg-card border border-border overflow-hidden">{props.children}</View> }
@@ -46,20 +47,15 @@ const LANGUAGES: { id: Language; name: () => string }[] = [
 ]
 const THEMES: { id: Theme; name: () => string }[] = [{ id: 'system', name: () => S.themeSystem }, { id: 'light', name: () => S.themeLight }, { id: 'dark', name: () => S.themeDark }]
 
-export function SettingsPage(props: { onDiagnostics: () => void }) {
+export function SettingsPage(props: { onDiagnostics: () => void; onPlugins?: () => void }) {
   const appInfo = signal<{ version: string; build: string } | undefined>(undefined)
   const appInfoFailed = signal(false)
   host.call<{ version: string; build: string }>('app.info').then((v) => appInfo.set(v), () => appInfoFailed.set(true))
   const computer = signal<{ name: string; companionVersion: string; release: string; dshVersion: string; progress: boolean } | undefined>(undefined)
   const granted = signal<boolean | undefined>(undefined)
   const load = () => dsh().computer().then((c) => computer.set(c), () => {})
-  // Direct or through a relay: the tunnel asks the computer (link.path; a direct path can come a little later).
-  const route = signal<LinkPath | undefined>(undefined)
-  const findRoute = () => trying() ? undefined : host.call<LinkPath>('link.path').then((v) => route.set(v), () => {})
-  const routeText = () => routeWords(route())
   const permission = () => host.call<{ granted?: boolean }>('notify.permission').then((v) => granted.set(v?.granted === true), () => {})
   load(); permission()
-  pollForeground(async () => { await findRoute() })
   // Back from the phone's settings, or reconnected: read again what may have changed there.
   effect(() => { if (appActive()) permission() })
   effect(() => { if (connection() === 'online' && !computer()) load() })
@@ -170,6 +166,12 @@ export function SettingsPage(props: { onDiagnostics: () => void }) {
         <ProgressSetting />
       </If>
 
+      <If when={!trying() && props.onPlugins}>
+        <View role="button" testID="settings-plugins" onPress={() => props.onPlugins?.()} class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center gap-3 active:bg-secondary">
+          <Text class="flex-1 text-foreground text-[15px]">{pluginStrings(language() === 'system' ? locale() : language()).row}</Text>
+          <Icon name="chevronRight" size={18} class="tint-muted-foreground" />
+        </View>
+      </If>
       <If when={!trying()}><DesktopSettings /></If>
       <View role="button" testID="settings-diagnostics" onPress={props.onDiagnostics} class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center gap-3 active:bg-secondary">
         <Text class="flex-1 text-foreground text-[15px]">{S.diagnostics.title}</Text>

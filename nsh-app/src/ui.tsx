@@ -1,7 +1,7 @@
 // Icons: one-colour SVGs tinted with the theme (`tint-*`), the round icon button used in headers and the composer,
 // the action sheet every menu on the phone uses, and the phone's haptics.
-import { createMotion, effect, host, Image, Keyboard, keyboardFrame, LayoutAnimation, Overlay, safeAreaInsets, signal, Text, View, type Bounds, type ViewRef, windowSize } from 'nsh'
-import { Sheet } from 'nsh/base'
+import { createMotion, effect, host, Image, Keyboard, keyboardFrame, LayoutAnimation, Overlay, safeAreaInsets, signal, Text, untracked, View, type Bounds, type ViewRef, windowSize } from 'nsh'
+import { Sheet, type SheetProps } from 'nsh/base'
 import { glow } from './motion.ts'
 import { bySize, SIZES } from './icons.gen.ts'
 import archive from '../assets/icons/archive.svg'
@@ -110,6 +110,14 @@ export function LiveDot(props: { size?: number; class?: string }) {
 
 export const SHEET = 'bg-background rounded-t-[28px]'
 export const SCRIM = { backgroundColor: 'rgba(0, 0, 0, 0.32)' }
+
+/** The app's bottom sheet: Material 3's look, closed by a swipe down, and the keyboard put away as it opens, so a sheet
+ * opened while the person types is never behind the keyboard or on top of it. Every sheet of the app is one. An input
+ * inside the sheet can take the focus after it opens; the sheet then sits above the keyboard (`sheetBottom`). */
+export function BottomSheet(props: Omit<SheetProps, 'popupClass' | 'backdropStyle' | 'closeOnSwipe'> & { closeOnSwipe?: boolean }) {
+  effect(() => { if (props.open) untracked(() => Keyboard.dismiss()) })
+  return <Sheet closeOnSwipe {...props} popupClass={SHEET} backdropStyle={SCRIM} />
+}
 /** The sheet's drag handle, 32 × 4 pt. */
 export function Grabber() { return <View class="self-center w-8 h-1 rounded-full bg-input mb-2" /> }
 
@@ -118,14 +126,13 @@ export type Haptic = 'tick' | 'press' | 'confirm' | 'reject' | 'threshold' | 'un
 export const haptic = (kind: Haptic) => { host.call('haptic', { kind }).catch(() => {}) }
 
 export interface SheetAction { id: string; label: string; icon?: IconName; destructive?: boolean; /** A setting that is on: a check after it. */ checked?: boolean }
-interface Asked { title?: string; actions: SheetAction[]; resolve: (id: string | undefined) => void }
+interface Asked { title?: string; message?: string; actions: SheetAction[]; resolve: (id: string | undefined) => void }
 const asked = signal<Asked | undefined>(undefined)
 const shown = signal(false)
 
-/** Asks which of `actions` to take in a sheet at the bottom; undefined when the person closes it. The keyboard goes
- * away first: the sheet would open behind it. */
-export function chooseAction(options: { title?: string; actions: SheetAction[] }): Promise<string | undefined> {
-  Keyboard.dismiss()
+/** Asks which of `actions` to take in a sheet at the bottom; undefined when the person closes it. With a `message`,
+ * the sheet is a confirmation: `title` is its question as a heading, `message` what happens. */
+export function chooseAction(options: { title?: string; message?: string; actions: SheetAction[] }): Promise<string | undefined> {
   asked()?.resolve(undefined)
   return new Promise((resolve) => { asked.set({ ...options, resolve }); shown.set(true) })
 }
@@ -134,11 +141,15 @@ export function chooseAction(options: { title?: string; actions: SheetAction[] }
 export function ActionSheetHost() {
   const answer = (id: string | undefined) => { asked()?.resolve(id); asked.set({ ...asked()!, resolve: () => {} }); shown.set(false) }
   return (
-    <Sheet open={shown()} onOpenChange={(e) => { if (!e.open) answer(undefined) }} onClose={() => asked.set(undefined)} closeOnSwipe
-      popupClass={SHEET} backdropStyle={SCRIM}>
+    <BottomSheet open={shown()} onOpenChange={(e) => { if (!e.open) answer(undefined) }} onClose={() => asked.set(undefined)}>
       <View class="pt-[10px]" style={{ paddingBottom: insets().bottom + 8 }} testID="action-sheet">
         <Grabber />
-        <If when={asked()?.title}><Text class="px-5 pt-1 pb-2 text-muted-foreground text-[13px] line-clamp-1">{asked()?.title}</Text></If>
+        <If when={asked()?.message} else={<If when={asked()?.title}><Text class="px-5 pt-1 pb-2 text-muted-foreground text-[13px] leading-[18px] line-clamp-3">{asked()?.title}</Text></If>}>
+          <View class="px-5 pt-1 pb-3 gap-[6px]">
+            <Text testID="action-sheet-title" class="text-foreground text-[17px] leading-[22px] font-semibold">{asked()?.title}</Text>
+            <Text testID="action-sheet-message" class="text-muted-foreground text-[14px] leading-[20px]">{asked()?.message}</Text>
+          </View>
+        </If>
         {(asked()?.actions ?? []).map((a) => (
           <View role="button" testID={`action-${a.id}`} onPress={() => { haptic('tick'); answer(a.id) }}
             class="flex-row items-center gap-[14px] mx-2 px-3 h-[52px] rounded-[12px] active:bg-secondary transition-colors duration-150">
@@ -148,7 +159,7 @@ export function ActionSheetHost() {
           </View>
         ))}
       </View>
-    </Sheet>
+    </BottomSheet>
   )
 }
 
@@ -161,7 +172,7 @@ export function HeaderMenu(props: { open: () => boolean; onClose: () => void; ac
   const shown = signal(false)
   const m = createMotion({ initial: { opacity: 0, scale: 0.8 } })
   effect(() => {
-    if (props.open()) { shown.set(true); m.play({ duration: 150, keyframes: [{ opacity: 0, scale: 0.8, easing: [0.05, 0.7, 0.1, 1] }, { opacity: 1, scale: 1 }] }) }
+    if (props.open()) { untracked(() => Keyboard.dismiss()); shown.set(true); m.play({ duration: 150, keyframes: [{ opacity: 0, scale: 0.8, easing: [0.05, 0.7, 0.1, 1] }, { opacity: 1, scale: 1 }] }) }
     else if (shown()) m.play({ duration: 100, keyframes: [{ opacity: 1, scale: 1, easing: [0.3, 0, 0.8, 0.15] }, { opacity: 0, scale: 0.9 }] }).then(() => { if (!props.open()) shown.set(false) })
   })
   const choose = (id: string) => { haptic('tick'); props.onClose(); props.onChoose(id) }

@@ -86,6 +86,60 @@ function Device({ device, busy, onRevoke }) {
     device.revokedAt === null ? h('button', { type: 'button', style: danger, disabled: busy, onClick: () => onRevoke(device) }, t('devices.revoke')) : null);
 }
 
+/** A name DSH gives in several languages ({ en, zh, ... }, its locale files), in the active one. */
+function localized(text, language = activeLocale()) {
+  if (typeof text === 'string') return text;
+  if (!text || typeof text !== 'object') return '';
+  const base = language.split('-')[0];
+  return text[language] ?? text[base] ?? (base === 'zh' ? text.zh : undefined) ?? text.en ?? '';
+}
+/** "reasoningEffort" → the field's name in this language, else its words ("Max tokens"). */
+function fieldName(field) {
+  const key = `field.${field}`, known = t(key);
+  if (known !== key) return known;
+  const words = String(field).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+/** A key DSH names after its provider ("DEEPSEEK_API_KEY") when DSH had no display name for it. */
+const keyName = ref => fieldName(String(ref).replace(/_API_KEY$/i, '').toLowerCase().replace(/_(\w)/g, (_, c) => c.toUpperCase()));
+
+/** One change a phone made to this computer's DSH Desktop (host dsh-relay.ts phoneChange), in words, named as DSH
+ * Desktop names it (the change's label: a plugin's title, a provider's name, a setting's field). */
+export function changeText(change) {
+  const label = change.label ?? {};
+  const target = String(change.target ?? '');
+  const words = target.split(' '), last = words[words.length - 1];
+  const switched = last === 'on' || last === 'off';
+  // A plugin: its own title; DSH Desktop shows the package name when a plugin has none.
+  const plugin = localized(label.title) || (switched ? words.slice(0, -1).join(' ') : target).replace(/^@[^/\s]+\//, '');
+  switch (change.method) {
+    case 'pluginManager/setBundleEnabled': case 'pluginManager/setPluginEnabled':
+      return t(`changes.${last === 'off' ? 'off' : 'on'}`, { target: plugin });
+    case 'pluginManager/installBundle': return t('changes.install', { target: plugin });
+    case 'pluginManager/updateBundle': return t('changes.update', { target: plugin });
+    case 'pluginManager/removeBundle': return t('changes.remove', { target: plugin });
+    case 'settings/mutate': {
+      if (label.defaultAgent) return t('changes.defaultAgent');
+      const field = fieldName(label.field ?? target.split(/[ .,]/).filter(Boolean).at(-1) ?? '');
+      return label.provider ? t('changes.providerSetting', { field, provider: label.provider }) : t('changes.setting', { field });
+    }
+    case 'speech/configure': return t(target.includes('language') ? 'changes.voiceLanguage' : 'changes.voiceEngine');
+    case 'speech/prepare': return t('changes.voiceModel');
+    case 'speech/cancelPreparation': return t('changes.voiceStop');
+    case 'credentials/set': return t('changes.keySet', { target: label.provider ?? keyName(target) });
+    case 'credentials/unset': return t('changes.keyUnset', { target: label.provider ?? keyName(target) });
+    case 'account/signOut': return t('changes.signOut');
+    default: return fieldName(change.method.split('/').at(-1) ?? '');
+  }
+}
+
+function Change({ change }) {
+  return h('div', { style: row, 'data-change': change.method },
+    h('div', { style: { minWidth: 0 } },
+      h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, changeText(change)),
+      h('div', { style: label }, `${change.deviceName || t('devices.phone')} · ${when(change.at)}`)));
+}
+
 /** Active phones first, newest pairing first; revoked ones folded under their own heading, newest revocation first. */
 export function sortDevices(devices) {
   const active = devices.filter(device => device.revokedAt === null).sort((a, b) => b.createdAt - a.createdAt);
@@ -168,6 +222,7 @@ function Section({ embedded = false } = {}) {
   useLocale();
   const [status, setStatus] = React.useState(undefined);
   const [devices, setDevices] = React.useState([]);
+  const [changes, setChanges] = React.useState([]);
   const [down, setDown] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [problem, setProblem] = React.useState('');
@@ -177,6 +232,8 @@ function Section({ embedded = false } = {}) {
       const [nextStatus, nextDevices] = await Promise.all([request('status'), request('devices')]);
       setStatus(nextStatus); setDevices(nextDevices.items ?? []); setDown(false);
     } catch { setDown(true); }
+    // Which phone changed what here; a companion without the list leaves the card out.
+    try { setChanges((await request('phone-changes')).items ?? []); } catch { setChanges(undefined); }
   }, []);
   React.useEffect(() => { refresh(); }, [refresh]);
 
@@ -217,6 +274,13 @@ function Section({ embedded = false } = {}) {
       revoked.length === 0 ? null : h('details', { style: { marginTop: 8 } },
         h('summary', { style: { ...label, cursor: 'pointer', padding: '6px 0' } }, t('devices.revoked', { count: revoked.length })),
         revoked.map(device => h(Device, { key: device.deviceId, device, busy, onRevoke: revoke })))),
+    changes === undefined ? null : h('div', { style: card, 'data-section': 'phone-changes' },
+      h('div', { style: { fontWeight: 500, paddingBottom: 4 } }, t('changes.title')),
+      changes.length === 0 ? h('div', { style: { ...label, paddingTop: 4 } }, t('changes.empty'))
+        : changes.slice(0, 5).map((change, i) => h(Change, { key: `${change.at}-${i}`, change })),
+      changes.length <= 5 ? null : h('details', { style: { marginTop: 8 } },
+        h('summary', { style: { ...label, cursor: 'pointer', padding: '6px 0' } }, t('changes.more', { count: changes.length - 5 })),
+        changes.slice(5).map((change, i) => h(Change, { key: `${change.at}-${i + 5}`, change })))),
     h('div', { style: label }, t('footer')));
 }
 

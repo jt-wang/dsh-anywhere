@@ -8,7 +8,8 @@ const paired = { paired: true, origin: ORIGIN, token: 'synthetic-device-token' }
 const ok = (value: unknown) => ({ body: { type: 'server-response', rpcId: 'x', result: { ok: true, value } } })
 
 async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' }), extra: Record<string, unknown> = {}, platform: 'ios' | 'android' = 'ios', caps: Record<string, unknown> = {}) {
-  const app = await open('../App.tsx', {
+  // Connected (a socket that opens) unless offline: the route shows only while the computer answers.
+  const app = await open(offline ? '../App.tsx' : './fixtures/connected/App.tsx', {
     platform,
     locale: 'en-US',
     host: { handlers: {
@@ -56,7 +57,7 @@ test('Settings says which computer the phone is linked to, how, and the versions
   const app = await settings(true)
   await app.waitFor('text:2.4.9 (314)')
   const t = app.texts()
-  for (const s of ['DSH Anywhere', 'Version (build)', 'Computer', 'Studio', 'End-to-end encrypted tunnel', 'Through a Tailcat relay (TOK)', '0.2.1-rc.3', '0.7.13', 'Unlink', 'Appearance', 'Language', 'Notifications']) expect([s, t.includes(s)]).toEqual([s, true])
+  for (const s of ['DSH Anywhere', 'Version (build)', 'Computer', 'Studio', 'End-to-end encrypted tunnel', 'Through a Tailcat relay', '0.2.1-rc.3', '0.7.13', 'Unlink', 'Appearance', 'Language', 'Notifications']) expect([s, t.includes(s)]).toEqual([s, true])
 })
 
 test('the installed app version remains readable without the computer; a failed read does not invent a version', async () => {
@@ -136,20 +137,20 @@ test('Tailcat only is kept by the shell, which opens a new tunnel with it; the a
 
 test('the same-network route is named as such', async () => {
   const app = await settings(true, false, undefined, { 'link.path': { route: 'lan', kind: 'lan' } })
-  await app.waitFor('text:Over the local network to your computer')
+  await app.waitFor('text:Direct on the same Wi-Fi')
 })
 
 for (const platform of ['ios', 'android'] as const) {
-  test(`${platform}: settings shows the route kind and available relay identity`, async () => {
+  test(`${platform}: settings shows the route kind, never a relay’s data-centre code`, async () => {
     for (const [path, label] of [
-      [{ route: 'relay', relay: 'legacy-code', kind: 'derp', derpCode: 'tok' }, 'Through a Tailcat relay (TOK)'],
-      [{ route: 'relay', kind: 'derp', derpRegion: 1, derpHost: 'region.example.com' }, 'Through a Tailcat relay (region.example.com)'],
-      [{ route: 'relay', kind: 'derp', derpRegion: 42 }, 'Through a Tailcat relay (#42)'],
+      [{ route: 'relay', relay: 'legacy-code', kind: 'derp', derpCode: 'tok' }, 'Through a Tailcat relay'],
+      [{ route: 'relay', kind: 'derp', derpRegion: 1, derpHost: 'region.example.com' }, 'Through a Tailcat relay'],
+      [{ route: 'relay', kind: 'derp', derpRegion: 42 }, 'Through a Tailcat relay'],
       [{ route: 'relay', kind: 'derp' }, 'Through a Tailcat relay'],
-      [{ route: 'relay', kind: 'relay', relayHost: 'relay.example.com' }, 'Through your relay (relay.example.com)'],
-      [{ route: 'relay', kind: 'relay' }, 'Through your relay'],
-      [{ route: 'direct', kind: 'direct' }, 'Direct to your computer'],
-      [{ route: 'lan', kind: 'lan' }, 'Over the local network to your computer'],
+      [{ route: 'relay', kind: 'relay', relayHost: 'relay.example.com' }, 'Through your relay server (relay.example.com)'],
+      [{ route: 'relay', kind: 'relay' }, 'Through your relay server'],
+      [{ route: 'direct', kind: 'direct' }, 'Direct to your computer (no relay)'],
+      [{ route: 'lan', kind: 'lan' }, 'Direct on the same Wi-Fi'],
     ] as const) {
       const app = await settings(true, false, undefined, { 'link.path': path }, platform)
       await app.waitFor(`text:${label}`)

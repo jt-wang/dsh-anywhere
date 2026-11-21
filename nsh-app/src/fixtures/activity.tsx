@@ -2,6 +2,7 @@
 // part done (src/activity.test.tsx).
 import { mount, signal, Text, View } from 'nsh'
 import { ActivityButton, ActivityDock, ActivityPanel, createActivity } from '../activity.tsx'
+import { Input } from 'nsh/base'
 import { ActionSheetHost } from '../ui.tsx'
 
 const a = createActivity()
@@ -18,6 +19,7 @@ function App() {
     <View class="flex-1 bg-background pt-[60px]">
       <View class="absolute top-[12px] right-[12px]"><ActivityButton activity={a} /></View>
       <Text testID="opened">{opened()}</Text>
+      <Input testID="field" placeholder="Message" />
       <View role="button" testID="typing" onPress={() => typing.set(true)}><Text>type</Text></View>
       <View role="button" testID="not-typing" onPress={() => typing.set(false)}><Text>done typing</Text></View>
       <View class="flex-1">

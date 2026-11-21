@@ -635,7 +635,8 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
       const device = authorized(req);
       if (url.pathname.startsWith('/companion/')) { await companionCall(device, req, res, url, signal); return; }
       ownerRelay(device);
-      if (!options.dsh?.()?.serve(req, res, url)) throw new HostError('not_found');
+      // Changes of the computer's settings and plugins are kept with the phone's name, for the computer's Settings page.
+      if (!options.dsh?.()?.serve(req, res, url, change => state.recordPhoneChange(device, change.method, change.target, change.label))) throw new HostError('not_found');
       return;
     }
     if (!req.url?.startsWith('/v1/') || req.url.length > 2048 || /[#\x00-\x20\\]/.test(req.url)) throw new HostError('invalid_request');

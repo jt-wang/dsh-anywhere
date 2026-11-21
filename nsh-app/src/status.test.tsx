@@ -6,18 +6,18 @@ const bar = (app: Awaited<ReturnType<typeof start>>) => app.texts().find((t) => 
 const late = async (app: Awaited<ReturnType<typeof start>>, step: string) => { await app.clock.runFor(100); await app.press(`id:${step}`); await app.clock.runFor(3_100) }
 
 for (const platform of ['ios', 'android'] as const) {
-  test(`${platform}: the bar and connection panel distinguish route kinds, named and unnamed relays`, async () => {
+  test(`${platform}: the bar and connection panel distinguish route kinds; a Tailcat relay is never named by its code`, async () => {
     const app = await open('./fixtures/connection.tsx', { platform, clock: {} })
     await app.press('id:chats')
     for (const [step, label] of [
-      ['derp-code', 'Through a Tailcat relay (TOK)'],
-      ['derp-host', 'Through a Tailcat relay (region.example.com)'],
-      ['derp-id', 'Through a Tailcat relay (#42)'],
+      ['derp-code', 'Through a Tailcat relay'],
+      ['derp-host', 'Through a Tailcat relay'],
+      ['derp-id', 'Through a Tailcat relay'],
       ['derp-unnamed', 'Through a Tailcat relay'],
-      ['relay-host', 'Through your relay (relay.example.com)'],
-      ['relay-unnamed', 'Through your relay'],
-      ['direct', 'Direct to your computer'],
-      ['lan', 'Over the local network to your computer'],
+      ['relay-host', 'Through your relay server (relay.example.com)'],
+      ['relay-unnamed', 'Through your relay server'],
+      ['direct', 'Direct to your computer (no relay)'],
+      ['lan', 'Direct on the same Wi-Fi'],
     ]) {
       await app.press(`id:${step}`); await app.clock.runFor(100)
       expect(app.texts()).toContain(`Connected · ${label}`)
@@ -117,7 +117,7 @@ test('the chats page always shows the state, how it goes included; a chat only a
   await app.press('id:direct')
   await app.press('id:chats')
   await app.clock.runFor(100)
-  expect(app.texts()).toContain('Connected · Direct to your computer')
+  expect(app.texts()).toContain('Connected · Direct to your computer (no relay)')
 })
 
 test('the chats page keeps saying connected through a short drop, then says what is wrong', async () => {

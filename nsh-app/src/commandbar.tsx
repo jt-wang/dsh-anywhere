@@ -2,13 +2,13 @@
 // permissions, goal, compact) in one sheet, each showing DSH's current value and sending the command the Desktop
 // would; other commands and skills from the same sheet or by typing "/"; files, folders and chats by typing "@".
 import { effect, signal, Scroll, Text, View, type JSX } from 'nsh'
-import { Input, Sheet, Switch } from 'nsh/base'
+import { Input, Switch } from 'nsh/base'
 import { confirmationFor, controlsOf, goalLine, permissionLine, planLine, presetLabel, presetsOf, type Controls, type Preset } from './controls.ts'
 import type { Command, Reference, Skill, Suggestion } from './commands.ts'
 import { isSuggestion, referenceText } from './commands.ts'
 import { dsh } from './state.ts'
 import { readable, S } from './strings.ts'
-import { Grabber, haptic, Icon, SCRIM, SHEET, sheetBottom, sheetMax, type IconName } from './ui.tsx'
+import { BottomSheet, Grabber, haptic, Icon, sheetBottom, sheetMax, type IconName } from './ui.tsx'
 
 /** Runs a command line through commands/execute; resolves to the error to show, if any. */
 export type Run = (line: string) => Promise<string | undefined>
@@ -44,7 +44,7 @@ export function ControlsSheet(props: { open: () => boolean; onClose: () => void;
   const pick = (text: string) => { props.onClose(); props.insert(text) }
   const g = () => controls().goal
   return (
-    <Sheet open={props.open()} onOpen={opened} onOpenChange={(e) => { if (!e.open) props.onClose() }} closeOnSwipe popupClass={SHEET} backdropStyle={SCRIM}>
+    <BottomSheet open={props.open()} onOpen={opened} onOpenChange={(e) => { if (!e.open) props.onClose() }}>
       <View class="pt-3" style={{ paddingBottom: sheetBottom(), maxHeight: sheetMax(640) }} testID="controls">
         <Grabber />
         <Text class="px-5 pb-2 text-foreground text-[15px] font-semibold">{S.controls}</Text>
@@ -123,7 +123,7 @@ export function ControlsSheet(props: { open: () => boolean; onClose: () => void;
           <View class="h-3" />
         </Scroll>
       </View>
-    </Sheet>
+    </BottomSheet>
   )
 }
 

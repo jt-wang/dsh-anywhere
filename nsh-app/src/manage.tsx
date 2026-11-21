@@ -1,10 +1,10 @@
 // A chat's menu, as DSH Desktop's sidebar has it: rename (session/rename), pin (workspace/pinSession), archive
 // (workspace/archiveSession, stopping what it is doing) and bring back. The list updates from workspace/follow.
 import { signal, Text, View, type InputRef } from 'nsh'
-import { Input, Sheet } from 'nsh/base'
+import { Input } from 'nsh/base'
 import { dsh } from './state.ts'
 import { readable, S } from './strings.ts'
-import { chooseAction, Grabber, SCRIM, SHEET, sheetBottom, type SheetAction } from './ui.tsx'
+import { BottomSheet, chooseAction, Grabber, sheetBottom, type SheetAction } from './ui.tsx'
 import type { Summary } from './sessions.tsx'
 
 export async function chatMenu(chat: Summary, state: { pinned: boolean; archived: boolean }, rename: () => void, onError: (m: string) => void, onForked: (chat: Summary) => void) {
@@ -47,7 +47,7 @@ export function RenameSheet(props: { chat: () => Summary | undefined; onClose: (
     catch (e) { error.set(readable(e)) } finally { busy.set(false) }
   }
   return (
-    <Sheet open={Boolean(props.chat())} onOpen={() => { const t = props.chat()?.title ?? ''; title.set(t); error.set(''); setTimeout(() => input?.setSelection(t.length), 50) }} onOpenChange={(e) => { if (!e.open) props.onClose() }} closeOnSwipe popupClass={SHEET} backdropStyle={SCRIM}>
+    <BottomSheet open={Boolean(props.chat())} onOpen={() => { const t = props.chat()?.title ?? ''; title.set(t); error.set(''); setTimeout(() => input?.setSelection(t.length), 50) }} onOpenChange={(e) => { if (!e.open) props.onClose() }}>
       <View class="px-5 pt-3 gap-3" style={{ paddingBottom: sheetBottom() }}>
         <Grabber />
         <Text class="text-foreground text-[15px] font-semibold">{S.rename}</Text>
@@ -58,6 +58,6 @@ export function RenameSheet(props: { chat: () => Summary | undefined; onClose: (
           <Text class={`text-[15px] font-medium ${title().trim() ? 'text-primary-foreground' : 'text-muted-foreground'}`}>{S.save}</Text>
         </View>
       </View>
-    </Sheet>
+    </BottomSheet>
   )
 }

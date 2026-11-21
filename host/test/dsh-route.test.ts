@@ -14,6 +14,7 @@ import type { HostAdapter, HostConfiguration } from '../src/types.ts';
 import { fakeDsh, TOKEN } from './helpers/fake-dsh.ts';
 
 const adapter = { upstreamVersion: 'synthetic', async listSessions() { return []; }, async listPresets() { return []; } } as unknown as HostAdapter;
+const waitFor = async (probe: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!probe()) { if (Date.now() > end) throw new Error('timed out'); await new Promise(r => setTimeout(r, 20)); } };
 const ENVELOPE = { type: 'client-request', rpcId: 'r', method: 'session/list', payload: { args: { _request: {} } } };
 
 async function setup(t: TestContext) {
@@ -28,7 +29,7 @@ async function setup(t: TestContext) {
   t.after(async () => { await relay.close(); await host.close(); rmSync(dir, { recursive: true, force: true }); });
   const pair = (grants: { readWorkspaceIds: string[]; executeWorkspaceIds: string[] }) => host.state.consumePairing(host.state.createPairing(grants).pairingToken, 'Synthetic phone').deviceToken;
   const post = (path: string, token?: string, headers: Record<string, string> = {}) => fetch(`${base}/dsh${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: JSON.stringify(ENVELOPE) });
-  return { dsh, base, pair, post, owner: pair({ readWorkspaceIds: ['*'], executeWorkspaceIds: ['*'] }) };
+  return { dsh, base, pair, post, host, owner: pair({ readWorkspaceIds: ['*'], executeWorkspaceIds: ['*'] }) };
 }
 
 test('the owner\'s phone reaches DSH: one sign-in, DSH\'s Host and session cookie, nothing of the phone\'s own', async t => {
@@ -52,6 +53,40 @@ test('only the owner\'s phone, only with its token in the header, only the API',
   assert.equal((await post('/api/session/list', owner, { origin: 'https://example.invalid' })).status, 403, 'no browser surface');
   assert.equal((await fetch(`${base}/dsh/`, { headers: { authorization: `Bearer ${owner}` } })).status, 404);
   assert.equal(dsh.seen.length, 0);
+});
+
+// The computer's Settings page lists which phone changed which DSH setting or plugin (client/index.js), named as DSH
+// Desktop names them: a plugin's own title (its locale files, DSH's meta.title), a provider's display name.
+test('a change DSH made is kept with the phone\'s name and DSH\'s own names for it, never its values', async t => {
+  const { dsh, host, pair, base, owner } = await setup(t);
+  const voice = '@deepseek-ai/dsh-experimental-voice-input-bundle';
+  dsh.answers.set('pluginManager/listBundles', () => [{ name: voice, meta: { title: { en: 'Voice input', zh: '语音输入' } } }, { name: '@deepseek-ai/dsh-cua-bundle', meta: { title: { en: 'Computer use' } } }]);
+  dsh.answers.set('llm/listConfigurableProviders', () => [{ provider: 'deepseek', displayName: 'DeepSeek', settingsNs: 'llm', settingsPath: ['providers', 'deepseek'] }]);
+  dsh.answers.set('pluginManager/setBundleEnabled', () => ({ changed: true, application: 'applied' }));
+  dsh.answers.set('credentials/set', () => null);
+  dsh.answers.set('settings/mutate', (args: { ns: string }) => { if (args.ns === 'locked') throw new Error('settings/conflict'); return { revision: 4 }; });
+  const call = (method: string, args: Record<string, unknown>, token = owner) => fetch(`${base}/dsh/api/${method}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ type: 'client-request', rpcId: 'r', method, payload: { args } }) });
+  assert.equal((await call('session/list', { _request: {} })).status, 200)
+  assert.equal((await call('pluginManager/setBundleEnabled', { name: voice, enabled: true })).status, 200)
+  assert.equal((await call('credentials/set', { ref: 'DEEPSEEK_API_KEY', value: 'sk-synthetic-secret' })).status, 200)
+  assert.equal((await call('settings/mutate', { ns: 'llm', ops: [{ op: 'set', path: ['providers', 'deepseek', 'baseUrl'], value: 'https://secret.invalid' }], expectedRevision: 3 })).status, 200)
+  assert.equal((await call('settings/mutate', { ns: 'agent-preset-registry', ops: [{ op: 'set', path: ['selectedDefault'], value: 'secret-preset' }], expectedRevision: 1 })).status, 200)
+  // DSH refused this one: nothing changed, so nothing is kept.
+  assert.equal((await call('settings/mutate', { ns: 'locked', ops: [{ op: 'set', path: ['x'], value: 1 }], expectedRevision: 1 })).status, 200)
+  // A phone allowed only to read is refused before anything is relayed or kept.
+  assert.equal((await call('pluginManager/setBundleEnabled', { name: 'x', enabled: false }, pair({ readWorkspaceIds: ['*'], executeWorkspaceIds: [] }))).status, 403)
+  await waitFor(() => host.state.listPhoneChanges().length === 4)
+  await new Promise(resolve => setTimeout(resolve, 100))
+  const kept = host.state.listPhoneChanges()
+  assert.deepEqual(kept.map(({ deviceName, method, target, label }) => ({ deviceName, method, target, label })).sort((a, b) => a.method.localeCompare(b.method) || a.target.localeCompare(b.target)), [
+    { deviceName: 'Synthetic phone', method: 'credentials/set', target: 'DEEPSEEK_API_KEY', label: { provider: 'DeepSeek' } },
+    { deviceName: 'Synthetic phone', method: 'pluginManager/setBundleEnabled', target: `${voice} on`, label: { title: { en: 'Voice input', zh: '语音输入' } } },
+    { deviceName: 'Synthetic phone', method: 'settings/mutate', target: 'agent-preset-registry selectedDefault', label: { defaultAgent: true } },
+    { deviceName: 'Synthetic phone', method: 'settings/mutate', target: 'llm providers.deepseek.baseUrl', label: { provider: 'DeepSeek', field: 'baseUrl' } },
+  ])
+  const all = JSON.stringify(kept)
+  assert.ok(!['sk-synthetic-secret', 'secret.invalid', 'secret-preset'].some(v => all.includes(v)), 'no value or key is kept')
+  assert.ok(kept.every(c => Number.isFinite(c.at) && c.deviceId.length > 0))
 });
 
 test('an expired DSH session is renewed once and the request still succeeds', async t => {

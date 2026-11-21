@@ -52,13 +52,38 @@ test('no speech model: the sheet explains the download before any microphone use
   await app.press('id:voice-cancel')
 })
 
-test('voice input off on the computer, or DSH too old: the sheet says where to turn it on and checks again', async () => {
+test('voice input off on the computer: one tap turns it on there and goes straight on to the model download', async () => {
   const app = await start({ catalog: 'missing' })
   await app.press('id:voice-start'); await app.waitFor('id:voice-sheet-missing')
-  expect(shows(app, 'open Plugins and turn on Voice input')).toBe(true)
-  await app.host.send('fixture.set', { catalog: null })
-  await app.press('id:voice-sheet-check'); await app.waitFor('id:voice-timer')
-  await app.press('id:voice-cancel')
+  expect(shows(app, 'Turn it on from here')).toBe(true)
+  await app.press('id:voice-sheet-turn-on')
+  await app.waitFor('id:voice-sheet-download')
+  expect(asked(app)).toEqual(['speech/catalog', 'pluginManager/listBundles', 'pluginManager/setBundleEnabled', 'speech/catalog'])
+  // Nothing touched the microphone before the computer could transcribe.
+  expect(called(app).filter(n => n === 'voice.record')).toEqual([])
+})
+
+test('turning voice input on: while the computer works, then each way it can end says what to do', async () => {
+  const busy = await start({ catalog: 'missing', enable: 'hang' })
+  await busy.press('id:voice-start'); await busy.press('id:voice-sheet-turn-on'); await busy.waitFor('id:voice-sheet-enabling')
+  expect(shows(busy, 'Turning on voice input on your computer…')).toBe(true)
+  expect(busy.shows('id:voice-sheet-turn-on')).toBe(false)
+
+  const restart = await start({ catalog: 'missing', enable: 'restart' })
+  await restart.press('id:voice-start'); await restart.press('id:voice-sheet-turn-on')
+  await restart.waitFor('text:Voice input is on. Restart DSH Desktop on your computer to finish, then check again.')
+  await restart.press('id:voice-sheet-check'); await restart.waitFor('id:voice-sheet-download')
+
+  const failed = await start({ catalog: 'missing', enable: 'fail' })
+  await failed.press('id:voice-start'); await failed.press('id:voice-sheet-turn-on')
+  await failed.waitFor('text:This plugin doesn’t work with the DSH Desktop version on your computer. Update DSH Desktop, then try again.')
+  expect(failed.texts().filter(t => t.includes('incompatible-version'))).toEqual([])
+  expect(failed.shows('id:voice-sheet-turn-on')).toBe(true)
+
+  const old = await start({ catalog: 'missing', bundle: 'none' })
+  await old.press('id:voice-start'); await old.press('id:voice-sheet-turn-on')
+  await old.waitFor('text:This DSH has no Voice input plugin. Update DSH Desktop on your computer to 0.2.2 or later, then check again.')
+  expect(called(old).filter(n => n === 'voice.record')).toEqual([])
 })
 
 test('no computer: offline and the sample explain themselves instead of recording', async () => {

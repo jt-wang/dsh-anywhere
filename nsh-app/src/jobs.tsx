@@ -2,11 +2,10 @@
 // to its live output (job/follow while open) and stops with a second press to confirm (job/kill). The phone shows
 // the running count docked above the composer in a subagent's chat (one with no activity panel); a press opens the list in a sheet.
 import { cleanup, Keyboard, effect, signal, Scroll, Text, untracked, View } from 'nsh'
-import { Sheet } from 'nsh/base'
 import { appActive, dsh } from './state.ts'
 import { duration, followJob, isLive, jobsOf, sections, type Job, type JobOutput } from './jobs.ts'
 import { readable, S } from './strings.ts'
-import { Grabber, haptic, Chevron, Icon, SCRIM, SHEET, sheetBottom, LiveDot } from './ui.tsx'
+import { BottomSheet, Grabber, haptic, Chevron, Icon, sheetBottom, LiveDot } from './ui.tsx'
 
 /** The chat's jobs, followed for as long as the chat is open. */
 export function followJobs(sessionId: string, set: (jobs: Job[]) => void) {
@@ -32,7 +31,7 @@ export function JobsDock(props: { jobs: () => Job[]; onOpen: () => void }) {
 export function JobsSheet(props: { open: () => boolean; onClose: () => void; sessionId: string; jobs: () => Job[] }) {
   const s = () => sections(props.jobs())
   return (
-    <Sheet open={props.open()} onOpenChange={(e) => { if (!e.open) props.onClose() }} closeOnSwipe popupClass={SHEET} backdropStyle={SCRIM}>
+    <BottomSheet open={props.open()} onOpenChange={(e) => { if (!e.open) props.onClose() }}>
       <View class="pt-3" style={{ paddingBottom: sheetBottom(), maxHeight: 640 }} testID="jobs-sheet">
         <Grabber />
         <Text class="px-5 pb-2 text-foreground text-[15px] font-semibold">{S.jobsTitle}</Text>
@@ -52,7 +51,7 @@ export function JobsSheet(props: { open: () => boolean; onClose: () => void; ses
           <View class="h-3" />
         </Scroll>
       </View>
-    </Sheet>
+    </BottomSheet>
   )
 }
 

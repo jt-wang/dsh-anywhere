@@ -2,9 +2,9 @@
 // here, not in the chat. Steer hands it to the running turn now; a press edits it; ✕ takes it back.
 // Changes go through session/updateQueue; the list itself follows DSH's inbox.
 import { effect, LayoutAnimation, signal, Text, View, type InputRef } from 'nsh'
-import { Input, Sheet } from 'nsh/base'
+import { Input } from 'nsh/base'
 import { S } from './strings.ts'
-import { Grabber, haptic, IconButton, SCRIM, SHEET, sheetBottom } from './ui.tsx'
+import { BottomSheet, Grabber, haptic, IconButton, sheetBottom } from './ui.tsx'
 import type { Waiting } from './queue.ts'
 
 export function QueueBar(props: { items: () => Waiting[]; running: () => boolean; steer: (w: Waiting) => void; remove: (w: Waiting) => void; edit: (w: Waiting, text: string) => Promise<void>; retry: (w: Waiting) => void }) {
@@ -50,7 +50,7 @@ function EditSheet(props: { item: () => Waiting | undefined; onClose: () => void
     try { await props.save(w, next); props.onClose() } finally { busy.set(false) }
   }
   return (
-    <Sheet open={Boolean(props.item())} onOpen={() => { const t = props.item()?.text ?? ''; text.set(t); setTimeout(() => input?.setSelection(t.length), 50) }} onOpenChange={(e) => { if (!e.open) props.onClose() }} closeOnSwipe popupClass={SHEET} backdropStyle={SCRIM}>
+    <BottomSheet open={Boolean(props.item())} onOpen={() => { const t = props.item()?.text ?? ''; text.set(t); setTimeout(() => input?.setSelection(t.length), 50) }} onOpenChange={(e) => { if (!e.open) props.onClose() }}>
       <View class="px-5 pt-3 gap-3" style={{ paddingBottom: sheetBottom() }}>
         <Grabber />
         <Text class="text-foreground text-[15px] font-semibold">{S.editQueued}</Text>
@@ -60,6 +60,6 @@ function EditSheet(props: { item: () => Waiting | undefined; onClose: () => void
           <Text class={`text-[15px] font-medium ${text().trim() ? 'text-primary-foreground' : 'text-muted-foreground'}`}>{S.save}</Text>
         </View>
       </View>
-    </Sheet>
+    </BottomSheet>
   )
 }

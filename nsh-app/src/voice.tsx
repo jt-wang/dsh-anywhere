@@ -1,10 +1,12 @@
 import { cleanup, computed, effect, host, locale, safeAreaInsets, signal, Text, untracked, View } from 'nsh'
-import { Sheet } from 'nsh/base'
 import { language } from './strings.ts'
 import { dsh } from './state.ts'
-import { Grabber, haptic, Icon, SCRIM, SHEET } from './ui.tsx'
+import { BottomSheet, Grabber, haptic, Icon, LiveDot } from './ui.tsx'
+import { enableVoice } from './plugins.ts'
+import { diagnostics } from './diagnostics.ts'
 import { createVoice, voiceReadiness, type VoiceCatalog, type VoiceIo, type VoicePhase, type VoiceProvider, type VoiceSheet } from './voice.ts'
 import { voiceStrings } from './voice-strings.ts'
+import { pluginStrings, reasonOf } from './plugins-strings.ts'
 
 const BARS = 32
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -61,6 +63,21 @@ export function createVoiceInput(props: { disabled: () => boolean; blocked?: () 
     }, () => {})
     cleanup(stop)
   })
+  // Voice input is off on the computer: the phone turns DSH's voice bundle on itself (plugins.ts), then goes on to the
+  // model. '' asks; 'busy' while the computer works; then 'restart', 'nobundle' or 'failed:<DSH's code>'.
+  const enabling = signal('')
+  effect(() => { if (sheet()?.kind !== 'missing' || !shown()) untracked(() => { if (enabling() !== 'busy') enabling.set('') }) })
+  const turnOn = async () => {
+    enabling.set('busy'); haptic('tick')
+    try {
+      const r = await enableVoice(client())
+      if (r.kind === 'applied') { enabling.set(''); haptic('confirm'); begin() }
+      else enabling.set(r.kind === 'restart' ? 'restart' : r.kind === 'missing' ? 'nobundle' : `failed:${r.code}`)
+    } catch (e) { enabling.set(`failed:${(e as { code?: string })?.code || 'network'}`) }
+    // DSH's reason code goes to diagnostics; the sheet says what to do next.
+    const e = enabling()
+    if (e.startsWith('failed:')) diagnostics.record('interaction', 'computer.change_failed', { target: 'voice', code: e.slice(7) })
+  }
   const prepareError = signal('')
   const prepare = async (provider: VoiceProvider) => {
     prepareError.set('')
@@ -96,7 +113,11 @@ export function createVoiceInput(props: { disabled: () => boolean; blocked?: () 
     switch (s.kind) {
       case 'sample': return { icon: 'mic' as const, title: w.sampleTitle, body: w.sampleBody }
       case 'offline': return { icon: 'info' as const, title: w.offlineTitle, body: w.offlineBody }
-      case 'missing': return { icon: 'sliders' as const, title: w.missingTitle, body: w.missingBody }
+      case 'missing': {
+        const e = enabling()
+        const body = e === 'restart' ? w.turnOnRestart : e === 'nobundle' ? w.noBundle : e === 'failed:network' || e === 'failed:timeout' ? w.offlineBody : e.startsWith('failed:') ? reasonOf(pluginStrings(lang()), e.slice(7)) ?? w.turnOnFailed : w.missingBody
+        return { icon: 'sliders' as const, title: w.missingTitle, body }
+      }
       case 'cloud': return { icon: 'sliders' as const, title: w.cloudTitle, body: w.cloudBody }
       case 'primer': return { icon: 'mic' as const, title: w.primerTitle, body: w.primerBody }
       case 'denied': return { icon: 'mic' as const, title: w.deniedTitle, body: w.deniedBody }
@@ -114,7 +135,13 @@ export function createVoiceInput(props: { disabled: () => boolean; blocked?: () 
     if (!s) return null
     switch (s.kind) {
       case 'sample': return primary('voice-sheet-ok', w.ok, close)
-      case 'offline': case 'missing': case 'cloud':
+      case 'missing': {
+        const e = enabling()
+        if (e === 'busy') return secondary('voice-sheet-close', w.close, close)
+        if (e === 'restart' || e === 'nobundle') return [primary('voice-sheet-check', w.checkAgain, () => { enabling.set(''); begin() }), secondary('voice-sheet-later', w.notNow, close)]
+        return [primary('voice-sheet-turn-on', w.turnOn, () => void turnOn()), secondary('voice-sheet-later', w.notNow, close)]
+      }
+      case 'offline': case 'cloud':
         return [primary('voice-sheet-check', w.checkAgain, () => { close(); begin() }), secondary('voice-sheet-later', w.notNow, close)]
       case 'primer': return [primary('voice-sheet-continue', w.continue, () => { close(); begin(true) }), secondary('voice-sheet-later', w.notNow, close)]
       case 'denied': return [primary('voice-sheet-settings', w.openSettings, () => { close(); void call('voice.settings', {}).catch(() => {}) }), secondary('voice-sheet-later', w.notNow, close)]
@@ -176,7 +203,7 @@ export function createVoiceInput(props: { disabled: () => boolean; blocked?: () 
       </If>
     ),
     Sheet: () => (
-      <Sheet open={shown()} onOpenChange={(e) => { if (!e.open) close() }} closeOnSwipe popupClass={SHEET} backdropStyle={SCRIM}>
+      <BottomSheet open={shown()} onOpenChange={(e) => { if (!e.open) close() }}>
         <View testID={`voice-sheet-${sheet()?.kind ?? 'none'}`} class="pt-[10px] px-5 gap-[14px]" style={{ paddingBottom: insets().bottom + 12 }}>
           <Grabber />
           <View class="w-[48px] h-[48px] rounded-full bg-secondary items-center justify-center"><Icon name={content().icon} size={20} class="tint-foreground" /></View>
@@ -188,6 +215,9 @@ export function createVoiceInput(props: { disabled: () => boolean; blocked?: () 
           <If when={sheet()?.kind === 'download' && (prepareError() || (sheet() as { provider?: VoiceProvider })?.provider?.preparation.phase === 'failed')}>
             <Text testID="voice-sheet-failed" class="text-destructive text-[13px] leading-[18px]">{prepareError() || words().prepareFailed}</Text>
           </If>
+          <If when={sheet()?.kind === 'missing' && enabling() === 'busy'}>
+            <View testID="voice-sheet-enabling" class="flex-row items-center gap-[10px]"><LiveDot size={8} /><Text class="text-foreground text-[14px]">{words().turningOn}</Text></View>
+          </If>
           <If when={sheet()?.kind === 'preparing'}>
             <View class="gap-[8px]">
               <Text testID="voice-sheet-step" class="text-foreground text-[14px]">{progress((sheet() as { provider: VoiceProvider }).provider).label}</Text>
@@ -198,7 +228,7 @@ export function createVoiceInput(props: { disabled: () => boolean; blocked?: () 
           </If>
           <View class="gap-[4px] pt-[4px]">{actions()}</View>
         </View>
-      </Sheet>
+      </BottomSheet>
     ),
   }
 }

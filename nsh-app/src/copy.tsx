@@ -2,8 +2,8 @@
 // Select text, which opens the message on its own in the platform's text field, so selection is the system's (a word
 // under the finger, handles, the magnifier) away from the list's scrolling and the screen edges' back gesture.
 import { Clipboard, safeAreaInsets, signal, Text, View, windowSize } from 'nsh'
-import { Input, Sheet, TextView } from 'nsh/base'
-import { chooseAction, haptic, IconButton, SCRIM, SHEET } from './ui.tsx'
+import { Input, TextView } from 'nsh/base'
+import { BottomSheet, chooseAction, haptic, IconButton } from './ui.tsx'
 import { S } from './strings.ts'
 
 export async function copyText(text: string): Promise<boolean> {
@@ -30,7 +30,7 @@ export function SelectTextHost() {
   const open = () => { const t = selecting(); if (t !== undefined) { text.set(t); shown.set(true) } return shown() }
   const close = () => { shown.set(false); selecting.set(undefined) }
   return (
-    <Sheet open={open()} onOpenChange={(e) => { if (!e.open) close() }} popupClass={SHEET} backdropStyle={SCRIM}>
+    <BottomSheet open={open()} onOpenChange={(e) => { if (!e.open) close() }} closeOnSwipe={false}>
       <View testID="select-text" style={{ height: Math.round(windowSize().height * 0.88), paddingBottom: insets().bottom + 8 }} class="pt-2">
         <View class="flex-row items-center pl-6 pr-3 h-[48px]">
           <Text class="flex-1 text-foreground text-[15px] font-medium">{S.selectText}</Text>
@@ -40,6 +40,6 @@ export function SelectTextHost() {
         <Input readonly multiline value={text()} testID="select-field" accessibilityLabel={S.selectText}
           class="flex-1 bg-transparent px-6 pt-2 pb-4 text-foreground text-[15px] leading-[23px]" />
       </View>
-    </Sheet>
+    </BottomSheet>
   )
 }

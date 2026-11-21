@@ -10,7 +10,7 @@ import { OfflineCache } from './cache.ts'
 import { oneAtATime } from './progress.ts'
 
 export interface Settings { origin: string; key: string }
-export interface LinkPath { kind?: string; derpRegion?: number; derpCode?: string; derpHost?: string; relayHost?: string }
+export interface LinkPath { route?: string; kind?: string; derpRegion?: number; derpCode?: string; derpHost?: string; relayHost?: string }
 type LinkState = { paired: false } | { paired: true; origin: string; token: string; cacheId?: string }
 export const settings = signal<Settings | null>(null)
 export const offlineCache = signal<OfflineCache | undefined>(undefined)
@@ -33,7 +33,18 @@ export const connection = computed(() => (trying() ? 'online' : reachState(netwo
 /** What each part last answered (reach.ts), when the next try is, and how the tunnel goes now, for the connection's state. */
 export const check = signal<Check | undefined>(undefined)
 export const retryAt = signal<number | undefined>(undefined)
-export const routeText = signal('')
+/** How the tunnel reaches the computer: the shell's path watch (Dshtailcat WatchPath) pushes each change as the
+ * `link.path` event, and this is the only copy of it in the app. Every page shows `routeText`, derived from it, so they
+ * all change in the same render. Nothing here asks the shell for it again on a timer. */
+export const linkPath = signal<LinkPath | undefined>(undefined)
+let pathEvents = 0
+/** Reads the shell's last path once (a new link, the app started): an event that comes meanwhile is newer and stays. */
+function seedPath() {
+  const at = pathEvents
+  host.call<LinkPath>('link.path').then((v) => { if (pathEvents === at && !trying()) linkPath.set(v) }, () => {})
+}
+/** The route in words while the computer answers; nothing while it does not, or on the sample. */
+export const routeText = computed(() => (connection() === 'online' && !trying() ? routeWords(linkPath()) : ''))
 let client: Dsh | undefined
 /** Approvals and questions the agent waits on, across chats; `asks` changes whenever they do. */
 export const pending = new Pending()
@@ -81,9 +92,10 @@ const adopt = async (state: LinkState, sample = false) => {
   if (!state.paired && !old) await OfflineCache.discard()
   trying.set(sample); stopEvents?.(); client?.close(); client = undefined
   pending.apply({ type: 'ready', clientId: '' }); asks.update((n) => n + 1)
-  check.set(undefined); retryAt.set(undefined); routeText.set(''); lastLook = 0
+  check.set(undefined); retryAt.set(undefined); linkPath.set(undefined); lastLook = 0
   if (identity && !offlineCache()) offlineCache.set(await OfflineCache.open(identity))
   settings.set(state.paired ? { origin: state.origin, key: state.token } : null)
+  if (state.paired && !sample) seedPath()
 }
 
 /** Whether the app is on screen (the shell's app.state); true where the shell does not say. */
@@ -120,8 +132,6 @@ async function look() {
       const asked = Date.now()
       const access = await askComputer()
       check.set({ access, ...(access === 'ok' ? { latencyMs: Date.now() - asked } : {}) })
-      const r = await host.call<LinkPath>('link.path').catch(() => undefined)
-      routeText.set(routeWords(r))
     } else {
       const d = await host.call<Check & { error?: string }>('link.diagnose')
       if (d.error) return
@@ -136,7 +146,7 @@ export function routeWords(r: LinkPath | undefined) {
     case 'direct': return S.pathDirect
     case 'lan': return S.pathLan
     case 'relay': return S.pathPrivateRelay(r.relayHost?.trim() || undefined)
-    case 'derp': return S.pathRelay(r.derpCode?.trim().toUpperCase() || r.derpHost?.trim() || (r.derpRegion && r.derpRegion > 0 ? `#${r.derpRegion}` : undefined))
+    case 'derp': return S.pathRelay
     default: return ''
   }
 }
@@ -163,6 +173,7 @@ function watchReach() {
 
 export async function boot() {
   watchReach()
+  try { host.on('link.path', (data) => { pathEvents++; if (!trying()) linkPath.set(data as LinkPath) }) } catch {}
   try { await adopt(await host.call<LinkState>('link.state')) } catch (e) { linkError.set(readable(e)) }
   loaded.set(true)
   // opened from a pairing QR or link (dshm1:…), now or while running

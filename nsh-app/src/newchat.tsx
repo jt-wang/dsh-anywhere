@@ -2,12 +2,11 @@
 // A workspace is added from a folder on the computer (workspace/create), picked in folderpicker.tsx: recent projects
 // first, then the computer's folders, or a typed path.
 import { effect, Scroll, signal, Text, untracked, View } from 'nsh'
-import { Sheet } from 'nsh/base'
 import { FolderPicker } from './folderpicker.tsx'
 import { quickWorkspace } from './folders.ts'
 import { dsh } from './state.ts'
 import { readable, S } from './strings.ts'
-import { glide, Grabber, SCRIM, SHEET, sheetBottom, sheetMax } from './ui.tsx'
+import { BottomSheet, glide, Grabber, sheetBottom, sheetMax } from './ui.tsx'
 import type { ChatSummary, Workspace } from './workspaces.ts'
 
 const LIST_MS = 2000
@@ -67,7 +66,7 @@ export function NewChat(props: { open: () => boolean; workspaces: () => Workspac
   })
   effect(() => { const id = awaited(); if (id && props.workspaces().some((w) => w.workspaceId === id)) arrived() })
   return (
-    <Sheet open={props.open()} onOpenChange={(e) => { if (!e.open) props.onClose() }} closeOnSwipe popupClass={SHEET} backdropStyle={SCRIM}>
+    <BottomSheet open={props.open()} onOpenChange={(e) => { if (!e.open) props.onClose() }}>
       <View class="pt-3" style={{ maxHeight: sheetMax(600), paddingBottom: sheetBottom() }}>
         <Grabber />
         <If when={adding()} else={
@@ -108,6 +107,6 @@ export function NewChat(props: { open: () => boolean; workspaces: () => Workspac
           <FolderPicker workspaces={props.workspaces} chats={props.chats} onAdded={backWith} onBack={() => showPicker(false)} />
         </If>
       </View>
-    </Sheet>
+    </BottomSheet>
   )
 }

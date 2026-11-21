@@ -285,6 +285,23 @@ test('Settings pairing: the QR returns while the emoji window waits, the page sh
   await waitFor(() => state.tailcatClientCounts().pending === 1);
 });
 
+test('Settings lists the changes phones made to DSH here, newest first', async t => {
+  const { config, configPath } = await tailcatSetup(t);
+  const state = new HostState(config.statePath); t.after(() => state.close());
+  const routes = new Map(createMobileAdminRoutes({ configPath, dshVersion: '0.2.2', transport: 'tailcat' }).map(route => [route.path, route]));
+  const read = async () => (await (await routes.get('/api/dsh-anywhere/phone-changes')!.fetch(new Request('http://dsh.test/'))).json()) as { items: Record<string, unknown>[] };
+  assert.deepEqual(await read(), { items: [] });
+  const { deviceId } = state.consumePairing(state.createPairing({ readWorkspaceIds: ['*'], executeWorkspaceIds: ['*'] }).pairingToken, 'Synthetic phone');
+  const device = state.getDevice(deviceId)!;
+  state.recordPhoneChange(device, 'pluginManager/setBundleEnabled', '@deepseek-ai/dsh-experimental-voice-input-bundle on');
+  state.recordPhoneChange(device, 'speech/prepare', 'local');
+  const items = (await read()).items;
+  assert.deepEqual(items.map(({ deviceName, method, target }) => ({ deviceName, method, target })), [
+    { deviceName: 'Synthetic phone', method: 'speech/prepare', target: 'local' },
+    { deviceName: 'Synthetic phone', method: 'pluginManager/setBundleEnabled', target: '@deepseek-ai/dsh-experimental-voice-input-bundle on' },
+  ]);
+});
+
 test('a no on the computer ends the emoji window: nothing is paired and the offer is gone', async t => {
   const { dir, config, configPath } = await tailcatSetup(t), log = join(dir, 'helper.log');
   fakeEnv(t, { FAKE_TAILCAT_LOG: log, FAKE_TAILCAT_AUTOPAIR: PHONE });

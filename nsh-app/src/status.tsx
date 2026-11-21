@@ -3,12 +3,11 @@
 // within a few seconds of being on screen says nothing (back from the background, the connection of before has often
 // died); a phone without a network says so at once. The bar and the dot open a sheet that goes through each part.
 import { cleanup, effect, signal, Text, View } from 'nsh'
-import { Sheet } from 'nsh/base'
 import type { ConnectionState } from './dsh.ts'
 import { causeOf, type Cause, type Check } from './reach.ts'
 import { appActive, check as lastCheck, connection as reachState, network as phoneNetwork, reconnect, retryAt as nextTry, routeText as route, unlink } from './state.ts'
 import { S } from './strings.ts'
-import { Grabber, LiveDot, SCRIM, SHEET, sheetBottom } from './ui.tsx'
+import { BottomSheet, Grabber, LiveDot, sheetBottom } from './ui.tsx'
 
 export interface Reach { connection: () => ConnectionState; network: () => boolean; active: () => boolean; check: () => Check | undefined; retryAt: () => number | undefined; routeText: () => string; open: { (): boolean; set(v: boolean): void }; retry: () => void; relink: () => void }
 const open = signal(false)
@@ -119,8 +118,8 @@ export function ReachSheet(props: { reach?: Reach }) {
   const latency = () => { const ms = r.check()?.latencyMs; return ms === undefined ? '' : S.reach.latency(String(ms)) }
   const close = () => r.open.set(false)
   return (
-    <Sheet open={r.open()} onOpenChange={(e) => { if (!e.open) close() }} closeOnSwipe popupClass={SHEET} backdropStyle={SCRIM}>
-      <View class="pt-3 px-5" style={{ paddingBottom: sheetBottom() }}>
+    <BottomSheet open={r.open()} onOpenChange={(e) => { if (!e.open) close() }}>
+      <View class="pt-3 px-5" style={{ paddingBottom: sheetBottom() }} testID="reach-sheet">
         <Grabber />
         <Text class="text-foreground text-[15px] font-semibold mb-2">{S.reach.title}</Text>
         <View class="flex-row items-center gap-2"><Dot cause={cause()} /><Text class="flex-1 text-foreground text-[15px]">{titleOf(cause(), r)}</Text></View>
@@ -144,6 +143,6 @@ export function ReachSheet(props: { reach?: Reach }) {
           <View role="button" testID="reach-relink" onPress={() => { close(); r.relink() }} class="mt-1 h-[40px] justify-center items-center active:opacity-60"><Text class="text-muted-foreground text-[14px]">{S.reach.relink}</Text></View>
         </If>
       </View>
-    </Sheet>
+    </BottomSheet>
   )
 }

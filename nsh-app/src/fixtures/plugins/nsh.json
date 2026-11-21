@@ -1,0 +1,9 @@
+{
+  "name": "Plugins page",
+  "capabilities": {
+    "host": [
+      "voice.*",
+      "fixture.*"
+    ]
+  }
+}

@@ -105,6 +105,7 @@ final class Notify {
     /** The app came to the screen (true) or left it (false). Away with a chat running, the app keeps watching. */
     void activeChanged(boolean now) {
         active = now;
+        dev.dshmobile.tailcat.dshtailcat.Dshtailcat.setPathActive(now); // the route is asked only on screen
         if (now) Watching.stop(activity); else if (watch != null) Watching.start(activity);
         if (view != null) view.send("app.state", Map.of("active", now));
     }

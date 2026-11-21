@@ -4,7 +4,9 @@
 //   link.pair    { text } → as link.state; the one-time QR (or a dshm1: link) to a paired device
 //   link.reset   → a new tunnel and bridge, as link.state (the app found the link dead)
 //   link.forget  → unpairs this phone on the computer (best effort) and forgets the link
-//   link.path    → TailPocket route metadata: kind lan | direct | derp | relay, with DERP/relay identity when known
+//   link.path    → how the tunnel reaches the computer now: TailPocket's route (kind lan | direct | derp | relay, with
+//                  DERP/relay identity when known) as the path watch heard it last, or {route: "unknown"}
+//   event link.path { route, kind, … } → that route changed (Dshtailcat's WatchPath, PathEvents below)
 //   link.tailcatOnly { on? } → { on }: reach the computer over Tailcat only (no relay, no local network), kept on the phone
 //   event link.emoji { emoji } → an emoji pairing (bootstrap v2) waits for the computer's user to compare and confirm
 // Pairing follows docs/TAILCAT.md: the QR opens a short-lived pairing node; TailPocket's connectmobile pairs this phone's
@@ -28,6 +30,8 @@ final class Link {
     private static var bridge: Bridge?
     private static let pairOp: Int64 = 1 // connectmobile's cancellable-operation number; one pairing at a time
     private weak var view: NshAppView?
+    // Where the tunnel's route goes as it changes: the app's one source of "direct" or "relay".
+    private static let pathEvents = PathEvents()
 
     // "Tailcat only" is an empty file in the app's Application Support: Release builds use no NSUserDefaults
     // (PrivacyInfo.xcprivacy declares no reason for it; check-testflight.sh fails an IPA that links it).
@@ -54,6 +58,7 @@ final class Link {
     @MainActor
     func attach(_ view: NshAppView) {
         self.view = view
+        Link.pathEvents.view = view
         // A new tunnel takes the setting (connectmobile reads it at Connect), so the app asks link.state again after.
         view.handle("link.tailcatOnly") { [self] data, reply in
             let on = (data as? [String: Any])?["on"] as? Bool
@@ -83,19 +88,8 @@ final class Link {
                 reply.resolve(o)
             }
         }
-        // TailPocket's current route kind and DERP/relay metadata, or {route: "unknown"}.
-        // Off the link's own queue: the answer may take up to three seconds (ConnectmobilePath).
-        view.handle("link.path") { _, reply in
-            DispatchQueue.global(qos: .utility).async {
-                let handle = Link.tunnel
-                var out: [String: Any] = ["route": "unknown"]
-                if handle >= 0, let data = ConnectmobilePath(handle, 3000).data(using: .utf8),
-                   let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], o["route"] is String {
-                    out = o
-                }
-                reply.resolve(out)
-            }
-        }
+        // The path watch's last answer; the app reads it once and then hears each change as a link.path event.
+        view.handle("link.path") { _, reply in reply.resolve(PathEvents.parse(DshtailcatLastPath())) }
         view.handle("link.scan") { [self] _, reply in
             guard let host else { return reply.reject("cancelled") }
             scanner = Scanner.present(from: host) { [weak self] result in
@@ -224,6 +218,7 @@ final class Link {
         }
         let normal = try started(ConnectmobileConnect(linkJSON, ""))
         tunnel = normal.handle
+        DshtailcatWatchPath(normal.handle, pathEvents)
         do {
             bridge = try Bridge(invitation: inv, tailcatPort: normal.port, forwardToken: normal.token)
         } catch {
@@ -240,6 +235,7 @@ final class Link {
     }
 
     private static func disconnect() {
+        DshtailcatStopPath()
         bridge?.close()
         bridge = nil
         if tunnel >= 0 { ConnectmobileStop(tunnel); tunnel = -1 }
@@ -288,5 +284,20 @@ final class Link {
         if status == 410 { throw LinkFailure("link/expired") }
         if status >= 400 { throw LinkFailure("link/refused:\(status)") }
         return data
+    }
+}
+
+/// Hears Dshtailcat's path watch (a Go thread) and sends each route to the app as the `link.path` event.
+final class PathEvents: NSObject, DshtailcatPathListenerProtocol {
+    weak var view: NshAppView?
+
+    func changed(_ path: String?) {
+        let p = PathEvents.parse(path ?? "")
+        DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.view?.send("link.path", p) } }
+    }
+
+    static func parse(_ json: String) -> [String: Any] {
+        guard let o = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any], o["route"] is String else { return ["route": "unknown"] }
+        return o
     }
 }

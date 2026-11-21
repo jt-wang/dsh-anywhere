@@ -1,5 +1,5 @@
 // DSH on the phone: the same chats as DSH Desktop, read and driven through DSH's own protocol.
-import { effect, host, Keyboard, mount, openUrl, safeAreaInsets, signal, Text, untracked, View } from 'nsh'
+import { effect, host, Keyboard, locale, mount, openUrl, safeAreaInsets, signal, Text, untracked, View } from 'nsh'
 import { createNavStack, Input, NavPage, NavStack } from 'nsh/base'
 import { asks, backgroundWatch, boot, dsh, linkError, linking, loaded, network, news, pairEmoji, pairWith, pending, PRIVACY_URL, refreshLists, scan, settings, started, trying, tryIt, turnErrors, unlink } from './src/state.ts'
 import { Attention } from './src/notify.tsx'
@@ -12,7 +12,9 @@ import { DiagnosticsSettings } from './src/diagnostics-settings.tsx'
 import { HomeTabs, markSeen, progressAvailable, ProgressFeed, ProgressScreen, ProjectPage } from './src/progress.tsx'
 import { loadPrefs } from './src/prefs.ts'
 import { forkChat, RenameSheet } from './src/manage.tsx'
-import { readable, S } from './src/strings.ts'
+import { language, readable, S } from './src/strings.ts'
+import { PluginsPage } from './src/plugins.tsx'
+import { pluginStrings } from './src/plugins-strings.ts'
 import { ActionSheetHost, HeaderMenu, IconButton } from './src/ui.tsx'
 import { SelectTextHost } from './src/copy.tsx'
 import { TrajectoryPage } from './src/trajectory.tsx'
@@ -29,7 +31,7 @@ import './assets/fonts/Geist-Medium.ttf'
 import './assets/fonts/Geist-SemiBold.ttf'
 import './assets/fonts/GeistMono-Regular.ttf'
 
-type Route = { name: 'sessions' } | { name: 'project'; id: string; title: string } | { name: 'schedules' } | { name: 'settings' } | { name: 'diagnostics' } | { name: 'chat'; session: Summary; child?: ChildOf; at?: string } | { name: 'trajectory'; session: Summary } | { name: 'details'; session: Summary }
+type Route = { name: 'sessions' } | { name: 'project'; id: string; title: string } | { name: 'schedules' } | { name: 'settings' } | { name: 'diagnostics' } | { name: 'plugins' } | { name: 'chat'; session: Summary; child?: ChildOf; at?: string } | { name: 'trajectory'; session: Summary } | { name: 'details'; session: Summary }
   | { name: 'files'; session: Summary; path: string; file?: FileEntry } // a folder ('' the workspace root) or, with `file`, one file
   | { name: 'terminals'; session: Summary } | { name: 'terminal'; session: Summary; target: TerminalTarget; title?: string }
 const HEADER = 'bg-background text-foreground tint-foreground'
@@ -155,7 +157,9 @@ function App() {
     : route.name === 'schedules'
     ? <NavPage title={S.schedules} headerClass={HEADER} class="bg-background"><SchedulesScreen /></NavPage>
     : route.name === 'settings'
-    ? <NavPage title={S.settings} headerClass={HEADER} class="bg-background"><SettingsPage onDiagnostics={() => nav.push({ name: 'diagnostics' })} /></NavPage>
+    ? <NavPage title={S.settings} headerClass={HEADER} class="bg-background"><SettingsPage onDiagnostics={() => nav.push({ name: 'diagnostics' })} onPlugins={() => nav.push({ name: 'plugins' })} /></NavPage>
+    : route.name === 'plugins'
+    ? <NavPage title={pluginStrings(language() === 'system' ? locale() : language()).title} headerClass={HEADER} class="bg-background"><PluginsPage /></NavPage>
     : route.name === 'diagnostics'
     ? <NavPage title={S.diagnostics.title} headerClass={HEADER} class="bg-background"><DiagnosticsSettings /></NavPage>
     : route.name === 'project'

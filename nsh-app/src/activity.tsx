@@ -3,7 +3,7 @@
 // its own at the top, then the chat's work: the goal, the to-dos, the subagents and the background jobs. Active items lead; finished ones fold under a line of their own. Pinned,
 // the whole panel sits above the composer instead and the header button steps aside (for every chat, kept on the phone);
 // while the person types it is one line, unless they turn that off in its menu.
-import { cleanup, effect, keyboardFrame, Overlay, Scroll, signal, Storage, Text, untracked, View, type Bounds, type Signal, type ViewRef } from 'nsh'
+import { cleanup, effect, Keyboard, keyboardFrame, Overlay, Scroll, signal, Storage, Text, untracked, View, type Bounds, type Signal, type ViewRef } from 'nsh'
 import { activeOf, shows, todoParts, type Activity } from './activity.ts'
 import { detailsOf, tokens } from './details.ts'
 import { isLive, sections, type Job } from './jobs.ts'
@@ -85,6 +85,8 @@ export function ActivityPanel(props: { activity: ChatActivity } & Opens) {
   const a = props.activity
   let anchor: ViewRef | undefined
   const close = () => { a.closedAt.at = Date.now(); a.open.set(false) }
+  // Opened while typing: the keyboard goes, or the panel's lower part would be under it.
+  effect(() => { if (a.open()) untracked(() => Keyboard.dismiss()) })
   return (
     <>
       <View ref={anchor} class="absolute top-0 right-[10px] w-[1px] h-[1px]" style={{ pointerEvents: 'none' }} />

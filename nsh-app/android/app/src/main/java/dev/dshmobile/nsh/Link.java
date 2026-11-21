@@ -44,6 +44,8 @@ final class Link {
     private static long tunnel = -1;
     private static Bridge bridge;
     private static final long PAIR_OP = 1; // connectmobile's cancellable-operation number; one pairing at a time
+    // Where the tunnel's route goes as it changes (Dshtailcat.watchPath): the app's one source of "direct" or "relay".
+    private static volatile NshView pathView;
 
     Link(Activity activity) {
         this.activity = activity;
@@ -54,6 +56,7 @@ final class Link {
 
     void attach(NshView view) {
         this.view = view;
+        pathView = view;
         // A new tunnel takes the setting (connectmobile reads it at Connect), so the app asks link.state again after.
         view.handle("link.tailcatOnly", (data, reply) -> work.execute(() -> {
             Object on = data instanceof Map ? ((Map<?, ?>) data).get("on") : null;
@@ -89,22 +92,9 @@ final class Link {
             } catch (Exception e) { out.put("error", "unreadable"); }
             reply.resolve(out);
         }).start());
-        // TailPocket's current route kind and DERP/relay metadata, or {route: "unknown"}.
-        // Off the link's own thread: the answer may take up to three seconds (Connectmobile.path).
-        view.handle("link.path", (data, reply) -> new Thread(() -> {
-            long handle = tunnel;
-            java.util.Map<String, Object> out = new java.util.HashMap<>();
-            out.put("route", "unknown");
-            if (handle >= 0) {
-                try {
-                    JSONObject o = new JSONObject(Connectmobile.path(handle, 3000));
-                    if (o.has("route")) {
-                        for (java.util.Iterator<String> keys = o.keys(); keys.hasNext();) { String k = keys.next(); out.put(k, o.get(k)); }
-                    }
-                } catch (Exception e) { /* unknown */ }
-            }
-            reply.resolve(out);
-        }).start());
+        // How the tunnel reaches the computer now: the path watch's last answer (connectmobile's Path), or {route: "unknown"}.
+        // The app reads it once and then hears each change as a link.path event.
+        view.handle("link.path", (data, reply) -> reply.resolve(pathOf(Dshtailcat.lastPath())));
         view.handle("link.scan", (data, reply) -> activity.runOnUiThread(() ->
             GmsBarcodeScanning.getClient(activity, new GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
                 .startScan()
@@ -230,6 +220,7 @@ final class Link {
         } catch (Exception ignored) { /* the plain Link */ }
         JSONObject normal = started(Connectmobile.connect(linkJson.toString(), ""));
         tunnel = normal.getLong("handle");
+        Dshtailcat.watchPath(tunnel, Link::pathChanged);
         try {
             bridge = new Bridge(inv, normal.getInt("port"), normal.getString("token"));
         } catch (Exception e) {
@@ -245,7 +236,23 @@ final class Link {
         return bridge.port();
     }
 
+    private static void pathChanged(String path) {
+        NshView v = pathView;
+        if (v != null) { Map<String, Object> p = pathOf(path); v.post(() -> v.send("link.path", p)); }
+    }
+
+    private static Map<String, Object> pathOf(String json) {
+        Map<String, Object> out = new HashMap<>();
+        out.put("route", "unknown");
+        try {
+            JSONObject o = new JSONObject(json);
+            if (o.has("route")) for (java.util.Iterator<String> keys = o.keys(); keys.hasNext();) { String k = keys.next(); out.put(k, o.get(k)); }
+        } catch (Exception e) { /* unknown */ }
+        return out;
+    }
+
     private static synchronized void disconnect() {
+        Dshtailcat.stopPath();
         if (bridge != null) { bridge.close(); bridge = null; }
         if (tunnel >= 0) { Connectmobile.stop(tunnel); tunnel = -1; }
     }

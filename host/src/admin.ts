@@ -93,6 +93,19 @@ export function createMobileAdminRoutes(options: AdminOptions): MobileAdminRoute
     }
   };
 
+  // What phones changed in this computer's DSH settings and plugins (dsh-relay.ts phoneChange): who, which call, what
+  // it named and when; never a value, a key or a credential.
+  const phoneChanges = async (): Promise<Response> => {
+    const result = await run(['phone-changes', '--config', options.configPath]);
+    if (result.code !== 0) return failure(503, 'unavailable', 'The list of changes from phones is unavailable.');
+    try {
+      const value = JSON.parse(result.out) as { items?: unknown };
+      return json(200, { items: Array.isArray(value.items) ? value.items : [] });
+    } catch {
+      return failure(503, 'unavailable', 'The list of changes from phones is unavailable.');
+    }
+  };
+
   const pair = async (request: Request): Promise<Response> => {
     let body: unknown;
     try { body = await request.json(); } catch { return failure(400, 'invalid_request', 'The pairing request is not valid JSON.'); }
@@ -193,6 +206,7 @@ export function createMobileAdminRoutes(options: AdminOptions): MobileAdminRoute
   return [
     { path: '/api/dsh-anywhere/status', methods: ['GET'], requestBody: 'buffered', fetch: status },
     { path: '/api/dsh-anywhere/devices', methods: ['GET'], requestBody: 'buffered', fetch: devices },
+    { path: '/api/dsh-anywhere/phone-changes', methods: ['GET'], requestBody: 'buffered', fetch: phoneChanges },
     { path: '/api/dsh-anywhere/pair', methods: ['POST'], requestBody: 'buffered', fetch: pair },
     { path: '/api/dsh-anywhere/revoke', methods: ['POST'], requestBody: 'buffered', fetch: revoke },
     { path: '/api/dsh-anywhere/pairing', methods: ['POST'], requestBody: 'buffered', fetch: pairing },

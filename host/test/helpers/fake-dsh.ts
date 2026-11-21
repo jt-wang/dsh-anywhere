@@ -10,6 +10,8 @@ export const TOKEN = 'synthetic-launch-token', KEY = 'synthetic-device-key-01234
 export async function fakeDsh(t: TestContext) {
   const seen: { path: string; host?: string; cookie?: string; origin?: string; authorization?: string }[] = [];
   let logins = 0, session = 'session-1';
+  /** Methods answered as DSH answers them ({ result: { ok, value } }); anything else is echoed. */
+  const answers = new Map<string, (args: any) => unknown>();
   const wss = new WebSocketServer({ noServer: true });
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
@@ -22,7 +24,13 @@ export async function fakeDsh(t: TestContext) {
     if (!url.pathname.startsWith('/api/')) { res.writeHead(404); return res.end(); }
     if (req.headers.cookie !== `dshs_${req.headers.host}=${session}`) { res.writeHead(401); return res.end('unauthorized'); }
     let body = ''; req.setEncoding('utf8'); req.on('data', c => { body += c; });
-    req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ echoed: JSON.parse(body || 'null'), path: url.pathname })); });
+    req.on('end', () => {
+      const parsed = JSON.parse(body || 'null'), answer = answers.get(url.pathname.slice('/api/'.length));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (!answer) return res.end(JSON.stringify({ echoed: parsed, path: url.pathname }));
+      try { res.end(JSON.stringify({ type: 'server-response', rpcId: parsed?.rpcId, result: { ok: true, value: answer(parsed?.payload?.args) } })); }
+      catch (error) { res.end(JSON.stringify({ type: 'server-response', rpcId: parsed?.rpcId, result: { ok: false, error: { code: String((error as Error).message), message: '' } } })); }
+    });
   });
   server.on('upgrade', (req, socket, head) => {
     seen.push({ path: req.url ?? '', host: req.headers.host, cookie: req.headers.cookie });
@@ -32,6 +40,6 @@ export async function fakeDsh(t: TestContext) {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise<void>(resolve => { for (const client of wss.clients) client.terminate(); wss.close(); server.closeAllConnections(); server.close(() => resolve()); }));
   const port = (server.address() as AddressInfo).port;
-  return { origin: `http://127.0.0.1:${port}`, seen, logins: () => logins, rotate: () => { session = 'session-2'; } };
+  return { origin: `http://127.0.0.1:${port}`, seen, answers, logins: () => logins, rotate: () => { session = 'session-2'; } };
 }
 

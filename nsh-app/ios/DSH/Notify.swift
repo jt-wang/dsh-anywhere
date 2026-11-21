@@ -6,6 +6,7 @@
 // chat runs, the app asks iOS for background time to keep watching. iOS gives a few tens of seconds, not a foreground
 // service: news from a turn that ends later waits for the app to come back (a push from the computer would need APNs).
 // app.state → {active}; the `app.state` event {active} when the app comes to the screen or leaves it.
+import Dshtailcat
 import NativeShell
 import UIKit
 import UserNotifications
@@ -119,6 +120,7 @@ final class Notify: NSObject, UNUserNotificationCenterDelegate {
     private func activeChanged(_ now: Bool) {
         guard now != active else { return }
         active = now
+        DshtailcatSetPathActive(now) // the route is asked only on screen
         if now { endWatching() } else if watch != nil { beginWatching() }
         view?.send("app.state", ["active": now])
     }

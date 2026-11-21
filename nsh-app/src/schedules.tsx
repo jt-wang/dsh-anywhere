@@ -3,12 +3,11 @@
 // on 0.2.1, schedule/edit on 0.2.2). The phone does not create, edit or pause tasks: they come from the agent's tools
 // and DSH Desktop.
 import { cleanup, effect, List, signal, Scroll, Text, untracked, View } from 'nsh'
-import { Sheet } from 'nsh/base'
 import { dsh, pollForeground } from './state.ts'
 import { ConnectionBar } from './status.tsx'
 import { deleteCall, deleted, formatAt, frequency, historyCall, historyOf, lastSent, nextRun, tasksOf, type Delivery, type HistoryPage, type Task, type TaskStatus } from './schedules.ts'
 import { readable, S } from './strings.ts'
-import { Grabber, haptic, SCRIM, SHEET, sheetBottom } from './ui.tsx'
+import { BottomSheet, Grabber, haptic, sheetBottom } from './ui.tsx'
 
 /** The phone's own zone, so a rule in it reads without its zone; undefined where the runtime cannot say. */
 const phoneZone = (() => { try { return new Intl.DateTimeFormat().resolvedOptions().timeZone } catch { return undefined } })()
@@ -112,7 +111,7 @@ function TaskSheet(props: { task: () => Task | undefined; onClose: () => void; o
   }
   const t = () => props.task()
   return (
-    <Sheet open={Boolean(t())} onOpenChange={(e) => { if (!e.open) props.onClose() }} closeOnSwipe popupClass={SHEET} backdropStyle={SCRIM}>
+    <BottomSheet open={Boolean(t())} onOpenChange={(e) => { if (!e.open) props.onClose() }}>
       <View class="pt-3" style={{ paddingBottom: sheetBottom(), maxHeight: 640 }} testID="schedule-sheet">
         <Grabber />
         <Scroll class="px-5" style={{ flexShrink: 1 }}>
@@ -169,6 +168,6 @@ function TaskSheet(props: { task: () => Task | undefined; onClose: () => void; o
           </If>
         </Scroll>
       </View>
-    </Sheet>
+    </BottomSheet>
   )
 }
