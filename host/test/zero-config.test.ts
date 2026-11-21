@@ -14,6 +14,7 @@ import { HOST_VERSION } from '../src/phone.ts';
 import { currentConfigPath, dataFolder, defaultConfigPath, LEGACY_DATA_FOLDER, legacyCompanionActive, runningDshVersion } from '../src/zero-config.ts';
 import { setupTailcat } from '../src/setup-tailcat.ts';
 import { SHIPPED_COMPUTERS } from '../src/tailcat-connector.ts';
+import { assertPrivate } from '../src/private-files.ts';
 
 const FAKE_HELPER = fileURLToPath(new URL('./fixtures/fake-tailcat-helper.mjs', import.meta.url));
 
@@ -112,7 +113,7 @@ test('a bundle row with no configuration sets up Tailcat once, with the running 
   const created = JSON.parse(readFileSync(configPath, 'utf8'));
   assert.equal(created.dshVersion, '0.2.1-rc.3');
   assert.equal(created.tailcat.enabled, true);
-  assert.equal(statSync(configPath).mode & 0o077, 0, 'owner-only');
+  await ownerOnly(configPath);
   const hostId = created.tailcat.hostId;
   // Second start reuses the identity. Point it at the fake helper and a free port (the default 19445 may be in use here).
   writeFileSync(configPath, JSON.stringify({ ...created, port: await freePort(), tailcat: { ...created.tailcat, helperPath: FAKE_HELPER } }, null, 2), { mode: 0o600 });
@@ -121,6 +122,11 @@ test('a bundle row with no configuration sets up Tailcat once, with the running 
   assert.equal(JSON.parse(readFileSync(configPath, 'utf8')).tailcat.hostId, hostId, 'never regenerated');
   assert.match(readFileSync(join(configPath, '..', 'companion.log'), 'utf8'), new RegExp(`running ${HOST_VERSION.replaceAll('.', '\\.')}`));
 });
+
+/** Mode bits on a Mac and Linux; on Windows, which has none, the ACL: only this user, nothing inherited. */
+async function ownerOnly(path: string) {
+  if (process.platform === 'win32') await assertPrivate(path); else assert.equal(statSync(path).mode & 0o077, 0, 'owner-only');
+}
 
 /** A private folder as 0.8.2 and earlier left it, under the old name: setup-tailcat's files plus a paired-phone database. */
 async function legacyFolder(): Promise<{ legacy: string; current: string; hostId: string }> {
@@ -136,7 +142,7 @@ async function assertMoved(legacy: string, current: string, hostId: string) {
   assert.equal(text.includes(LEGACY_DATA_FOLDER), false, 'host.json names no file in the old folder');
   assert.equal(JSON.parse(text).tailcat.hostId, hostId, 'same identity: paired phones keep working');
   assert.equal(readFileSync(join(current, 'host', 'state', 'host.sqlite'), 'utf8'), 'paired phones');
-  if (process.platform !== 'win32') assert.equal(statSync(configPath).mode & 0o077, 0, 'owner-only');
+  await ownerOnly(configPath);
   // The companion's own check of an existing configuration accepts it as it is (no new identity).
   assert.equal((await setupTailcat({ configPath, dshVersion: '0.2.1-rc.3' })).existing, true);
 }
