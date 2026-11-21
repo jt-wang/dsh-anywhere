@@ -53,6 +53,9 @@ def gate():
     status_only = os.environ.get('DSH_STATUS_ONLY', 'false')
     if status_only not in ('false', 'true') or (status_only == 'true' and os.environ['DSH_UPLOAD'] == 'true'):
         raise ConfigurationError('status_only must be boolean and cannot upload')
+    submit_beta = os.environ.get('DSH_SUBMIT_BETA', 'false')
+    if submit_beta not in ('false', 'true') or (submit_beta == 'true' and 'true' in (os.environ['DSH_UPLOAD'], status_only)):
+        raise ConfigurationError('submit_beta must be boolean and runs alone: no upload, no status_only')
 
 
 def preflight():

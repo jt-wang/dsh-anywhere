@@ -25,6 +25,21 @@ name: TestFlight
         required: true
         default: false
         type: boolean
+      submit_beta:
+        description: Add the VALID build to the external group behind public_link and submit it for Beta App Review (never App Store review)
+        required: false
+        default: false
+        type: boolean
+      public_link:
+        description: submit_beta only. The code after https://testflight.apple.com/join/
+        required: false
+        default: ''
+        type: string
+      what_to_test:
+        description: submit_beta only. What to Test (en-US), 1 to 4000 characters
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -40,6 +55,7 @@ env:
   DSH_BUILD: ${{ inputs.build }}
   DSH_UPLOAD: ${{ inputs.upload }}
   DSH_STATUS_ONLY: ${{ inputs.status_only }}
+  DSH_SUBMIT_BETA: ${{ inputs.submit_beta }}
   NSH_COMMIT: 7b3031fb7c9b93b0dee65f48a227bcf15d2bda38
 
 jobs:
@@ -57,7 +73,7 @@ jobs:
   archive:
     needs: gate
     if: >-
-      inputs.status_only != true &&
+      inputs.status_only != true && inputs.submit_beta != true &&
       github.repository == 'jt-wang/dsh-anywhere' &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
       inputs.source_sha == github.sha
@@ -184,5 +200,37 @@ jobs:
         with:
           name: dsh-testflight-status-${{ github.run_id }}
           path: ${{ runner.temp }}/asc-status.json
+          if-no-files-found: error
+          retention-days: 14
+
+  submit:
+    needs: gate
+    if: >-
+      inputs.submit_beta == true && inputs.upload == false && inputs.status_only == false &&
+      github.repository == 'jt-wang/dsh-anywhere' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      inputs.source_sha == github.sha
+    environment: apple-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Add the VALID build to the public group and submit it for Beta App Review, never App Store review
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_P8: ${{ secrets.ASC_PRIVATE_KEY_P8 }}
+          DSH_PUBLIC_LINK: ${{ inputs.public_link }}
+          DSH_WHAT_TO_TEST: ${{ inputs.what_to_test }}
+        run: python3 nsh-app/ios/asc_submit_beta.py --output "$RUNNER_TEMP/asc-submit.json"
+      - name: Retain only the allowlisted ASC receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dsh-testflight-submit-${{ github.run_id }}
+          path: ${{ runner.temp }}/asc-submit.json
           if-no-files-found: error
           retention-days: 14

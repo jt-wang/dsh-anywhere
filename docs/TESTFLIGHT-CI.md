@@ -22,6 +22,19 @@ gh workflow run testflight.yml --ref main \
   -f build="$PROPOSED_BUILD" -f upload=false -f status_only=true
 ```
 
+## Submit a VALID build for Beta App Review
+
+Set `submit_beta=true` with `upload=false` and `status_only=false` to put one VALID build on the external group behind a public TestFlight link and submit it for Beta App Review. It never builds, never touches another build or group, and never submits for App Store review. `public_link` is the code after `https://testflight.apple.com/join/`; exactly one external group must have that link. `what_to_test` is the en-US What to Test text (1 to 4000 characters). Each step is skipped when App Store Connect already has it, so a rerun is safe. The ASC key needs the App Manager or Admin role; a weaker key fails with Apple's error code in the receipt.
+
+```sh
+gh workflow run testflight.yml --ref main \
+  -f source_sha="$MAIN_SHA" -f version="$RELEASE_VERSION" -f build="$BUILD" \
+  -f upload=false -f status_only=false -f submit_beta=true \
+  -f public_link="$LINK_CODE" -f what_to_test="$WHAT_TO_TEST"
+```
+
+The `dsh-testflight-submit-<run_id>` artifact contains `asc-submit.json`: what was written, whether the group has the build, and the `beta_review_state` read back afterwards.
+
 ## Repository setup
 
 A repository administrator creates the `apple-release` environment and restricts its deployment branches to the exact default branch, with no tag rule. Required reviewers are optional. Store the following as **environment secrets**, so the branch restriction protects their use:

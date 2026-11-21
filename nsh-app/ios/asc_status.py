@@ -72,11 +72,15 @@ def safe_url(url):
 def token(env, url):
     # One exact GET path AND encoded query per two-minute team-key token.
     parsed = urllib.parse.urlsplit(safe_url(url))
-    target = parsed.path + ('?' + parsed.query if parsed.query else '')
+    return jwt(env, ['GET ' + parsed.path + ('?' + parsed.query if parsed.query else '')])
+
+
+def jwt(env, scope):
+    # A two-minute team-key token; Apple scopes only GET requests, so a write passes scope=None.
     now = int(time.time())
     header = {'alg': 'ES256', 'kid': env['ASC_KEY_ID'], 'typ': 'JWT'}
-    payload = {'iss': env['ASC_ISSUER_ID'], 'iat': now, 'exp': now + 120,
-               'aud': 'appstoreconnect-v1', 'scope': ['GET ' + target]}
+    payload = {'iss': env['ASC_ISSUER_ID'], 'iat': now, 'exp': now + 120, 'aud': 'appstoreconnect-v1',
+               **({'scope': scope} if scope else {})}
     message = '.'.join(b64(json.dumps(p, separators=(',', ':')).encode()) for p in (header, payload))
     child_env = {k: v for k, v in env.items() if k not in ('APPLE_TEAM_ID', 'API_PRIVATE_KEYS_DIR')
                  and not k.startswith(('ASC_', 'IOS_DISTRIBUTION_', 'IOS_PROVISION_'))}
@@ -91,6 +95,24 @@ def token(env, url):
             raise StatusError('JWT signing failed')
         signature = raw_signature(result.stdout)
     return message + '.' + b64(signature)
+
+
+def error_codes(exc, allowed):
+    # Never expose Apple's messages, IDs, headers, URLs, or response body: only its allowed error codes.
+    codes = set()
+    try:
+        body = exc.read(65537)
+        data = json.loads(body) if len(body) <= 65536 else None
+        errors = data.get('errors') if isinstance(data, dict) else None
+        for error in errors if isinstance(errors, list) else []:
+            code = error.get('code') if isinstance(error, dict) else None
+            if isinstance(code, str) and allowed(code):
+                codes.add(code)
+    except (ValueError, OSError, TimeoutError, RecursionError):
+        pass
+    finally:
+        exc.close()
+    return ' (codes: ' + ', '.join(sorted(codes)) + ')' if codes else ''
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -116,22 +138,7 @@ class Client:
             with self.opener.open(request, timeout=min(30, remaining)) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
-            # Never expose Apple's messages, IDs, headers, URLs, or response body.
-            codes = set()
-            try:
-                body = exc.read(65537)
-                data = json.loads(body) if len(body) <= 65536 else None
-                errors = data.get('errors') if isinstance(data, dict) else None
-                for error in errors if isinstance(errors, list) else []:
-                    code = error.get('code') if isinstance(error, dict) else None
-                    if isinstance(code, str) and code in ERROR_CODES:
-                        codes.add(code)
-            except (ValueError, OSError, TimeoutError, RecursionError):
-                pass
-            finally:
-                exc.close()
-            suffix = ' (codes: ' + ', '.join(sorted(codes)) + ')' if codes else ''
-            raise StatusError('ASC HTTP ' + str(exc.code) + suffix) from None
+            raise StatusError('ASC HTTP ' + str(exc.code) + error_codes(exc, ERROR_CODES.__contains__)) from None
         except (urllib.error.URLError, TimeoutError):
             raise StatusError('ASC network error or request timeout') from None
 

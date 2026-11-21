@@ -47,6 +47,19 @@ class Workflow(unittest.TestCase):
         self.assertIn('asc_status.py', step['run'])
         self.assertNotIn('testflight_ci.py archive', step['run'])
 
+    def test_submit_beta_has_no_build_credentials_and_never_builds(self):
+        self.assertIn('inputs.submit_beta != true', self.workflow['jobs']['archive']['if'])
+        self.assertIs(self.workflow['on']['workflow_dispatch']['inputs']['submit_beta']['default'],False)
+        job = self.workflow['jobs']['submit']
+        self.assertIn('inputs.submit_beta == true && inputs.upload == false && inputs.status_only == false', job['if'])
+        self.assertIn('inputs.source_sha == github.sha', job['if'])
+        self.assertEqual(job['environment'], 'apple-release')
+        step = next(s for s in job['steps'] if 'ASC_KEY_ID' in s.get('env', {}))
+        self.assertEqual(set(step['env']), {'ASC_KEY_ID','ASC_ISSUER_ID','ASC_PRIVATE_KEY_P8',
+                                            'DSH_PUBLIC_LINK','DSH_WHAT_TO_TEST'})
+        self.assertIn('asc_submit_beta.py', step['run'])
+        self.assertNotIn('testflight_ci.py archive', step['run'])
+
     def test_pinned_xcodegen_download_checksum_and_success(self):
         step = next(s for s in self.workflow['jobs']['archive']['steps'] if s.get('id') == 'xcodegen')
         self.assertEqual(step.get('env', {}).get('XCODEGEN_VERSION'), '2.45.4')
