@@ -182,7 +182,7 @@ export const JA: Strings = {
   pathLan: 'ローカルネットワークでパソコンに接続', pairEmoji: 'パソコンに同じ絵文字が表示されていることを確かめて、パソコンで承認してください。', tailcatOnly: 'Tailcat のみ', tailcatOnlyHint: '自分のリレーとローカルネットワークを使いません。Tailcat 自身の暗号化リレーは使用する場合があります。',
   appVersion: 'バージョン（ビルド）', versionUnavailable: '取得できません',
   dshVersion: 'DSH バージョン', companionVersion: 'コンパニオンのバージョン', unlinkHint: '新しいペアリングコードをスキャンするまで、このスマートフォンからパソコンに接続できなくなります。',
-  appearance: '外観', themeSystem: 'システムに合わせる', themeLight: 'ライト', themeDark: 'ダーク', language: '言語', languageSystem: 'システムに合わせる',
+  appearance: '外観', themeSystem: 'システム', themeLight: 'ライト', themeDark: 'ダーク', language: '言語', languageSystem: 'システムに合わせる',
   notifications: '通知', notifyAnswers: '回答の完了または停止', notifyDecisions: 'エージェントが判断を求めたとき', notifyBanners: 'アプリ使用中のバナー',
   notifyBackground: 'バックグラウンドで監視を続ける', notifyBackgroundHint: 'エージェントの作業中は、常駐通知によりスマートフォンが待ち受けを続けます。',
   notifyDenied: 'DSH の通知はスマートフォンの設定でオフになっています。', notifyAllow: '通知をオンにする', openSystemSettings: 'スマートフォンの設定を開く',

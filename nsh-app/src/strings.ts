@@ -210,7 +210,7 @@ const EN = {
   pathLan: 'Over the local network to your computer', pairEmoji: 'Check that your computer shows these same emoji, then confirm there.', tailcatOnly: 'Tailcat only', tailcatOnlyHint: 'Skip your relay and the local network. Tailcat may still use its own encrypted relay.',
   appVersion: 'Version (build)', versionUnavailable: 'Unavailable',
   dshVersion: 'DSH version', companionVersion: 'Companion version', unlinkHint: 'This phone stops reaching the computer until you scan a new pairing code.',
-  appearance: 'Appearance', themeSystem: 'System', themeLight: 'Light', themeDark: 'Dark', language: 'Language', languageSystem: 'System',
+  appearance: 'Appearance', themeSystem: 'System', themeLight: 'Light', themeDark: 'Dark', language: 'Language', languageSystem: 'Follow system',
   notifications: 'Notifications', notifyAnswers: 'Answer ready or stopped', notifyDecisions: 'Agent needs your decision', notifyBanners: 'Banners while in the app',
   notifyBackground: 'Keep watching in the background', notifyBackgroundHint: 'While an agent works, an ongoing notification keeps the phone listening.',
   notifyDenied: 'Notifications for DSH are off in the phone’s settings.', notifyAllow: 'Turn on notifications', openSystemSettings: 'Open phone settings',

@@ -7,7 +7,7 @@ import { Switch } from 'nsh/base'
 import { appActive, connection, dsh, pollForeground, PRIVACY_URL, routeWords, setTailcatOnly, tailcatOnly, trying, unlink, type LinkPath } from './state.ts'
 import { language, S, type Language } from './strings.ts'
 import { notifyPrefs, setLanguage, setNotify, setTheme, theme, type NotifyPrefs, type Theme } from './prefs.ts'
-import { Icon } from './ui.tsx'
+import { chooseAction, Icon } from './ui.tsx'
 import { ProgressSetting } from './progress.tsx'
 import { CATEGORIES, diagnostics } from './diagnostics.ts'
 import { DesktopSettings } from './desktop-settings.tsx'
@@ -135,16 +135,18 @@ export function SettingsPage(props: { onDiagnostics: () => void }) {
         ))}
       </View>
 
-      <Label text={S.language} />
-      <Group>
-        {LANGUAGES.map((l, i) => (
-          <View role="radio" testID={`language-${l.id}`} accessibilityLabel={l.name()} onPress={() => setLanguage(l.id)}
-            class={`flex-row items-center gap-3 px-[14px] py-[11px] active:bg-secondary ${i ? 'border-t border-border' : ''}`}>
-            <Text class="flex-1 text-foreground text-[15px]">{l.name()}</Text>
-            <If when={language() === l.id}><Icon name="check" size={18} class="tint-foreground" /></If>
-          </View>
-        ))}
-      </Group>
+      {/* One row with the choice, a sheet to change it (as iOS and Android Settings do): "Follow system" and every
+          language in its own words, the current one checked. */}
+      <View role="button" testID="settings-language" accessibilityLabel={`${S.language}, ${LANGUAGES.find((l) => l.id === language())?.name() ?? ''}`}
+        onPress={async () => {
+          const id = await chooseAction({ title: S.language, actions: LANGUAGES.map((l) => ({ id: l.id, label: l.name(), checked: language() === l.id })) })
+          if (id) setLanguage(id as Language)
+        }}
+        class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center gap-3 active:bg-secondary">
+        <Text class="flex-1 text-foreground text-[15px]">{S.language}</Text>
+        <Text testID="settings-language-value" class="text-muted-foreground text-[15px]">{LANGUAGES.find((l) => l.id === language())?.name() ?? ''}</Text>
+        <Icon name="chevronRight" size={18} class="tint-muted-foreground" />
+      </View>
 
       <Label text={S.notifications} />
       <If when={granted() === false}>

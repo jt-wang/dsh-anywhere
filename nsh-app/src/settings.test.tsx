@@ -63,7 +63,7 @@ test('the installed app version remains readable without the computer; a failed 
   const app = await settings(true, true)
   await app.waitFor('text:2.4.9 (314)')
   expect(app.texts().includes('Studio')).toBe(false)
-  await app.press('id:language-zh')
+  await app.press('id:settings-language'); await app.press('id:action-zh')
   await app.waitFor('text:版本（构建号）')
   expect(app.texts().includes('2.4.9 (314)')).toBe(true)
   const failed = await settings(true, true, () => { throw new Error('app.info/unavailable') })
@@ -71,12 +71,39 @@ test('the installed app version remains readable without the computer; a failed 
   expect(failed.texts().includes('2.4.9 (314)')).toBe(false)
 })
 
-test('a language picked in Settings changes the app\'s words at once', async () => {
+test('Language is one row with the choice; its sheet lists Follow system and each language in its own words, checked', async () => {
   const app = await settings(true)
-  await app.press('id:language-ru')
+  expect(app.shows('id:settings-language >> text:Follow system')).toBe(true)
+  expect(app.shows('text:Русский')).toBe(false)
+  await app.press('id:settings-language'); await app.waitFor('id:action-sheet')
+  expect(['Follow system', '简体中文', '繁體中文', 'English', 'Español', 'Français', '한국어', '日本語', 'Русский'].every((n) => app.shows(`id:action-sheet >> text:${n}`))).toBe(true)
+  expect(app.shows('id:action-system-on')).toBe(true); expect(app.shows('id:action-ru-on')).toBe(false)
+  await app.press('id:action-ru')
   await app.waitFor('text:Компьютер')
-  await app.press('id:language-system')
+  expect(app.shows('id:settings-language >> text:Русский')).toBe(true)
+  expect(JSON.parse(app.storage().prefs).language).toBe('ru')
+  await app.press('id:settings-language'); await app.waitFor('id:action-ru-on')
+  await app.press('id:action-system')
   await app.waitFor('text:Computer')
+  expect(JSON.parse(app.storage().prefs).language).toBe('system')
+})
+
+test('Android 13+: the in-app language and the per-app language in the phone\'s settings are one choice', async () => {
+  let tag = ''
+  const language = (data?: { tag?: string }) => { if (typeof data?.tag === 'string') tag = data.tag; return { supported: true, tag } }
+  // First launch: the choice here is handed to the phone; a pick here goes there too.
+  const app = await settings(true, false, undefined, { 'app.language': language }, 'android')
+  await app.press('id:settings-language'); await app.press('id:action-zh-Hant')
+  await app.waitFor('text:電腦')
+  expect(tag).toBe('zh-Hant')
+  await app.press('id:settings-language'); await app.press('id:action-system')
+  await app.waitFor('text:Computer')
+  expect(tag).toBe('')
+  // Changed in the phone's settings while away: coming back follows it.
+  tag = 'ja-JP'
+  await app.host.send('app.state', { active: true })
+  await app.waitFor('id:settings-language >> text:日本語')
+  expect(JSON.parse(app.storage().prefs).language).toBe('ja')
 })
 
 test('with notifications off for the app, Settings says so and opens the phone\'s settings', async () => {

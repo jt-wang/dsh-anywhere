@@ -2,12 +2,15 @@ package dev.dshmobile.nsh;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Base64;
 import com.longbridge.nsh.NshHostReply;
 import com.longbridge.nsh.NshView;
@@ -22,6 +25,7 @@ final class Voice {
     private final Activity activity;
     private final Handler main = new Handler(Looper.getMainLooper());
     private Take take;
+    private NshView view;
     private boolean active = true, permissionPending;
     private static final class Take {
         final String id;
@@ -35,6 +39,19 @@ final class Voice {
     Voice(Activity activity) { this.activity = activity; }
 
     void attach(NshView view) {
+        this.view = view;
+        // Android has no "never asked": a refusal the system no longer shows a dialog for needs Settings. Remembering
+        // that the phone asked tells that apart from a first use.
+        view.handle("voice.permission", (data, reply) -> activity.runOnUiThread(() -> {
+            String state = activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ? "granted"
+                : asked() && !activity.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) ? "denied" : "undetermined";
+            reply.resolve(Map.of("state", state));
+        }));
+        view.handle("voice.settings", (data, reply) -> activity.runOnUiThread(() -> {
+            try { activity.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.getPackageName(), null))); }
+            catch (RuntimeException ignored) {}
+            reply.resolve(null);
+        }));
         view.handle("voice.record", (data, reply) -> activity.runOnUiThread(() -> {
             if (!active || take != null || permissionPending) { reply.reject("voice/busy"); return; }
             try {
@@ -48,6 +65,7 @@ final class Voice {
                 take = new Take(id, samples, reply);
                 if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                     permissionPending = true;
+                    activity.getSharedPreferences("voice", Activity.MODE_PRIVATE).edit().putBoolean("asked", true).apply();
                     activity.requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, REQUEST);
                 } else begin(take);
             } catch (RuntimeException e) {
@@ -69,6 +87,9 @@ final class Voice {
         }));
     }
 
+    private boolean asked() { return activity.getSharedPreferences("voice", Activity.MODE_PRIVATE).getBoolean("asked", false); }
+    /** The microphone's loudness, 0 to 1 on a 50 dB scale; the first one says the take is live. */
+    private void level(Take t, double value) { main.post(() -> { if (take == t && view != null) view.send("voice.level", Map.of("id", t.id, "level", value)); }); }
     private boolean matches(Object data) { return take != null && data instanceof Map && take.id.equals(((Map<?, ?>) data).get("id")); }
     void active(boolean value) { active = value; if (!active) cancel(); }
     void permissionResult(int request) {
@@ -93,11 +114,12 @@ final class Voice {
             if (t.recorder.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) throw new IllegalStateException();
             t.deadline = () -> { if (take == t) cancel(); };
             main.postDelayed(t.deadline, (long) Math.ceil(t.samples / 16.0) + 500);
+            level(t, 0);
             new Thread(() -> capture(t), "voice-pcm").start();
         } catch (RuntimeException e) {
             if (t.recorder != null) { t.recorder.release(); t.recorder = null; }
             if (take == t) take = null;
-            t.reply.reject("voice/recording");
+            t.reply.reject("voice/microphone"); // AudioRecord would not start: another app or a call holds the microphone
         }
     }
 
@@ -109,7 +131,10 @@ final class Voice {
             while (!t.stop && !t.cancel && pcm.size() / 2 < t.samples) {
                 int n = t.recorder.read(buffer, 0, Math.min(buffer.length, t.samples - pcm.size() / 2), AudioRecord.READ_BLOCKING);
                 if (n <= 0) { if (!t.cancel) error = "voice/recording"; break; }
-                for (int i = 0; i < n; i++) { pcm.write(buffer[i] & 255); pcm.write((buffer[i] >> 8) & 255); }
+                double sum = 0;
+                for (int i = 0; i < n; i++) { pcm.write(buffer[i] & 255); pcm.write((buffer[i] >> 8) & 255); sum += (double) buffer[i] * buffer[i]; }
+                double rms = Math.sqrt(sum / n) / 32768;
+                level(t, rms <= 0 ? 0 : Math.max(0, Math.min(1, (20 * Math.log10(rms) + 50) / 50)));
             }
         } catch (RuntimeException e) { error = "voice/recording"; }
         finally {
