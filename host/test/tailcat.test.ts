@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import type { TestContext } from 'node:test';
+import { createMobileAdminRoutes } from '../src/admin.ts';
 import { runAdminCli, tailcatStatusMessage } from '../src/cli.ts';
 import { loadConfiguration, prepareConfiguration } from '../src/config.ts';
 import { LOCAL_PAIRING_MAX_ATTEMPTS, LOCAL_PAIRING_SOURCE_GAP_MS, lanAddresses, localPairingCommit, localPairingSession, sameSubnet, serveLocalPairing, wireLine, x25519Private, x25519PublicRaw } from '../src/local-pairing.ts';
@@ -51,10 +52,10 @@ function fakeEnv(t: TestContext, values: Record<string, string>) {
 function readLog(path: string): Record<string, any>[] {
   return existsSync(path) ? readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
 }
-async function waitFor<T>(probe: () => T | undefined | false, timeoutMs = 5000): Promise<T> {
+async function waitFor<T>(probe: () => T | undefined | false | Promise<T | undefined | false>, timeoutMs = 5000): Promise<T> {
   const end = Date.now() + timeoutMs;
   for (;;) {
-    const value = probe();
+    const value = await probe();
     if (value) return value;
     if (Date.now() > end) throw new Error('condition not reached');
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -68,7 +69,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 async function tailcatSetup(t: TestContext) {
-  const dir = temp(t, 'dsh-mobile-tailcat-'), configPath = join(dir, 'companion', 'host.json');
+  const dir = temp(t, 'dsh-anywhere-tailcat-'), configPath = join(dir, 'companion', 'host.json');
   const result = await setupTailcat({ configPath, port: await freePort(), dshVersion: DSH, hostName: 'Synthetic Mac' });
   return { dir, configPath, result, config: await loadConfiguration(configPath) };
 }
@@ -248,6 +249,40 @@ test('CLI pairing round trip: an emoji window, bootstrap v2 renders, the compute
   state.revokeDevice(paired.deviceId); connector.sweep();
   await waitFor(() => readLog(log).some(row => row.received?.command === 'setAllowed' && row.received.allowedClients.length === 0));
   assert.deepEqual(state.tailcatAllowedClients(), []);
+});
+
+test('Settings pairing: the QR returns while the emoji window waits, the page shows the phone\'s emoji, and its answer decides', async t => {
+  const { dir, config, configPath } = await tailcatSetup(t), log = join(dir, 'helper.log');
+  fakeEnv(t, { FAKE_TAILCAT_LOG: log, FAKE_TAILCAT_AUTOPAIR: PHONE });
+  const state = new HostState(config.statePath); t.after(() => state.close());
+  const connector = createTailcatConnector({ tailcat: config.tailcat!, state, targetPort: config.port, hostName: config.hostName, helper, pollMs: 20, sweepMs: 50 });
+  t.after(() => connector.close());
+  connector.start(); await waitFor(() => connector.status().ready);
+  const routes = new Map(createMobileAdminRoutes({ configPath, dshVersion: '0.2.2', transport: 'tailcat' }).map(route => [route.path, route]));
+  const call = async (path: string, body: unknown) => {
+    const response = await routes.get(`/api/dsh-anywhere/${path}`)!.fetch(new Request('http://dsh.test/', { method: 'POST', body: JSON.stringify(body) }));
+    return { status: response.status, body: await response.json() as Record<string, any> };
+  };
+  const status = await routes.get('/api/dsh-anywhere/status')!.fetch(new Request('http://dsh.test/'));
+  assert.match((await status.json() as { hostVersion: string }).hostVersion, /^\d+\.\d+\.\d+/);
+  // Refused first: the page's no ends the window, and that code pairs nobody.
+  const first = await call('pair', { execute: true });
+  assert.equal(first.status, 200, JSON.stringify(first.body)); assert.match(first.body.svg, /^<svg/);
+  const asking = await waitFor(async () => { const view = (await call('pairing', { id: first.body.id })).body; return view.phase === 'confirm' ? view : undefined; });
+  assert.deepEqual([asking!.device, asking!.emoji.join('')], ['Synthetic phone', '🐶🌙🍕🔑']);
+  assert.equal((await call('pairing/answer', { id: first.body.id, approve: false })).body.phase, 'refused');
+  await waitFor(() => readLog(log).some(row => row.received?.command === 'confirm' && row.received.approve === false));
+  assert.deepEqual(state.tailcatAllowedClients(), []);
+  // A new code, approved: the CLI finishes and the page reads approved.
+  const second = await call('pair', { execute: true });
+  assert.equal(second.status, 200);
+  assert.equal((await call('pairing', { id: first.body.id })).status, 404, 'a new code closes the old one');
+  await waitFor(async () => (await call('pairing', { id: second.body.id })).body.phase === 'confirm');
+  assert.equal((await call('pairing/answer', { id: second.body.id, approve: 'yes' })).status, 400);
+  await call('pairing/answer', { id: second.body.id, approve: true });
+  await waitFor(async () => (await call('pairing', { id: second.body.id })).body.phase === 'approved');
+  assert.equal((await call('pairing/answer', { id: second.body.id, approve: true })).status, 409);
+  await waitFor(() => state.tailcatClientCounts().pending === 1);
 });
 
 test('a no on the computer ends the emoji window: nothing is paired and the offer is gone', async t => {

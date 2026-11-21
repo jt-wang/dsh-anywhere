@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { createFolders } from '../src/folders.ts';
@@ -16,10 +16,11 @@ import type { HostAdapter, HostConfiguration } from '../src/types.ts';
 
 const adapter = { upstreamVersion: 'synthetic', async listSessions() { return []; }, async listPresets() { return []; } } as unknown as HostAdapter;
 
-/** base/home (the owner's home), base/ws (a registered workspace outside home), base/outside (neither). */
-function layout(t: TestContext) {
+/** base/home (the owner's home), base/ws (a registered workspace outside home), base/outside (neither). A test that also
+ * starts a companion removes base itself, after closing it: Windows cannot delete the open state database. */
+function layout(t: TestContext, removeAfter = true) {
   const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-folders-')));
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  if (removeAfter) t.after(() => rmSync(base, { recursive: true, force: true }));
   const home = join(base, 'home'), ws = join(base, 'ws'), outside = join(base, 'outside');
   for (const dir of [home, ws, outside, join(home, 'projects', 'app'), join(home, 'Desktop'), join(home, '.config'), join(home, 'beta'), join(outside, 'secret')]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(home, 'notes.txt'), 'x');
@@ -30,11 +31,11 @@ function layout(t: TestContext) {
 }
 
 async function setup(t: TestContext) {
-  const dirs = layout(t);
+  const dirs = layout(t, false);
   const config: HostConfiguration = { hostName: 'Synthetic', bind: '127.0.0.1', port: 0, statePath: join(dirs.base, 'host.sqlite'), allowInsecureLoopback: true, workspaces: [{ id: 'alpha', name: 'alpha', path: dirs.ws }] };
   const host = await startHostServer({ config, adapter, folderHome: dirs.home });
   const base = (await host.start()).baseUrl;
-  t.after(() => host.close());
+  t.after(async () => { await host.close(); rmSync(dirs.base, { recursive: true, force: true }); });
   const pair = (grants: { readWorkspaceIds: string[]; executeWorkspaceIds: string[] }) => host.state.consumePairing(host.state.createPairing(grants).pairingToken, 'Synthetic phone').deviceToken;
   const owner = pair({ readWorkspaceIds: ['*'], executeWorkspaceIds: ['*'] });
   const raw = (method: string, args: Record<string, unknown>, token: string | null = owner) => fetch(`${base}/dsh/companion/${method}`, {
@@ -91,7 +92,7 @@ test('a listing is home by default: folders only, by name, links to folders foll
 
 test('nothing outside home and the registered workspaces: not by path, not by "..", not through a link', async t => {
   const { home, ws, outside, call } = await setup(t);
-  for (const path of [outside, join(outside, 'secret'), join(home, '..', 'outside'), join(home, 'escape'), '/']) {
+  for (const path of [outside, join(outside, 'secret'), join(home, '..', 'outside'), join(home, 'escape'), parse(home).root]) {
     const r = await call('folders/list', { path });
     assert.equal(r.ok, false, path); assert.equal(r.error!.code, 'directory-picker/outside-home', path);
   }

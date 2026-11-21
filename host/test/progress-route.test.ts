@@ -15,19 +15,18 @@ const adapter = { upstreamVersion: 'synthetic', async listSessions() { return []
 type Sources = Parameters<typeof createProgress>[0]['sources'];
 async function setup(t: TestContext, withProgress: boolean, sources?: Sources) {
   const base = mkdtempSync(join(tmpdir(), 'dsh-progress-route-'));
-  t.after(() => rmSync(base, { recursive: true, force: true }));
   const progress = withProgress ? await createProgress({ dir: join(base, 'progress'), sources: sources ?? {
     async sessions() { return [{ sessionId: 's1', cwd: '/work/acme-api', title: 'Saved cards endpoint', running: true, updatedAt: 1_800_000_000_000 }]; },
     async opening() { return [{ seq: 1, time: 1, type: 'turn/start', data: { turn: 1 } }]; },
     async projections() { return {}; },
   } }) : undefined;
-  if (progress) t.after(() => progress.close());
   const config: HostConfiguration = { hostName: 'Synthetic', bind: '127.0.0.1', port: 0, statePath: join(base, 'host.sqlite'), allowInsecureLoopback: true, workspaces: [{ id: 'alpha', name: 'alpha', path: base }] };
   // The service comes and goes with the Progress plugin (src/progress-plugin.ts); the server asks for it on every call.
   const live = { progress };
   const host = await startHostServer({ config, adapter, folderHome: base, progress: () => live.progress });
   const url = (await host.start()).baseUrl;
-  t.after(() => host.close());
+  // Closed before the folder goes: Windows cannot delete the open state database.
+  t.after(async () => { await host.close(); await progress?.close(); rmSync(base, { recursive: true, force: true }); });
   const pair = (grants: { readWorkspaceIds: string[]; executeWorkspaceIds: string[] }) => host.state.consumePairing(host.state.createPairing(grants).pairingToken, 'Synthetic phone').deviceToken;
   const owner = pair({ readWorkspaceIds: ['*'], executeWorkspaceIds: ['*'] });
   const reader = pair({ readWorkspaceIds: ['*'], executeWorkspaceIds: [] });

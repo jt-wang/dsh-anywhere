@@ -27,7 +27,7 @@ interface SourceState { seq: number; attentionId?: string }
 type TraceStage = 'source_received' | 'producer_begin' | 'producer_end' | 'journal_committed' | 'sse_sent';
 /** Opt-in diagnostics: fixed labels, numeric metadata and a one-way event correlation only. */
 export function notificationTrace(stage: TraceStage, fields: { seq?: number; queue?: number; durationMs?: number; event?: string; count?: number } = {}): void {
-  if (process.env.DSH_MOBILE_NOTIFICATION_TRACE !== '1') return;
+  if (process.env.DSH_ANYWHERE_NOTIFICATION_TRACE !== '1') return;
   console.debug(JSON.stringify({ component: 'DSHNotification', stage, timeMs: Date.now(), ...fields }));
 }
 const RETENTION = 7 * 86400_000;
@@ -73,7 +73,7 @@ export class NotificationFeed {
     queueMicrotask(() => { this.wakeQueued = false; if (!this.lifetime.signal.aborted) for (const listener of this.listeners) { try { listener(); } catch { /* Observers cannot roll back a committed journal. */ } } });
   }
   tracePage(stage: 'sse_sent', items: NotificationEvent[]): void {
-    if (process.env.DSH_MOBILE_NOTIFICATION_TRACE !== '1') return;
+    if (process.env.DSH_ANYWHERE_NOTIFICATION_TRACE !== '1') return;
     for (const event of items) notificationTrace(stage, { event: createHash('sha256').update(event.eventId).digest('hex').slice(0, 12), seq: event.sequence });
   }
   private degrade(reason: string): void {
@@ -255,7 +255,7 @@ export class NotificationFeed {
     this.watermarks[id] = { ...current, seq: event.seq };
     this.state.writeNotificationStates([['producer', this.watermarks], ...[...this.batch].map(([deviceId, journal]): [string, unknown] => ['device:' + deviceId, journal])]);
     if (this.batch.size) {
-      if (process.env.DSH_MOBILE_NOTIFICATION_TRACE === '1') for (const journal of this.batch.values()) for (const item of journal.items.filter(e => e.sessionId === id && e.sourceSeq === event.seq))
+      if (process.env.DSH_ANYWHERE_NOTIFICATION_TRACE === '1') for (const journal of this.batch.values()) for (const item of journal.items.filter(e => e.sessionId === id && e.sourceSeq === event.seq))
         notificationTrace('journal_committed', { event: createHash('sha256').update(item.eventId).digest('hex').slice(0, 12), seq: item.sequence });
       this.changed();
     }

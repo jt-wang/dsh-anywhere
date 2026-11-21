@@ -73,19 +73,36 @@ test('without a DSH home or a folder from its row the plugin provides nothing an
   await dispose();
 });
 
-test('the folder is <DSH home>/dsh-mobile/progress when DSH says where its home is', async t => {
+test('the folder is <DSH home>/dsh-anywhere/progress when DSH says where its home is', async t => {
   const home = directory(t), ctx = fakeContext({ profileContext: { home } });
   const dispose = await progressPlugin.apply(ctx as any, { dir: join(home, 'ignored') });
   t.after(() => dispose());
   await (ctx.provided.get('progress') as ProgressService).configure({ judge: true });
   const { existsSync } = await import('node:fs');
-  assert.equal(existsSync(join(home, 'dsh-mobile', 'progress', 'jobs.json')), true);
+  assert.equal(existsSync(join(home, 'dsh-anywhere', 'progress', 'jobs.json')), true);
   assert.equal(existsSync(join(home, 'ignored')), false);
 });
 
-// Real Cordis, from a staged DSH runtime (DSH_MOBILE_CORDIS_MODULE names any file in it, as phone-adapter.test.ts uses).
-test('in a real Cordis context another plugin injects `progress`, and loses it when the Progress plugin unloads', { skip: !process.env.DSH_MOBILE_CORDIS_MODULE }, async t => {
-  const require = createRequire(process.env.DSH_MOBILE_CORDIS_MODULE!);
+test('a <DSH home>/dsh-mobile folder from an earlier release moves to dsh-anywhere with its saved settings', async t => {
+  const { existsSync, mkdirSync, readFileSync, writeFileSync } = await import('node:fs');
+  // A real saved setting (judging on), as an earlier release wrote it, placed under the old folder name.
+  const earlier = directory(t), first = fakeContext({ profileContext: { home: earlier } });
+  const stop = await progressPlugin.apply(first as any, {});
+  await (first.provided.get('progress') as ProgressService).configure({ judge: true });
+  await stop();
+  const saved = readFileSync(join(earlier, 'dsh-anywhere', 'progress', 'jobs.json'), 'utf8');
+  const home = directory(t), ctx = fakeContext({ profileContext: { home } });
+  mkdirSync(join(home, 'dsh-mobile', 'progress'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(home, 'dsh-mobile', 'progress', 'jobs.json'), saved, { mode: 0o600 });
+  const dispose = await progressPlugin.apply(ctx as any, {});
+  t.after(() => dispose());
+  assert.equal(existsSync(join(home, 'dsh-mobile')), false);
+  assert.equal(readFileSync(join(home, 'dsh-anywhere', 'progress', 'jobs.json'), 'utf8'), saved, 'the saved setting was read, not replaced');
+});
+
+// Real Cordis, from a staged DSH runtime (DSH_ANYWHERE_CORDIS_MODULE names any file in it, as phone-adapter.test.ts uses).
+test('in a real Cordis context another plugin injects `progress`, and loses it when the Progress plugin unloads', { skip: !process.env.DSH_ANYWHERE_CORDIS_MODULE }, async t => {
+  const require = createRequire(process.env.DSH_ANYWHERE_CORDIS_MODULE!);
   const { Context } = await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href);
   const ctx = new Context();
   t.after(() => ctx.fiber.dispose());
@@ -109,8 +126,8 @@ test('in a real Cordis context another plugin injects `progress`, and loses it w
 
 // The whole companion in real Cordis: it mounts the Progress plugin itself (one profile row), the phone reads the jobs
 // through it, and unloading the companion unloads both without one waiting on the other.
-test('in a real Cordis context the companion mounts the Progress plugin, serves it to the phone, and unloads with it', { skip: !process.env.DSH_MOBILE_CORDIS_MODULE, timeout: 20000 }, async t => {
-  const require = createRequire(process.env.DSH_MOBILE_CORDIS_MODULE!);
+test('in a real Cordis context the companion mounts the Progress plugin, serves it to the phone, and unloads with it', { skip: !process.env.DSH_ANYWHERE_CORDIS_MODULE, timeout: 20000 }, async t => {
+  const require = createRequire(process.env.DSH_ANYWHERE_CORDIS_MODULE!);
   const { Context } = await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href);
   const { writeFileSync, existsSync } = await import('node:fs');
   const { createServer } = await import('node:net');

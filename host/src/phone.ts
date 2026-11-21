@@ -1,8 +1,8 @@
 import { HostError } from './errors.ts';
 
-export const HOST_VERSION = '0.8.3';
+export const HOST_VERSION = '0.8.4';
 /** The DSH Anywhere release this companion ships in: the phone app of the same release has this version (nsh-app/nsh.json). */
-export const RELEASE_VERSION = '0.1.13';
+export const RELEASE_VERSION = '0.1.14';
 export interface PhoneCapabilities { steer: boolean; queue: boolean; rename: boolean; models: boolean; questions: boolean; questionSkip?: boolean; fileDownload?: boolean; attachments: boolean }
 export type Delivery = 'queue' | 'steer';
 export interface AttachmentRef { id: string; name: string; size: number; mime: string; kind: 'image' | 'file' }

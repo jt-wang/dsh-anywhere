@@ -15,7 +15,8 @@ test('events are appended as lines, the file is private, and the newest event of
   const lines = readFileSync(join(dir, 'companion.log'), 'utf8').trim().split('\n');
   assert.equal(lines.length, 5);
   assert.match(lines[4]!, /^\d{4}-\d\d-\d\dT[\d:.]+Z failed 0\.8\.0 conflict$/);
-  assert.equal(statSync(join(dir, 'companion.log')).mode & 0o777, 0o600);
+  // Windows has no mode bits: there the log takes the owner-only ACL of the private folder it is written in.
+  if (process.platform !== 'win32') assert.equal(statSync(join(dir, 'companion.log')).mode & 0o777, 0o600);
   assert.deepEqual(lastLifecycle(dir, '0.8.0'), { event: 'failed', detail: 'conflict', at: Date.parse(lines[4]!.split(' ')[0]!) });
   assert.equal(lastLifecycle(dir, '0.7.9')?.event, 'stopping');
   assert.equal(lastLifecycle(dir, '9.9.9'), undefined);

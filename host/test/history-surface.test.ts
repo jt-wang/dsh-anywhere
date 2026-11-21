@@ -11,7 +11,7 @@ import { historyCases, historyPage, historyRecords } from './fixtures/history-su
 import type { HistoryRecord } from './fixtures/history-surface.ts';
 
 async function recovered(t: { after(fn: () => Promise<void>): void }, records: HistoryRecord[], firstSeq: number, running = false, pollIntervalMs = 1000) {
-  const dir = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-mobile-surface-')));
+  const dir = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-anywhere-surface-')));
   const cursor = () => records.at(-1)!.event.seq;
   let resumed = 0, closed = 0, observing = false;
   let notify: (id: string, event: import('../src/notifications.ts').NotificationSource) => void = () => {};

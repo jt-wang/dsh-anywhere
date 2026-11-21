@@ -23,7 +23,7 @@ const COMPONENTS = [
   ['dsh-llm', {}], ['dsh-session', {}], ['dsh-session-projection', {}],
   ['dsh-session-query', {}], ['dsh-agent', {}], ['dsh-commands', {}],
   ['dsh-client-connection', {}], ['dsh-client-file-upload', {}],
-  ['dsh-system-prompt', { includeHarnessIdentity: false, includeRuntimeContext: false, personaPrefix: 'Isolated synthetic DSH Mobile canary.' }],
+  ['dsh-system-prompt', { includeHarnessIdentity: false, includeRuntimeContext: false, personaPrefix: 'Isolated synthetic DSH Anywhere canary.' }],
   ['dsh-tools', { mode: 'native' }],
   ['dsh-agent-loop', { agents: [], maxParallelToolCalls: 1 }],
   ['dsh-agent-default-model', { provider: PROVIDER, model: MODEL }],

@@ -14,7 +14,7 @@ import { runAdminCli } from '../src/cli.ts';
 import { prepareConfiguration, pairingInvitation } from '../src/config.ts';
 
 async function setup(t: { after(fn: () => Promise<void>): void }) {
-  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-mobile-setup-')));
+  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-anywhere-setup-')));
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
   const configPath = join(root, 'private', 'host.json');
   let out = '', error = '';
@@ -54,17 +54,17 @@ test('setup-direct creates stable registry TLS identity satisfying Android trust
 });
 
 test('setup-direct requires an absolute explicit OpenSSL executable', async t => {
-  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-mobile-bind-')));
+  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-anywhere-bind-')));
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
   const io = { out() {}, error() {} }, base = ['--host', '127.0.0.1', '--dsh-version', '0.2.1-alpha.1'];
   assert.equal(await runAdminCli(['setup-direct', '--config', join(root, 'relative', 'host.json'), '--openssl', 'openssl', ...base], io), 1, 'explicit OpenSSL must be absolute');
 });
 
 test('setup-direct and pairing accept short-name private roots without rotating canonical identity', { skip: process.platform !== 'win32' }, async t => {
-  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-mobile-short-')));
+  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-anywhere-short-')));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const shortScript = '$f=New-Object -ComObject Scripting.FileSystemObject; $f.GetFolder($env:DSHM_TEST_ROOT).ShortPath';
-  const shortRoot = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(shortScript, 'utf16le').toString('base64')], { encoding: 'utf8', env: { ...process.env, DSHM_TEST_ROOT: root } }).trim();
+  const shortScript = '$f=New-Object -ComObject Scripting.FileSystemObject; $f.GetFolder($env:DSHA_TEST_ROOT).ShortPath';
+  const shortRoot = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(shortScript, 'utf16le').toString('base64')], { encoding: 'utf8', env: { ...process.env, DSHA_TEST_ROOT: root } }).trim();
   if (shortRoot === root) { t.skip('This volume does not expose 8.3 names'); return; }
   const canonicalConfig = join(root, 'private', 'host.json'), shortConfig = join(shortRoot, 'private', 'host.json');
   const args = ['setup-direct', '--config', shortConfig, '--host', 'computer.example', '--dsh-version', '0.2.1-alpha.1'];
@@ -88,11 +88,11 @@ test('setup-direct and pairing accept short-name private roots without rotating 
 });
 
 test('built admin CLI executes through an 8.3 entry path', { skip: process.platform !== 'win32' }, async t => {
-  const dir = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-mobile-cli-url-')));
+  const dir = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-anywhere-cli-url-')));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const entry = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
-  const script = '$f=New-Object -ComObject Scripting.FileSystemObject; $f.GetFile($env:DSHM_TEST_ENTRY).ShortPath';
-  const shortEntry = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', env: { ...process.env, DSHM_TEST_ENTRY: entry } }).trim();
+  const script = '$f=New-Object -ComObject Scripting.FileSystemObject; $f.GetFile($env:DSHA_TEST_ENTRY).ShortPath';
+  const shortEntry = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', env: { ...process.env, DSHA_TEST_ENTRY: entry } }).trim();
   if (shortEntry === entry) { t.skip('This volume does not expose 8.3 names'); return; }
   const result = spawnSync(process.execPath, [shortEntry, '--help'], { encoding: 'utf8', timeout: 15000 });
   assert.equal(result.status, 0, result.stderr);
@@ -122,7 +122,7 @@ test('setup-direct refuses unsafe hosts, partial state and unverified version wi
 });
 
 test('pairing CLI requires explicit private output before creating any offer or state', async t => {
-  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-mobile-output-consent-')));
+  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-anywhere-output-consent-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   const configPath = join(root, 'host.json'), statePath = join(root, 'state', 'host.sqlite');
   await writeFile(configPath, JSON.stringify({ hostName: 'Synthetic output consent', workspaceSource: 'dsh-registry', bind: '127.0.0.1', port: 9443, allowInsecureLoopback: true, statePath }));

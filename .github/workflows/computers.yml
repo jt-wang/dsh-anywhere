@@ -1,0 +1,123 @@
+name: Computers
+
+# The companion on every computer DSH Desktop ships for: Apple-silicon Macs, Intel Macs and Windows x64 (DSH's
+# apps/desktop/scripts/package-target.ts targets mac-arm64, mac-x64 and win-x64; it has no Linux or Windows on Arm app).
+# Linux runs the same check against DSH from npm (`dsh web`), the only DSH there is on Linux; releases carry no Linux helper.
+# Each job builds this computer's Tailcat helper natively, runs the companion's tests, packs the npm package, and runs
+# tools/computer-e2e.mjs: DSH's own `dsh plugin add` installs the package into a scratch profile, DSH boots it, the
+# companion starts from its configuration-free row, and the reference phone pairs over real Tailcat relays and reads
+# GET /v1/workspaces through the tunnel. A cross-compiled helper that was never started passes nothing here.
+on:
+  pull_request:
+  push:
+    branches: [main, ci, "ci-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: computers-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: go1.27.4
+  # The DSH the check boots, from npm. Inside the companion's supported versions (host/src/compatibility.ts).
+  DSH_E2E_VERSION: 0.2.2-rc.5
+  # `dsh plugin add` runs pnpm from PATH (DSH Desktop runs its bundled copy instead): the version Desktop bundles.
+  DSH_E2E_PNPM: 11.28.5
+
+# bash everywhere, Windows included (Git Bash): `-eo pipefail`, so a failed command before a pipe fails the step.
+defaults:
+  run:
+    shell: bash --noprofile --norc -eo pipefail {0}
+
+jobs:
+  computer:
+    name: Companion on ${{ matrix.name }}
+    # Only the public repo: the private repo's Actions runs start no runner (every job there fails with no steps).
+    if: github.repository == 'jt-wang/dsh-anywhere'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Macs start from a DSHMobile folder an earlier release left (it must move to DSHAnywhere); the others start empty.
+          - { name: macOS Apple silicon, os: macos-26, helper: darwin-arm64, pack: all, e2e: --legacy-folder }
+          - { name: macOS Intel, os: macos-26-intel, helper: darwin-amd64, pack: all, e2e: --legacy-folder }
+          - { name: Windows x64, os: windows-latest, helper: windows-amd64, pack: windows-amd64, e2e: '' }
+          - { name: Linux x64 (dsh web), os: ubuntu-24.04, helper: linux-amd64, pack: linux-amd64, e2e: '' }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          # Upgrade tests load the shipped 0.7.0 sources from Git history.
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: host/package-lock.json
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: The machine
+        run: echo "$(uname -s) $(uname -m), node $(node -p 'process.platform + "-" + process.arch'), go $(go env GOOS)/$(go env GOARCH)"
+      # Macs build every Mac and Windows helper (the release set); the others build their own, as a release cannot.
+      - name: Build the Tailcat helpers (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          HELPERS_ONLY=1 tools/build-tailcat.sh
+          file host/dist/tailcat/dsh-tailcat-host-darwin-*
+          codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64
+      - name: Build this computer's Tailcat helper
+        if: runner.os != 'macOS'
+        working-directory: tailcat
+        env:
+          CGO_ENABLED: '0'
+          NAME: dsh-tailcat-host-${{ matrix.helper }}
+        run: |
+          mkdir -p ../build/tailcat
+          go build -mod=readonly -trimpath -tags ts_omit_ssh -ldflags='-s -w' -o "../build/tailcat/$NAME$(go env GOEXE)" ./host
+      - name: Build the reference phone
+        working-directory: tailcat
+        run: go build -mod=readonly -trimpath -tags ts_omit_ssh -o "$RUNNER_TEMP/phone$(go env GOEXE)" ./e2e/phone
+      - name: Build and test the companion
+        working-directory: host
+        run: |
+          # The tests' TLS fixtures need OpenSSL 3; macOS's own openssl is LibreSSL.
+          if [[ "$RUNNER_OS" == macOS ]]; then export PATH="$(brew --prefix openssl@3)/bin:$PATH"; fi
+          npm ci
+          npm run build
+          npm test
+      - name: Pack the npm package
+        env:
+          PACK: ${{ matrix.pack }}
+        run: |
+          if [[ "$PACK" == all ]]; then node tools/pack-bundle.mjs --out "$RUNNER_TEMP/pack"; node --test tools/pack-bundle.test.mjs
+          else node tools/pack-bundle.mjs --out "$RUNNER_TEMP/pack" --only "$PACK"; fi
+      - name: Install DSH ${{ env.DSH_E2E_VERSION }} from npm, and pnpm
+        run: |
+          npm install -g --no-audit --no-fund "pnpm@$DSH_E2E_PNPM"
+          pnpm --version
+          mkdir -p "$RUNNER_TEMP/dsh" && cd "$RUNNER_TEMP/dsh"
+          echo '{"private":true}' > package.json
+          npm install --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund --save-exact "@deepseek-ai/dsh@$DSH_E2E_VERSION"
+      - name: DSH starts the companion and a phone pairs over Tailcat
+        env:
+          E2E: ${{ matrix.e2e }}
+        run: node tools/computer-e2e.mjs "$RUNNER_TEMP/pack/dsh-anywhere.tgz" "$RUNNER_TEMP/phone$(go env GOEXE)" "$RUNNER_TEMP/dsh" $E2E 2>&1 | tee "$RUNNER_TEMP/pairing.log"
+      # The pairing as the computer and the phone saw it (statuses and emoji only; no key, token or address is printed).
+      - name: Keep the pairing log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pairing-${{ matrix.helper }}
+          path: ${{ runner.temp }}/pairing.log
+          if-no-files-found: warn
+          retention-days: 14

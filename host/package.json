@@ -1,6 +1,6 @@
 {
-  "name": "dsh-mobile-host",
-  "version": "0.8.3",
+  "name": "dsh-anywhere-host",
+  "version": "0.8.4",
   "description": "Native mobile companion host plugin for an existing DeepSeek Harness runtime",
   "private": true,
   "type": "module",
@@ -45,12 +45,12 @@
     }
   },
   "bin": {
-    "dsh-mobile-admin": "./dist/cli.js"
+    "dsh-anywhere-admin": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node ../tools/build-host.mjs",
     "demo": "node dist/demo.js",
-    "test": "node --test test/*.test.ts",
+    "test": "node --test --test-timeout=120000 test/*.test.ts",
     "test:phone-canary": "node test/phone-real-canary.mjs",
     "check": "npm run build && npm test"
   },

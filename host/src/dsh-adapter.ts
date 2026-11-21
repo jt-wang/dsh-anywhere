@@ -111,8 +111,8 @@ const phoneProjections = new WeakMap<Transcript, PhoneProjection>();
 // No upstream API discards an unbound receipt. Keep a service-lifetime budget,
 // including mobile-expired/revoked receipts and uncertain upload failures.
 type ReceiptBudget = Map<object, { sessionId: string; receiptId?: string }>;
-const RECEIPT_BUDGET = Symbol.for('dsh-mobile.receipt-budget.v1');
-const FILE_MIMES = Symbol.for('dsh-mobile.file-mimes.v1');
+const RECEIPT_BUDGET = Symbol.for('dsh-anywhere.receipt-budget.v1');
+const FILE_MIMES = Symbol.for('dsh-anywhere.file-mimes.v1');
 function fileMimes(service: object): Map<string, string> {
   const identity = (Reflect.get(service, Symbol.for('cordis.original')) ?? service) as object;
   let mimes = Reflect.get(identity, FILE_MIMES) as Map<string, string> | undefined;

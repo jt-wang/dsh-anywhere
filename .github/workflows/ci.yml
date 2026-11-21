@@ -24,6 +24,27 @@ env:
   GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
 
 jobs:
+  history:
+    name: Public history rules
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out every branch and tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      # Every commit comes from source-export: the public identity, 12:00:00 UTC, and Source-Rev as its only
+      # trailer. The upstream DSH Mobile history before the fork keeps its authors.
+      - name: Check commit and tag identity, dates and trailers
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 -I tools/check-public-history.py
+          --author "Jingtao Wang <7776499+jt-wang@users.noreply.github.com>"
+          --upstream 284014487+pavel-logachev@users.noreply.github.com --upstream ai@logachev.net
+          --upstream github@logachev.net ${PR_HEAD}
+
   host:
     name: Companion / Linux / Node 24
     runs-on: ubuntu-24.04

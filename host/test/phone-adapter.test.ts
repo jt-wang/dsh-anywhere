@@ -13,8 +13,8 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
 // Real upstream services and Cordis tracing/injection, isolated from the host/profile.
-test('installed FileUploads seeds empty and legacy receipt budgets through its real Cordis context', { skip: !process.env.DSH_MOBILE_CORDIS_MODULE }, async t => {
-  const require = createRequire(process.env.DSH_MOBILE_CORDIS_MODULE!);
+test('installed FileUploads seeds empty and legacy receipt budgets through its real Cordis context', { skip: !process.env.DSH_ANYWHERE_CORDIS_MODULE }, async t => {
+  const require = createRequire(process.env.DSH_ANYWHERE_CORDIS_MODULE!);
   const load = (name: string) => import(pathToFileURL(require.resolve(name)).href);
   const { Context } = await load('@deepseek-ai/cordis');
   const { FileUploads } = await load('@deepseek-ai/dsh-client-file-upload');
@@ -46,7 +46,7 @@ test('installed FileUploads seeds empty and legacy receipt budgets through its r
     const service = ctx.get('fileUploads');
     const identity = Reflect.get(service, Symbol.for('cordis.original'));
     assert.ok(identity, 'use actual Cordis tracing service, not a synthetic wrapper');
-    assert.equal(Reflect.get(identity, Symbol.for('dsh-mobile.receipt-budget.v1')), undefined);
+    assert.equal(Reflect.get(identity, Symbol.for('dsh-anywhere.receipt-budget.v1')), undefined);
     // Do not inject sessions into FileUploads: test the installed plugin's own declared inject.
     assert.throws(() => Reflect.get(identity, 'ctx').sessions, /without inject/);
     assert.deepEqual(Reflect.get(identity, 'ctx').get('sessions').list(), [session]);
@@ -65,16 +65,16 @@ test('installed FileUploads seeds empty and legacy receipt budgets through its r
       assert.equal(agents.list().length, 0);
       const { adapter: next, row: nextRow, signal: nextSignal } = await setup(t, { fileUploads: ctx.get('fileUploads') });
       await assert.rejects(next.reserveFileUploads(nextRow.sessionId, 1, nextSignal, 'w'), { code: 'rate_limited' });
-      const budget = Reflect.get(identity, Symbol.for('dsh-mobile.receipt-budget.v1'));
+      const budget = Reflect.get(identity, Symbol.for('dsh-anywhere.receipt-budget.v1'));
       assert.equal(budget.size, prior);
       assert.deepEqual(new Set([...budget.values()].map((entry: any) => entry.sessionId)), new Set([session.id]));
       assert.deepEqual(new Set([...budget.values()].map((entry: any) => entry.receiptId)), new Set(identity.stagedFiles.get(session).keys()));
     } else {
       const reservation = await adapter.reserveFileUploads(row.sessionId, 1, signal, 'w'); reservation.release();
-      assert.equal(Reflect.get(identity, Symbol.for('dsh-mobile.receipt-budget.v1')).size, 0, 'fresh inventory must not saturate fail-closed sentinels');
+      assert.equal(Reflect.get(identity, Symbol.for('dsh-anywhere.receipt-budget.v1')).size, 0, 'fresh inventory must not saturate fail-closed sentinels');
       await adapter.upload(row.sessionId, input(), signal, 'w');
       assert.equal(identity.stagedFiles.get(session).size, 1, 'real FileUploads accepted bytes and minted a receipt');
-      assert.equal(Reflect.get(identity, Symbol.for('dsh-mobile.receipt-budget.v1')).size, 1);
+      assert.equal(Reflect.get(identity, Symbol.for('dsh-anywhere.receipt-budget.v1')).size, 1);
     }
   });
 });

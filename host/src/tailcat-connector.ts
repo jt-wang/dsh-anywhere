@@ -45,6 +45,8 @@ export function tailcatRestartDelay(attempt: number, waiting: boolean): number {
 }
 export interface TailcatConnector { start(): void; close(): Promise<void>; sweep(): void; status(): TailcatConnectorStatus }
 
+/** process.platform-process.arch of the computers DSH Desktop is built for (tools/pack-bundle.mjs packs their helpers). */
+export const SHIPPED_COMPUTERS = ['darwin-arm64', 'darwin-x64', 'win32-x64'];
 /** Bundled helper next to the built plugin: dist/tailcat/dsh-tailcat-host-<goos>-<goarch>[.exe]. */
 export function bundledTailcatHelper(base = dirname(fileURLToPath(import.meta.url))): string {
   const goos = process.platform === 'win32' ? 'windows' : process.platform;
@@ -53,7 +55,9 @@ export function bundledTailcatHelper(base = dirname(fileURLToPath(import.meta.ur
 }
 export function tailcatHelperCommand(tailcat: TailcatConfiguration): TailcatHelperCommand {
   const command = tailcat.helperPath ?? bundledTailcatHelper();
-  if (!existsSync(command)) throw new HostError('tailcat_helper_missing');
+  // The npm package carries the helpers of the computers DSH Desktop ships for; elsewhere (Linux, Windows on Arm with a
+  // native Node) the missing helper is no damage, the computer is simply not supported.
+  if (!existsSync(command)) throw new HostError(tailcat.helperPath === undefined && !SHIPPED_COMPUTERS.includes(`${process.platform}-${process.arch}`) ? 'unsupported_computer' : 'tailcat_helper_missing');
   return { command, args: [] };
 }
 

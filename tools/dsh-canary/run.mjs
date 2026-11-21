@@ -15,9 +15,9 @@ if (options.registryCheck) assert.ok(process.execArgv.includes('--expose-interna
 // is anchored to the installation, never to the selected runtime's parent.
 const installationRoot = await realpath(path.join(os.homedir(), 'Documents', 'DeepSeekHarness'));
 const runtimeRoot = await realpath(options.runtimeRoot ?? path.join(installationRoot, 'runtime'));
-const approvedCache = path.join(installationRoot, 'cache', 'dsh-mobile', 'canary');
+const approvedCache = path.join(installationRoot, 'cache', 'dsh-anywhere', 'canary');
 const cacheRoot = path.resolve(options.cacheRoot ?? approvedCache);
-assert.equal(cacheRoot.toLowerCase(), approvedCache.toLowerCase(), 'Only the installation cache/dsh-mobile/canary root is permitted');
+assert.equal(cacheRoot.toLowerCase(), approvedCache.toLowerCase(), 'Only the installation cache/dsh-anywhere/canary root is permitted');
 await mkdir(cacheRoot, { recursive: true });
 const runRoot = await mkdtemp(path.join(await realpath(cacheRoot), 'run-'));
 const directories = Object.fromEntries(['home', 'workspace', 'temp'].map(name => [name, assertOwnedPath(runRoot, path.join(runRoot, name))]));

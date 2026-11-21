@@ -10,7 +10,7 @@ import { assertPrivate } from '../src/private-files.ts';
 
 const consent = ['--read', 'all'];
 test('private invitation creation uses the Windows PowerShell security module rather than an inherited incompatible module', { skip: process.platform !== 'win32' }, async t => {
-  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-mobile-private-module-')));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-anywhere-private-module-')));
   const original = process.env.PSModulePath;
   t.after(async () => { if (original === undefined) delete process.env.PSModulePath; else process.env.PSModulePath = original; rmSync(root, { recursive: true, force: true }); });
   // Model a PowerShell 7 parent exporting modules incompatible with powershell.exe.
@@ -27,8 +27,8 @@ test('private invitation creation uses the Windows PowerShell security module ra
   assert.ok(JSON.parse(await readFile(output, 'utf8')).pairingToken);
   await assertPrivate(join(root, 'invitations')); await assertPrivate(output);
   // Independently inspect the saved descriptor: no inherited or other-user ACEs.
-  const script = "$ErrorActionPreference='Stop'; Import-Module (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1'); $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $a=Get-Acl -LiteralPath $env:DSHM_TEST_PATH; $rules=@($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])); @{ current=$sid; owner=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value; protected=$a.AreAccessRulesProtected; rules=@($rules | ForEach-Object { @{ sid=$_.IdentityReference.Value; rights=[string]$_.FileSystemRights; inherited=$_.IsInherited; type=[string]$_.AccessControlType } }) } | ConvertTo-Json -Depth 5 -Compress";
-  const descriptor = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', env: { ...process.env, DSHM_TEST_PATH: output } }));
+  const script = "$ErrorActionPreference='Stop'; Import-Module (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1'); $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $a=Get-Acl -LiteralPath $env:DSHA_TEST_PATH; $rules=@($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])); @{ current=$sid; owner=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value; protected=$a.AreAccessRulesProtected; rules=@($rules | ForEach-Object { @{ sid=$_.IdentityReference.Value; rights=[string]$_.FileSystemRights; inherited=$_.IsInherited; type=[string]$_.AccessControlType } }) } | ConvertTo-Json -Depth 5 -Compress";
+  const descriptor = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', env: { ...process.env, DSHA_TEST_PATH: output } }));
   assert.equal(descriptor.owner, descriptor.current); assert.equal(descriptor.protected, true);
   assert.deepEqual(descriptor.rules, [{ sid: descriptor.current, rights: 'FullControl', inherited: false, type: 'Allow' }]);
   // An existing weak invitation directory must still fail closed, not be repaired.

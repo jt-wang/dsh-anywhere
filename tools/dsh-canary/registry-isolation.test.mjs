@@ -15,7 +15,7 @@ test('registry-check loopback exception excludes live ports and expires on liste
   const port = host.address().port;
   assert.ok(![3080, 3081, 19445].includes(port));
   await new Promise(resolve => host.close(resolve));
-  const root = path.join(os.homedir(), 'Documents', 'DeepSeekHarness', 'cache', 'dsh-mobile', 'canary');
+  const root = path.join(os.homedir(), 'Documents', 'DeepSeekHarness', 'cache', 'dsh-anywhere', 'canary');
   const stats = installIsolation(root, { registryCheck: true, port });
   const url = new URL(`http://127.0.0.1:${port}/`);
   assert.throws(() => http.request(url), /prohibited networkAttempts/, 'Must not dial before owning a listener');

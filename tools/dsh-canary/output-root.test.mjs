@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 // Exercise CLI preflight/receipt with an unsupported synthetic manifest, not a live runtime.
 test('runtime staged under installation cache keeps the canonical output root and accepts --cache-root', async t => {
-  const cacheRoot = path.join(os.homedir(), 'Documents', 'DeepSeekHarness', 'cache', 'dsh-mobile', 'canary');
+  const cacheRoot = path.join(os.homedir(), 'Documents', 'DeepSeekHarness', 'cache', 'dsh-anywhere', 'canary');
   await mkdir(cacheRoot, { recursive: true });
   const fixture = await mkdtemp(path.join(cacheRoot, 'output-root-test-'));
   const runtimeRoot = path.join(fixture, 'runtime');

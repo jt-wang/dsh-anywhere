@@ -47,7 +47,7 @@ export async function featureChecks({ runtimeRoot, directories }) {
     const originalStream = deterministic.stream;
     const attempts = new Map();
     deterministic.stream = async function* (options) {
-      assert.equal(options.provider, 'dsh-mobile-canary');
+      assert.equal(options.provider, 'dsh-anywhere-canary');
       assert.equal(options.model, 'deterministic-text-v1');
       assert.equal(options.tools?.length ?? 0, 0);
       options.signal?.throwIfAborted();

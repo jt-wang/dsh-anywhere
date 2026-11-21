@@ -1,4 +1,4 @@
-# DSH Anywhere：在 Mac 上安装（Apple 芯片）
+# DSH Anywhere：在 Mac 上安装（Apple 芯片或 Intel）
 
 英文完整版见同目录的 `SETUP-MAC.md`。
 
@@ -17,8 +17,8 @@ PATH 里没有 `dsh` 时，用 App 自带的
 `"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"`。安装时 DSH 会检查版本：支持
 `0.2.0-rc.2`、0.2.1 的所有正式版与预发布版，以及 0.2.2 的候选版（rc）与正式版。
 
-DSH 会加载这个插件。插件第一次启动时，在 `~/Library/Application Support/DSHMobile/host/` 生成私有的 Tailcat 配置；
-那里的 `companion.log` 最后一行是 `running <版本号>` 就说明在运行了。然后在 DSH 里打开 **Settings → Mobile → Pair a phone**。
+DSH 会加载这个插件。插件第一次启动时，在 `~/Library/Application Support/DSHAnywhere/host/` 生成私有的 Tailcat 配置；
+那里的 `companion.log` 最后一行是 `running <版本号>` 就说明在运行了。然后在 DSH 里打开 **Settings → DSH Anywhere → Pair a phone**。
 卸载：`dsh plugin --profile desktop remove @jt-wang/dsh-anywhere`。
 
 让 AI agent 来装：把 [AGENT-INSTALL.md](../AGENT-INSTALL.md) 交给它，里面有每一步的检查。
@@ -34,7 +34,7 @@ DSH Desktop 自己会更新：有新版本时，侧边栏「插件」里的 `@jt
 
 ## 配对手机
 
-[下载 Android App](https://github.com/jt-wang/dsh-anywhere/releases/latest/download/dsh-anywhere.apk) 并安装。在 DSH 里打开 **设置 → Mobile → Pair a phone**，用 App 扫码。在同一页可以撤销手机。
+[下载 Android App](https://github.com/jt-wang/dsh-anywhere/releases/latest/download/dsh-anywhere.apk) 并安装。在 DSH 里打开 **设置 → DSH Anywhere → 配对手机**，用 App 扫码。在同一页可以撤销手机。
 
 ## 从源码构建
 

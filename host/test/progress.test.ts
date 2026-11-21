@@ -192,7 +192,7 @@ test('the split and the setting are kept in the plugin’s own file and read bac
   await progress.idle();
   const before = jobsOf(await progress.list(signal()), 'c1');
   const file = join(dsh.dir, 'jobs.json');
-  assert.equal(statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600); // Windows: the folder's ACL
   assert.match(readFileSync(file, 'utf8'), /排查数据库连接池耗尽问题/);
   const again = await dsh.restart();
   assert.deepEqual(again.settings(), { judge: true, language: 'zh-Hans' });
@@ -752,7 +752,8 @@ test('a write that fails leaves no temporary file behind, and is logged once', a
 
 // A jobs.json that is there but cannot be read (here: no read permission) counted as no file, and the
 // first save wrote over it.
-test('a jobs.json that cannot be read is kept aside and logged, not written over', { skip: process.getuid?.() === 0 }, async t => {
+// chmod 0 makes a file unreadable only where mode bits count: not for root, and not on Windows.
+test('a jobs.json that cannot be read is kept aside and logged, not written over', { skip: process.getuid?.() === 0 || process.platform === 'win32' }, async t => {
   const dsh = fakeDsh(t);
   const { chmodSync } = await import('node:fs');
   const file = join(dsh.dir, 'jobs.json'), was = JSON.stringify({ version: 1, settings: { judge: true, language: 'ko' }, chats: {} });

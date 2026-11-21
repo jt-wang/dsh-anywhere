@@ -3,7 +3,7 @@
 # This is the inspected Cordis patch insertion shape, not a dsh CLI command.
 - insert:
     - id: dsh-mobile-companion
-      name: dsh-mobile-host/plugin
+      name: dsh-anywhere-host/plugin
       disabled: true
       config:
         # Explicit operator-declared compatibility; not automatic version detection.

@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { declaredDshVersion } from '../src/setup-direct.ts';
 
 test('setup auto executes the actual PATH dsh launcher and rejects suffixes, ranges and failure', { skip: process.platform !== 'win32' }, async t => {
-  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-mobile-version-')));
+  const root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-anywhere-version-')));
   const oldPath = process.env.PATH;
   t.after(async () => { process.env.PATH = oldPath; await rm(root, { recursive: true, force: true }); });
   const launcher = join(root, 'dsh.cmd');
