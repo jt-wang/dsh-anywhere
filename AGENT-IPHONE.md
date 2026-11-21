@@ -1,5 +1,8 @@
 # Build DSH Anywhere for your iPhone
 
+To just use it, open https://testflight.apple.com/join/nbURjw6a on the iPhone and install it from TestFlight. The steps
+below are for building it yourself.
+
 For a person, or the AI agent helping them, who wants DSH Anywhere on an iPhone today. You build it on your Mac and sign
 it with your own Apple account. A free account has the limits at the end. The build has not been run on a real iPhone
 yet, so please [open an issue](https://github.com/jt-wang/dsh-anywhere/issues) if a step fails.

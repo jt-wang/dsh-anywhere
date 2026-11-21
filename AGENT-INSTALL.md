@@ -19,7 +19,10 @@ is another author's DSH plugin (remote workspaces over SSH), not this one.
 4. Earlier install from source: if `~/.dsh/profiles/desktop/cordis.patch.yml` contains
    `# DSH-MOBILE-COMPANION-BEGIN`, tell the person and, with their consent, delete the lines from `BEGIN` to `END`
    inclusive. Paired phones are kept: both installs use the same private folder.
-5. Tell the person the phone needs Android 9 or later. For an iPhone, install the companion here, then follow
+5. Tell the person which phone app to install. Android 9 or later:
+   [dsh-anywhere.apk](https://github.com/jt-wang/dsh-anywhere/releases/latest/download/dsh-anywhere.apk). iPhone on iOS 17
+   or later: open https://testflight.apple.com/join/nbURjw6a on the iPhone. Both pair the same way
+   ([§ 4](#4-pair-the-phone)). Only someone who wants to build the iPhone app themselves follows
    [AGENT-IPHONE.md](AGENT-IPHONE.md).
 6. Earlier install from a GitHub download (DSH Anywhere 0.1.10 and before installed the release's
    `dsh-anywhere-darwin-arm64.tgz` as a package named `dsh-anywhere`, which DSH cannot update): if

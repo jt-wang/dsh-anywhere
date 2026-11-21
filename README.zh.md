@@ -2,7 +2,7 @@
 
 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的手机 App。** 代理在你的 Mac 上跑，你在手机上用。
 
-[下载 Android 版](https://github.com/jt-wang/dsh-anywhere/releases/latest/download/dsh-anywhere.apk) · [官网](https://dsh-anywhere.jingtao.io/zh/) · [English](README.md)
+[下载 Android 版](https://github.com/jt-wang/dsh-anywhere/releases/latest/download/dsh-anywhere.apk) · [iPhone 版（TestFlight）](https://testflight.apple.com/join/nbURjw6a) · [官网](https://dsh-anywhere.jingtao.io/zh/) · [English](README.md)
 
 作者：Jingtao Wang（[@thejingtao](https://x.com/thejingtao)）
 
@@ -27,7 +27,7 @@
 
    > Read https://raw.githubusercontent.com/jt-wang/dsh-anywhere/main/AGENT-INSTALL.md and install DSH Anywhere on this Mac.
 
-2. [下载 Android App](https://github.com/jt-wang/dsh-anywhere/releases/latest/download/dsh-anywhere.apk) 并安装。
+2. 装手机 App：[Android 版](https://github.com/jt-wang/dsh-anywhere/releases/latest/download/dsh-anywhere.apk)，或 [iPhone 版（TestFlight）](https://testflight.apple.com/join/nbURjw6a)。
 3. 在 DSH Desktop 里打开 **设置 → Mobile → Pair a phone**，用 App 扫码。
 
 想自己敲命令，看 [在 Mac 上安装](docs/SETUP-MAC.zh.md)。
