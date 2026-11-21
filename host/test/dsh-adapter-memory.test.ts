@@ -13,11 +13,10 @@ test('adapter calls leave no memory behind', { timeout: 120_000 }, async t => {
   const script = fileURLToPath(new URL('./dsh-adapter-memory-calls.mts', import.meta.url));
   const { stdout } = await promisify(execFile)(process.execPath, ['--expose-gc', script, '6']);
   const { heaps } = JSON.parse(stdout.trim().split('\n').at(-1)!) as { heaps: number[] };
-  // What the heap grows by from one round to the next, the middle value, so a one-off drop does not count. Measured
-  // 2026-11-14 on Node 24.13.1: about 1.76 MB a round as written before; about 0.01 MB with the caller's signal alone, or
-  // combined with a short-lived one.
-  const steps = heaps.slice(1).map((h, i) => h - heaps[i]!).sort((a, b) => a - b);
-  const median = (steps[2]! + steps[3]!) / 2;
+  // What the heap grows by per round, first round to last. Measured 2026-11-14 on Node 24.13.1: about 1.76 MB a round as
+  // written before; about 0.01 MB with the caller's signal alone, or combined with a short-lived one. A step-to-step
+  // median took GitHub's Macs' swing of about 1 MB between rounds for growth (2026-11-21).
+  const growth = (heaps.at(-1)! - heaps[0]!) / (heaps.length - 1);
   t.diagnostic(`heap after each 10,000 calls, MB: ${heaps.map(h => (h / 1e6).toFixed(2)).join(' ')}`);
-  assert.ok(median < 700_000, `the heap grows ${(median / 1e6).toFixed(2)} MB every 10,000 calls`);
+  assert.ok(growth < 700_000, `the heap grows ${(growth / 1e6).toFixed(2)} MB every 10,000 calls`);
 });

@@ -12,11 +12,10 @@ test('lists leave no memory behind', { timeout: 120_000 }, async t => {
   const script = fileURLToPath(new URL('./progress-memory-lists.mts', import.meta.url));
   const { stdout } = await promisify(execFile)(process.execPath, ['--expose-gc', script, '6']);
   const { heaps } = JSON.parse(stdout.trim().split('\n').at(-1)!) as { heaps: number[] };
-  // What the heap grows by from one round to the next, the middle value: a one-off drop does not count either way.
-  // Measured 2026-11-14 on Node 24.13.1: with nothing leaking about 0 MB a round (and once a drop of about 4 MB); with
-  // 0.18 KB kept a list about 1.75 MB a round.
-  const steps = heaps.slice(1).map((h, i) => h - heaps[i]!).sort((a, b) => a - b);
-  const median = (steps[2]! + steps[3]!) / 2;
+  // What the heap grows by per round, first round to last. Measured 2026-11-14 on Node 24.13.1: with nothing leaking
+  // about 0 MB a round (and once a drop of about 4 MB); with 0.18 KB kept a list about 1.75 MB a round. A step-to-step
+  // median took GitHub's Macs' swing of about 1 MB between rounds for growth (2026-11-21).
+  const growth = (heaps.at(-1)! - heaps[0]!) / (heaps.length - 1);
   t.diagnostic(`heap after each 10,000 lists, MB: ${heaps.map(h => (h / 1e6).toFixed(2)).join(' ')}`);
-  assert.ok(median < 700_000, `the heap grows ${(median / 1e6).toFixed(2)} MB every 10,000 lists`);
+  assert.ok(growth < 700_000, `the heap grows ${(growth / 1e6).toFixed(2)} MB every 10,000 lists`);
 });
