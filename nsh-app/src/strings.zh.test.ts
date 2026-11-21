@@ -16,7 +16,7 @@ test('a Chinese phone, or Chinese picked in Settings, gets the Chinese strings',
 })
 
 test('zh says the pairing steps, the plugin, unlinking, the quick start and the finished count in plain words', () => {
-  expect(ZH.linkHow).toBe('在 Mac 上打开 DSH，调出 DSH Anywhere 的配对码，再用这台手机扫。')
+  expect(ZH.linkHow).toBe('在电脑上打开 DSH，调出 DSH Anywhere 的配对码，再用这台手机扫。')
   expect(ZH.companionVersion).toBe('电脑端插件版本')
   expect(ZH.unlinkHint).toBe('断开后，要重新扫码才能再连上电脑。')
   expect(ZH.quickChatWhere).toBe('直接在 DSH 的默认工作区里开始')

@@ -2,7 +2,7 @@
 
 中文说明：[SETUP-MAC.zh.md](SETUP-MAC.zh.md).
 
-For an Apple-silicon Mac running DeepSeek Harness (DSH). The phone reaches the Mac through
+For a Mac (Apple silicon or Intel) running DeepSeek Harness (DSH); for Windows, use [AGENT-INSTALL.md](../AGENT-INSTALL.md). The phone reaches the Mac through
 Tailcat: no VPN app, no public IP, no server to run, at home or away.
 
 Nothing here restarts DSH, opens a firewall port or changes macOS trust. The companion listens only on

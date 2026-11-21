@@ -12,15 +12,23 @@ import type { TestContext } from 'node:test';
 import plugin from '../src/plugin.ts';
 import { HOST_VERSION } from '../src/phone.ts';
 import { defaultConfigPath, legacyCompanionActive, runningDshVersion } from '../src/zero-config.ts';
+import { SHIPPED_COMPUTERS } from '../src/tailcat-connector.ts';
 
 const FAKE_HELPER = fileURLToPath(new URL('./fixtures/fake-tailcat-helper.mjs', import.meta.url));
 
 function sandbox(t: TestContext) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-anywhere-zero-')));
-  const previous = process.env.HOME;
-  process.env.HOME = join(root, 'home');
+  // homedir() reads USERPROFILE on Windows, and the Windows path is under LOCALAPPDATA.
+  const names = ['HOME', 'USERPROFILE', 'LOCALAPPDATA', 'XDG_DATA_HOME'] as const;
+  const previous = names.map(name => process.env[name]);
+  process.env.HOME = process.env.USERPROFILE = join(root, 'home');
+  process.env.LOCALAPPDATA = join(root, 'home', 'AppData', 'Local');
+  delete process.env.XDG_DATA_HOME;
   mkdirSync(process.env.HOME);
-  t.after(() => { process.env.HOME = previous; rmSync(root, { recursive: true, force: true }); });
+  t.after(() => {
+    names.forEach((name, i) => { if (previous[i] === undefined) delete process.env[name]; else process.env[name] = previous[i]; });
+    rmSync(root, { recursive: true, force: true });
+  });
   return root;
 }
 /** A DSH installation as runProfile sees it: installAnchor is @deepseek-ai/dsh's package.json; app-boot sits beside it. */
@@ -55,15 +63,24 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-test('the default private configuration is the path install-host uses', t => {
+test('the default private configuration is the path the installers use, on each computer', t => {
   sandbox(t);
-  const expected = process.platform === 'darwin'
-    ? join(process.env.HOME!, 'Library', 'Application Support', 'DSHMobile', 'host', 'host.json')
-    : join(process.env.XDG_DATA_HOME ?? join(process.env.HOME!, '.local', 'share'), 'DSHMobile', 'host', 'host.json');
+  // Macs (Apple silicon and Intel) keep the folder every earlier release used, so their paired phones stay paired.
+  assert.equal(defaultConfigPath('darwin', {}, '/synthetic-home'), '/synthetic-home/Library/Application Support/DSHMobile/host/host.json');
+  assert.equal(defaultConfigPath('win32', { LOCALAPPDATA: 'D:\\synthetic-home\\AppData\\Local' }, 'D:\\synthetic-home'), 'D:\\synthetic-home\\AppData\\Local\\DSHMobile\\host\\host.json');
+  assert.equal(defaultConfigPath('win32', {}, 'D:\\synthetic-home'), 'D:\\synthetic-home\\AppData\\Local\\DSHMobile\\host\\host.json');
+  assert.equal(defaultConfigPath('linux', { XDG_DATA_HOME: '/data' }, '/synthetic-home'), '/data/DSHMobile/host/host.json');
+  assert.equal(defaultConfigPath('linux', { XDG_DATA_HOME: 'relative' }, '/synthetic-home'), '/synthetic-home/.local/share/DSHMobile/host/host.json');
+  const expected = process.platform === 'darwin' ? join(process.env.HOME!, 'Library', 'Application Support', 'DSHMobile', 'host', 'host.json')
+    : process.platform === 'win32' ? join(process.env.LOCALAPPDATA!, 'DSHMobile', 'host', 'host.json')
+    : join(process.env.HOME!, '.local', 'share', 'DSHMobile', 'host', 'host.json');
   assert.equal(defaultConfigPath(), expected);
   const installer = readFileSync(new URL('../../tools/install-host.mjs', import.meta.url), 'utf8');
   assert.match(installer, /path\.join\(homedir\(\), 'Library', 'Application Support', 'DSHMobile'\)/);
   assert.match(installer, /path\.join\(base, 'host', 'host\.json'\)/);
+  const windowsInstaller = readFileSync(new URL('../../tools/install-host.ps1', import.meta.url), 'utf8');
+  assert.match(windowsInstaller, /Join-Path \$env:LOCALAPPDATA 'DSHMobile'/);
+  assert.match(windowsInstaller, /Join-Path \$base 'host\/host\.json'/);
 });
 
 test('the running DSH version is the version of the app-boot package beside the installation anchor', t => {
@@ -89,7 +106,9 @@ test('a bundle row with no configuration sets up Tailcat once, with the running 
   const ctx = context({ profileContext: { installAnchor: installation(root, '0.2.1-rc.3'), ...profile(root, '# synthetic\n') } });
   const configPath = defaultConfigPath();
   // Running from source there is no bundled helper next to the plugin: setup happens, then start fails closed before binding.
-  await assert.rejects(plugin.apply(ctx, {} as any), { code: 'tailcat_helper_missing' });
+  // On a computer DSH Desktop is not built for (Linux CI), the same start says so instead of calling the package damaged.
+  const missing = SHIPPED_COMPUTERS.includes(`${process.platform}-${process.arch}`) ? 'tailcat_helper_missing' : 'unsupported_computer';
+  await assert.rejects(plugin.apply(ctx, {} as any), { code: missing });
   const created = JSON.parse(readFileSync(configPath, 'utf8'));
   assert.equal(created.dshVersion, '0.2.1-rc.3');
   assert.equal(created.tailcat.enabled, true);

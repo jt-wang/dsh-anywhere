@@ -1,4 +1,4 @@
-# DSH Anywhere：在 Mac 上安装（Apple 芯片）
+# DSH Anywhere：在 Mac 上安装（Apple 芯片或 Intel）
 
 英文完整版见同目录的 `SETUP-MAC.md`。
 

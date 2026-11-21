@@ -65,7 +65,7 @@ function MobileSection() {
 
   // DSH Anywhere is the owner's phone: it reads every chat and drives agents, so a pairing grants all of DSH.
   const pair = async () => {
-    if (!window.confirm('The phone will have full access to DSH on this Mac: every chat, and running agents. Continue?')) return;
+    if (!window.confirm('The phone will have full access to DSH on this computer: every chat, and running agents. Continue?')) return;
     setBusy(true); setError(''); setQr(undefined);
     try {
       setQr(await request('pair', { method: 'POST', body: JSON.stringify({ execute: true }) }));
@@ -121,7 +121,7 @@ function MobileSection() {
         ))
       )
     ),
-    h('div', { style: label }, 'Pairing and revocation use the same local host state as the CLI. The phone connects through Tailcat; this Mac must stay awake.')
+    h('div', { style: label }, 'Pairing and revocation use the same local host state as the CLI. The phone connects through Tailcat; this computer must stay on and awake, with DSH Desktop open.')
   );
 }
 

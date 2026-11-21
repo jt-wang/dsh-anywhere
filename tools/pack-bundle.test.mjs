@@ -1,5 +1,5 @@
-// The one-command install package (tools/pack-bundle.mjs). Needs the built host with the darwin-arm64 Tailcat helper
-// (tools/build-tailcat.sh, then npm run build in host/).
+// The one-command install package (tools/pack-bundle.mjs). Needs the built host with the darwin-arm64, darwin-amd64 and
+// windows-amd64 Tailcat helpers (tools/build-tailcat.sh on a Mac, then npm run build in host/).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -69,7 +69,7 @@ test('the package installs with no scripts and no dependencies and declares its 
   const out = temp(t, 'dsh-anywhere-pack-');
   const result = pack('--out', out);
   assert.equal(result.status, 0, result.stderr);
-  const file = path.join(out, `dsh-anywhere-darwin-arm64.tgz`);
+  const file = path.join(out, 'dsh-anywhere.tgz');
   assert.equal(result.stdout.trim().split('\n').at(-1), file);
   const entries = untar(readFileSync(file));
   for (const name of entries.keys()) assert.match(name, /^package\//, name);
@@ -85,9 +85,14 @@ test('the package installs with no scripts and no dependencies and declares its 
   assert.deepEqual(manifest.dsh.client, host.dsh.client);
   assert.ok(entries.has('package/' + manifest.exports['./client'].replace(/^\.\//, '')), 'client bundle is in the package');
   assert.match(entries.get('package/dist/client.js').data.toString('utf8'), /^window\.__ModuleLoader__\.load\(\{\n\tid: "@jt-wang\/dsh-anywhere",/, 'the browser module is registered under the package name');
-  const helper = entries.get('package/dist/tailcat/dsh-tailcat-host-darwin-arm64');
-  assert.ok(helper, 'Tailcat helper is packed');
-  assert.equal(helper.mode & 0o777, 0o755);
+  // Every computer DSH Desktop ships for (Apple-silicon and Intel Macs, Windows x64), and no other: DSH has no Linux app.
+  const helpers = [...entries.keys()].filter(name => name.startsWith('package/dist/tailcat/')).sort();
+  assert.deepEqual(helpers, ['darwin-amd64', 'darwin-arm64', 'windows-amd64.exe'].map(name => `package/dist/tailcat/dsh-tailcat-host-${name}`));
+  for (const name of helpers) {
+    assert.equal(entries.get(name).mode & 0o777, 0o755, name);
+    assert.ok(entries.get(name).data.equals(readFileSync(path.join(root, 'host', 'dist', 'tailcat', path.basename(name)))), `${name} is the built helper`);
+  }
+  assert.equal(manifest.description, 'DSH Anywhere: use DeepSeek Harness on this computer from your phone');
 
   const rows = yaml.load(entries.get('package/cordis.patch.yml').data.toString('utf8'));
   assert.equal(rows.length, 1);
@@ -108,7 +113,7 @@ test('the package installs with no scripts and no dependencies and declares its 
 test('the packed plugin loads without node_modules: ws is bundled', async t => {
   const out = temp(t, 'dsh-anywhere-load-');
   assert.equal(pack('--out', out).status, 0);
-  const entries = untar(readFileSync(path.join(out, `dsh-anywhere-darwin-arm64.tgz`)));
+  const entries = untar(readFileSync(path.join(out, 'dsh-anywhere.tgz')));
   for (const [name, entry] of entries) {
     mkdirSync(path.dirname(path.join(out, name)), { recursive: true });
     writeFileSync(path.join(out, name), entry.data);
@@ -126,7 +131,7 @@ test('the packed plugin loads without node_modules: ws is bundled', async t => {
 test('the package does not depend on, or record, where it was packed from', t => {
   const out = temp(t, 'dsh-anywhere-place-'), elsewhere = temp(t, 'dsh-anywhere-cwd-');
   mkdirSync(path.join(out, 'a')); mkdirSync(path.join(out, 'b'));
-  const name = 'dsh-anywhere-darwin-arm64.tgz';
+  const name = 'dsh-anywhere.tgz';
   assert.equal(pack('--out', path.join(out, 'a')).status, 0);
   const moved = spawnSync(process.execPath, [tool, '--out', path.join(out, 'b')], { encoding: 'utf8', cwd: elsewhere });
   assert.equal(moved.status, 0, moved.stderr);
@@ -138,20 +143,27 @@ test('the package does not depend on, or record, where it was packed from', t =>
   assert.ok(readFileSync(path.join(out, 'a', name)).equals(readFileSync(path.join(out, 'b', name))), 'any folder, same bytes');
 });
 
-test('packing is reproducible and refuses a build without the darwin-arm64 Tailcat helper', t => {
+test('packing is reproducible and refuses a build missing any shipped Tailcat helper', t => {
   const out = temp(t, 'dsh-anywhere-repro-');
   mkdirSync(path.join(out, 'a')); mkdirSync(path.join(out, 'b'));
   assert.equal(pack('--out', path.join(out, 'a')).status, 0);
   assert.equal(pack('--out', path.join(out, 'b')).status, 0);
-  const name = `dsh-anywhere-darwin-arm64.tgz`;
+  const name = 'dsh-anywhere.tgz';
   assert.ok(readFileSync(path.join(out, 'a', name)).equals(readFileSync(path.join(out, 'b', name))), 'same build, same bytes');
 
   const bare = path.join(out, 'host');
   mkdirSync(bare);
   cpSync(path.join(root, 'host', 'package.json'), path.join(bare, 'package.json'));
   cpSync(path.join(root, 'host', 'dist'), path.join(bare, 'dist'), { recursive: true, filter: source => !source.includes(`${path.sep}tailcat`) });
+  // Each helper but the Intel Mac's: one missing helper is enough to refuse.
+  mkdirSync(path.join(bare, 'dist', 'tailcat'));
+  for (const helper of ['dsh-tailcat-host-darwin-arm64', 'dsh-tailcat-host-windows-amd64.exe']) cpSync(path.join(root, 'host', 'dist', 'tailcat', helper), path.join(bare, 'dist', 'tailcat', helper));
   const refused = pack('--host', bare, '--out', path.join(out, 'c'));
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /dsh-tailcat-host-darwin-arm64/);
+  assert.match(refused.stderr, /dsh-tailcat-host-darwin-amd64/);
   assert.equal(existsSync(path.join(out, 'c', name)), false);
+  // --only packs one computer's helper, for a CI computer.
+  assert.equal(pack('--out', path.join(out, 'c'), '--only', 'windows-amd64').status, 0);
+  assert.deepEqual([...untar(readFileSync(path.join(out, 'c', name))).keys()].filter(entry => entry.includes('/tailcat/')), ['package/dist/tailcat/dsh-tailcat-host-windows-amd64.exe']);
+  assert.notEqual(pack('--out', path.join(out, 'd'), '--only', 'plan9-386').status, 0);
 });

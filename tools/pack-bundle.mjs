@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-// Packs the built host (host/dist with the darwin-arm64 Tailcat helper) as the npm package @jt-wang/dsh-anywhere, which
-// DSH Desktop installs with `dsh plugin --profile desktop add @jt-wang/dsh-anywhere` and updates with its own plugin
+// Packs the built host (host/dist with the Tailcat helper of every computer DSH Desktop ships for: Apple-silicon and
+// Intel Macs, Windows x64) as the npm package @jt-wang/dsh-anywhere, which DSH Desktop installs with `dsh plugin --profile desktop add @jt-wang/dsh-anywhere` and updates with its own plugin
 // manager. The release workflow publishes this file to npm and attaches it to the GitHub release. Never use the bare
 // name `dsh-anywhere`: on npm that is another author's DSH plugin.
-//   node tools/pack-bundle.mjs [--out <dir>] [--host <built host dir>]
+//   node tools/pack-bundle.mjs [--out <dir>] [--host <built host dir>] [--only <goos-goarch>]
+// --only packs a single helper, for a CI computer that cannot build the others (Windows and Linux have no macOS SDK);
+// never publish such a package. A release packs no Linux helper: DSH Desktop has no Linux build (DSH's
+// apps/desktop/scripts/package-target.ts targets mac-arm64, mac-x64 and win-x64), so the Linux CI check packs its own.
 // npm-pack layout (`package/` prefix). No scripts and no dependencies: DSH's bundled pnpm refuses packages with
 // install scripts, and ws is bundled into dist/plugin.js. The archive is byte-for-byte reproducible from one build.
 import { createRequire } from 'node:module';
@@ -16,18 +19,23 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fail = message => { console.error(message); process.exit(1); };
 const args = process.argv.slice(2), flags = new Map();
 for (let i = 0; i < args.length; i += 2) {
-  if (!['--out', '--host'].includes(args[i]) || !args[i + 1] || flags.has(args[i])) fail('Usage: node tools/pack-bundle.mjs [--out <dir>] [--host <built host dir>]');
-  flags.set(args[i], path.resolve(args[i + 1]));
+  if (!['--out', '--host', '--only'].includes(args[i]) || !args[i + 1] || flags.has(args[i])) fail('Usage: node tools/pack-bundle.mjs [--out <dir>] [--host <built host dir>] [--only <goos-goarch>]');
+  flags.set(args[i], args[i] === '--only' ? args[i + 1] : path.resolve(args[i + 1]));
 }
 const host = flags.get('--host') ?? path.join(root, 'host'), out = flags.get('--out') ?? path.join(root, 'build', 'bundle');
 
 // ROW_ID stays the one every release before 0.8.1 used, so DSH sees one companion row, whichever package carries it.
-const NAME = '@jt-wang/dsh-anywhere', FILE = 'dsh-anywhere-darwin-arm64.tgz', ROW_ID = 'dsh-anywhere', HELPER = 'dsh-tailcat-host-darwin-arm64';
+const NAME = '@jt-wang/dsh-anywhere', FILE = 'dsh-anywhere.tgz', ROW_ID = 'dsh-anywhere';
+// bundledTailcatHelper (host/src/tailcat-connector.ts) picks the one for the computer DSH runs on.
+const PLATFORMS = ['darwin-arm64', 'darwin-amd64', 'windows-amd64'];
+const only = flags.get('--only');
+if (only !== undefined && ![...PLATFORMS, 'linux-amd64'].includes(only)) fail(`--only takes one of ${PLATFORMS.join(', ')}, linux-amd64`);
+const HELPERS = (only ? [only] : PLATFORMS).map(platform => `dsh-tailcat-host-${platform}${platform.startsWith('windows-') ? '.exe' : ''}`);
 const pkg = JSON.parse(readFileSync(path.join(host, 'package.json'), 'utf8'));
 for (const required of ['dist/plugin.js', 'dist/client.js', 'dist/compatibility.js'])
   if (!existsSync(path.join(host, required))) fail(`Missing ${required}. Run "npm ci && npm run build" in host/ first.`);
-const helper = path.join(host, 'dist', 'tailcat', HELPER);
-if (!existsSync(helper)) fail(`Missing dist/tailcat/${HELPER}. Run tools/build-tailcat.sh, then "npm run build" in host/; nothing was packed.`);
+for (const helper of HELPERS)
+  if (!existsSync(path.join(host, 'dist', 'tailcat', helper))) fail(`Missing dist/tailcat/${helper}. Run tools/build-tailcat.sh, then "npm run build" in host/; nothing was packed.`);
 const { DSH_ENGINES_RANGE } = await import(pathToFileURL(path.join(host, 'dist', 'compatibility.js')).href);
 
 // 1. The host half: one ES module with ws inside. ws loads its optional native addons with require() in a try block,
@@ -48,7 +56,7 @@ const renamed = `window.__ModuleLoader__.load({\n\tid: ${JSON.stringify(NAME)},`
 // 3. Manifest and bundle patch. The row has no configuration: the companion finds the running DSH version and creates
 // its private Tailcat configuration on first start (host/src/zero-config.ts).
 const manifest = {
-  name: NAME, version: pkg.version, description: 'DSH Anywhere: use DeepSeek Harness on this Mac from your phone', license: 'MIT', type: 'module',
+  name: NAME, version: pkg.version, description: 'DSH Anywhere: use DeepSeek Harness on this computer from your phone', license: 'MIT', type: 'module',
   // npm checks provenance against this repository; scoped packages are private unless published public.
   repository: { type: 'git', url: 'git+https://github.com/jt-wang/dsh-anywhere.git' }, publishConfig: { access: 'public' },
   engines: { dsh: DSH_ENGINES_RANGE },
@@ -63,7 +71,7 @@ const files = [
   ['package/LICENSE', readFileSync(path.join(root, 'LICENSE')), 0o644],
   ['package/dist/plugin.js', Buffer.from(plugin), 0o644],
   ['package/dist/client.js', Buffer.from(renamed), 0o644],
-  [`package/dist/tailcat/${HELPER}`, readFileSync(helper), 0o755],
+  ...HELPERS.map(helper => [`package/dist/tailcat/${helper}`, readFileSync(path.join(host, 'dist', 'tailcat', helper)), 0o755]),
 ];
 
 // 4. ustar archive with fixed owner and time (npm pack uses the same date), gzip without a timestamp.

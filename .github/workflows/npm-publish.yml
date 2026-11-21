@@ -1,6 +1,6 @@
 name: npm publish
 
-# Publishes the Mac companion as @jt-wang/dsh-anywhere from a release tag, with npm trusted publishing (OIDC) and
+# Publishes the companion (Apple-silicon and Intel Macs, Windows x64) as @jt-wang/dsh-anywhere from a release tag, with npm trusted publishing (OIDC) and
 # provenance: no npm token is stored anywhere. DSH Desktop's plugin manager installs and updates it from npm.
 # Every formal release is published here, never with a manual `npm publish`.
 "on":
@@ -21,7 +21,7 @@ concurrency:
 jobs:
   publish:
     if: github.repository == 'jt-wang/dsh-anywhere' && github.ref == format('refs/tags/{0}', inputs.tag)
-    # The darwin-arm64 Tailcat helper links with cgo against the macOS SDK.
+    # The Mac Tailcat helpers link with cgo against the macOS SDK; the Windows one cross-compiles beside them.
     runs-on: macos-15
     timeout-minutes: 30
     permissions:
@@ -54,22 +54,22 @@ jobs:
         shell: bash
         run: |
           HELPERS_ONLY=1 tools/build-tailcat.sh
-          codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64
+          codesign -v host/dist/tailcat/dsh-tailcat-host-darwin-arm64 host/dist/tailcat/dsh-tailcat-host-darwin-amd64
           (cd host && npm ci && npm run build)
           node --test tools/pack-bundle.test.mjs
           node tools/pack-bundle.mjs --out "$RUNNER_TEMP/npm"
-          tar -xzOf "$RUNNER_TEMP/npm/dsh-anywhere-darwin-arm64.tgz" package/package.json | node -e '
+          tar -xzOf "$RUNNER_TEMP/npm/dsh-anywhere.tgz" package/package.json | node -e '
             let d = ""; process.stdin.on("data", c => d += c).on("end", () => {
               const m = JSON.parse(d), want = require("./host/package.json").version;
               if (m.name !== "@jt-wang/dsh-anywhere" || m.version !== want) { console.error(`packed ${m.name}@${m.version}, expected @jt-wang/dsh-anywhere@${want}`); process.exit(1); }
             });'
-          (cd "$RUNNER_TEMP/npm" && shasum -a 256 dsh-anywhere-darwin-arm64.tgz | tee SHA256SUMS.txt)
+          (cd "$RUNNER_TEMP/npm" && shasum -a 256 dsh-anywhere.tgz | tee SHA256SUMS.txt)
       - name: Publish with provenance (trusted publishing, no token)
         shell: bash
         run: |
           # Trusted publishing needs npm 11.5.1 or later.
           npm install -g npm@11.11.0
-          npm publish "$RUNNER_TEMP/npm/dsh-anywhere-darwin-arm64.tgz" --provenance --access public
+          npm publish "$RUNNER_TEMP/npm/dsh-anywhere.tgz" --provenance --access public
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: dsh-npm-${{ github.run_id }}

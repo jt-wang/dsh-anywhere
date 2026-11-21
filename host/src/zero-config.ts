@@ -4,14 +4,17 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, posix, win32 } from 'node:path';
 
-/** The path tools/install-host.mjs uses (its `base`), so both installs share one identity and one set of paired phones. */
-export function defaultConfigPath(): string {
-  const base = process.platform === 'darwin'
-    ? join(homedir(), 'Library', 'Application Support', 'DSHMobile')
-    : join(process.env.XDG_DATA_HOME && isAbsolute(process.env.XDG_DATA_HOME) ? process.env.XDG_DATA_HOME : join(homedir(), '.local', 'share'), 'DSHMobile');
-  return join(base, 'host', 'host.json');
+/** The path tools/install-host.mjs (macOS, Linux) and tools/install-host.ps1 (Windows: %LOCALAPPDATA%\DSHMobile) use,
+ * so both installs share one identity and one set of paired phones. Intel and Apple-silicon Macs share the Mac path. */
+export function defaultConfigPath(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  const path = platform === 'win32' ? win32 : posix;
+  const absolute = (value: string | undefined) => value && path.isAbsolute(value) ? value : undefined;
+  const base = platform === 'darwin' ? path.join(home, 'Library', 'Application Support', 'DSHMobile')
+    : platform === 'win32' ? path.join(absolute(env.LOCALAPPDATA) ?? path.join(home, 'AppData', 'Local'), 'DSHMobile')
+    : path.join(absolute(env.XDG_DATA_HOME) ?? path.join(home, '.local', 'share'), 'DSHMobile');
+  return path.join(base, 'host', 'host.json');
 }
 
 /** DSH's `profileContext` service (dsh/lib/profile-boot: runProfile provides it to every profile plugin). */
