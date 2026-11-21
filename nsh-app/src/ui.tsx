@@ -35,8 +35,9 @@ import bot from '../assets/icons/bot.svg'
 import clock from '../assets/icons/clock.svg'
 import info from '../assets/icons/info.svg'
 import route from '../assets/icons/route.svg'
+import mic from '../assets/icons/mic.svg'
 
-export const icons = { archive, arrowUp, at, bot, check, chevronDown, chevronRight, clock, compose, copy, file, folder, fork, image, info, listChecks, message, more, pencil, pin, plus, restore, route, search, sliders, terminal, textSelect, unlink, x }
+export const icons = { archive, arrowUp, at, bot, check, chevronDown, chevronRight, clock, compose, copy, file, folder, fork, image, info, listChecks, message, mic, more, pencil, pin, plus, restore, route, search, sliders, terminal, textSelect, unlink, x }
 export type IconName = keyof typeof icons
 
 /** The sizes icons come in: each draws a 1.5 pt line (scripts/icon-strokes.mjs). */

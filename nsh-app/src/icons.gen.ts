@@ -16,6 +16,7 @@ import image14 from '../assets/icons/14/image.svg'
 import info14 from '../assets/icons/14/info.svg'
 import listChecks14 from '../assets/icons/14/list-checks.svg'
 import message14 from '../assets/icons/14/message.svg'
+import mic14 from '../assets/icons/14/mic.svg'
 import more14 from '../assets/icons/14/more.svg'
 import pencil14 from '../assets/icons/14/pencil.svg'
 import pin14 from '../assets/icons/14/pin.svg'
@@ -45,6 +46,7 @@ import image15 from '../assets/icons/15/image.svg'
 import info15 from '../assets/icons/15/info.svg'
 import listChecks15 from '../assets/icons/15/list-checks.svg'
 import message15 from '../assets/icons/15/message.svg'
+import mic15 from '../assets/icons/15/mic.svg'
 import more15 from '../assets/icons/15/more.svg'
 import pencil15 from '../assets/icons/15/pencil.svg'
 import pin15 from '../assets/icons/15/pin.svg'
@@ -74,6 +76,7 @@ import image16 from '../assets/icons/16/image.svg'
 import info16 from '../assets/icons/16/info.svg'
 import listChecks16 from '../assets/icons/16/list-checks.svg'
 import message16 from '../assets/icons/16/message.svg'
+import mic16 from '../assets/icons/16/mic.svg'
 import more16 from '../assets/icons/16/more.svg'
 import pencil16 from '../assets/icons/16/pencil.svg'
 import pin16 from '../assets/icons/16/pin.svg'
@@ -103,6 +106,7 @@ import image18 from '../assets/icons/18/image.svg'
 import info18 from '../assets/icons/18/info.svg'
 import listChecks18 from '../assets/icons/18/list-checks.svg'
 import message18 from '../assets/icons/18/message.svg'
+import mic18 from '../assets/icons/18/mic.svg'
 import more18 from '../assets/icons/18/more.svg'
 import pencil18 from '../assets/icons/18/pencil.svg'
 import pin18 from '../assets/icons/18/pin.svg'
@@ -132,6 +136,7 @@ import image20 from '../assets/icons/20/image.svg'
 import info20 from '../assets/icons/20/info.svg'
 import listChecks20 from '../assets/icons/20/list-checks.svg'
 import message20 from '../assets/icons/20/message.svg'
+import mic20 from '../assets/icons/20/mic.svg'
 import more20 from '../assets/icons/20/more.svg'
 import pencil20 from '../assets/icons/20/pencil.svg'
 import pin20 from '../assets/icons/20/pin.svg'
@@ -161,6 +166,7 @@ import image32 from '../assets/icons/32/image.svg'
 import info32 from '../assets/icons/32/info.svg'
 import listChecks32 from '../assets/icons/32/list-checks.svg'
 import message32 from '../assets/icons/32/message.svg'
+import mic32 from '../assets/icons/32/mic.svg'
 import more32 from '../assets/icons/32/more.svg'
 import pencil32 from '../assets/icons/32/pencil.svg'
 import pin32 from '../assets/icons/32/pin.svg'
@@ -176,10 +182,10 @@ import x32 from '../assets/icons/32/x.svg'
 
 export const SIZES = [14, 15, 16, 18, 20, 32] as const
 export const bySize = {
-  14: { archive: archive14, arrowUp: arrowUp14, at: at14, bot: bot14, check: check14, chevronDown: chevronDown14, chevronRight: chevronRight14, clock: clock14, compose: compose14, copy: copy14, file: file14, folder: folder14, fork: fork14, image: image14, info: info14, listChecks: listChecks14, message: message14, more: more14, pencil: pencil14, pin: pin14, plus: plus14, restore: restore14, route: route14, search: search14, sliders: sliders14, terminal: terminal14, textSelect: textSelect14, unlink: unlink14, x: x14 },
-  15: { archive: archive15, arrowUp: arrowUp15, at: at15, bot: bot15, check: check15, chevronDown: chevronDown15, chevronRight: chevronRight15, clock: clock15, compose: compose15, copy: copy15, file: file15, folder: folder15, fork: fork15, image: image15, info: info15, listChecks: listChecks15, message: message15, more: more15, pencil: pencil15, pin: pin15, plus: plus15, restore: restore15, route: route15, search: search15, sliders: sliders15, terminal: terminal15, textSelect: textSelect15, unlink: unlink15, x: x15 },
-  16: { archive: archive16, arrowUp: arrowUp16, at: at16, bot: bot16, check: check16, chevronDown: chevronDown16, chevronRight: chevronRight16, clock: clock16, compose: compose16, copy: copy16, file: file16, folder: folder16, fork: fork16, image: image16, info: info16, listChecks: listChecks16, message: message16, more: more16, pencil: pencil16, pin: pin16, plus: plus16, restore: restore16, route: route16, search: search16, sliders: sliders16, terminal: terminal16, textSelect: textSelect16, unlink: unlink16, x: x16 },
-  18: { archive: archive18, arrowUp: arrowUp18, at: at18, bot: bot18, check: check18, chevronDown: chevronDown18, chevronRight: chevronRight18, clock: clock18, compose: compose18, copy: copy18, file: file18, folder: folder18, fork: fork18, image: image18, info: info18, listChecks: listChecks18, message: message18, more: more18, pencil: pencil18, pin: pin18, plus: plus18, restore: restore18, route: route18, search: search18, sliders: sliders18, terminal: terminal18, textSelect: textSelect18, unlink: unlink18, x: x18 },
-  20: { archive: archive20, arrowUp: arrowUp20, at: at20, bot: bot20, check: check20, chevronDown: chevronDown20, chevronRight: chevronRight20, clock: clock20, compose: compose20, copy: copy20, file: file20, folder: folder20, fork: fork20, image: image20, info: info20, listChecks: listChecks20, message: message20, more: more20, pencil: pencil20, pin: pin20, plus: plus20, restore: restore20, route: route20, search: search20, sliders: sliders20, terminal: terminal20, textSelect: textSelect20, unlink: unlink20, x: x20 },
-  32: { archive: archive32, arrowUp: arrowUp32, at: at32, bot: bot32, check: check32, chevronDown: chevronDown32, chevronRight: chevronRight32, clock: clock32, compose: compose32, copy: copy32, file: file32, folder: folder32, fork: fork32, image: image32, info: info32, listChecks: listChecks32, message: message32, more: more32, pencil: pencil32, pin: pin32, plus: plus32, restore: restore32, route: route32, search: search32, sliders: sliders32, terminal: terminal32, textSelect: textSelect32, unlink: unlink32, x: x32 },
+  14: { archive: archive14, arrowUp: arrowUp14, at: at14, bot: bot14, check: check14, chevronDown: chevronDown14, chevronRight: chevronRight14, clock: clock14, compose: compose14, copy: copy14, file: file14, folder: folder14, fork: fork14, image: image14, info: info14, listChecks: listChecks14, message: message14, mic: mic14, more: more14, pencil: pencil14, pin: pin14, plus: plus14, restore: restore14, route: route14, search: search14, sliders: sliders14, terminal: terminal14, textSelect: textSelect14, unlink: unlink14, x: x14 },
+  15: { archive: archive15, arrowUp: arrowUp15, at: at15, bot: bot15, check: check15, chevronDown: chevronDown15, chevronRight: chevronRight15, clock: clock15, compose: compose15, copy: copy15, file: file15, folder: folder15, fork: fork15, image: image15, info: info15, listChecks: listChecks15, message: message15, mic: mic15, more: more15, pencil: pencil15, pin: pin15, plus: plus15, restore: restore15, route: route15, search: search15, sliders: sliders15, terminal: terminal15, textSelect: textSelect15, unlink: unlink15, x: x15 },
+  16: { archive: archive16, arrowUp: arrowUp16, at: at16, bot: bot16, check: check16, chevronDown: chevronDown16, chevronRight: chevronRight16, clock: clock16, compose: compose16, copy: copy16, file: file16, folder: folder16, fork: fork16, image: image16, info: info16, listChecks: listChecks16, message: message16, mic: mic16, more: more16, pencil: pencil16, pin: pin16, plus: plus16, restore: restore16, route: route16, search: search16, sliders: sliders16, terminal: terminal16, textSelect: textSelect16, unlink: unlink16, x: x16 },
+  18: { archive: archive18, arrowUp: arrowUp18, at: at18, bot: bot18, check: check18, chevronDown: chevronDown18, chevronRight: chevronRight18, clock: clock18, compose: compose18, copy: copy18, file: file18, folder: folder18, fork: fork18, image: image18, info: info18, listChecks: listChecks18, message: message18, mic: mic18, more: more18, pencil: pencil18, pin: pin18, plus: plus18, restore: restore18, route: route18, search: search18, sliders: sliders18, terminal: terminal18, textSelect: textSelect18, unlink: unlink18, x: x18 },
+  20: { archive: archive20, arrowUp: arrowUp20, at: at20, bot: bot20, check: check20, chevronDown: chevronDown20, chevronRight: chevronRight20, clock: clock20, compose: compose20, copy: copy20, file: file20, folder: folder20, fork: fork20, image: image20, info: info20, listChecks: listChecks20, message: message20, mic: mic20, more: more20, pencil: pencil20, pin: pin20, plus: plus20, restore: restore20, route: route20, search: search20, sliders: sliders20, terminal: terminal20, textSelect: textSelect20, unlink: unlink20, x: x20 },
+  32: { archive: archive32, arrowUp: arrowUp32, at: at32, bot: bot32, check: check32, chevronDown: chevronDown32, chevronRight: chevronRight32, clock: clock32, compose: compose32, copy: copy32, file: file32, folder: folder32, fork: fork32, image: image32, info: info32, listChecks: listChecks32, message: message32, mic: mic32, more: more32, pencil: pencil32, pin: pin32, plus: plus32, restore: restore32, route: route32, search: search32, sliders: sliders32, terminal: terminal32, textSelect: textSelect32, unlink: unlink32, x: x32 },
 }

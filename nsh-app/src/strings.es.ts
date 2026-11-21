@@ -189,7 +189,7 @@ export const ES: Strings = {
   pathLan: 'Por la red local a tu computadora', pairEmoji: 'Comprueba que tu computadora muestra estos mismos emojis y confirma allí.', tailcatOnly: 'Solo Tailcat', tailcatOnlyHint: 'No usar tu relé ni la red local. Tailcat aún puede usar su propio relé cifrado.',
   appVersion: 'Versión (compilación)', versionUnavailable: 'No disponible',
   dshVersion: 'Versión de DSH', companionVersion: 'Versión del complemento', unlinkHint: 'Este teléfono dejará de acceder a la computadora hasta que escanees un nuevo código de vinculación.',
-  appearance: 'Apariencia', themeSystem: 'Sistema', themeLight: 'Claro', themeDark: 'Oscuro', language: 'Idioma', languageSystem: 'Sistema',
+  appearance: 'Apariencia', themeSystem: 'Sistema', themeLight: 'Claro', themeDark: 'Oscuro', language: 'Idioma', languageSystem: 'Según el sistema',
   notifications: 'Notificaciones', notifyAnswers: 'Respuesta lista o detenida', notifyDecisions: 'El agente necesita tu decisión', notifyBanners: 'Banners dentro de la app',
   notifyBackground: 'Seguir vigilando en segundo plano', notifyBackgroundHint: 'Mientras un agente trabaja, una notificación permanente mantiene el teléfono a la escucha.',
   notifyDenied: 'Las notificaciones de DSH están desactivadas en los ajustes del teléfono.', notifyAllow: 'Activar notificaciones', openSystemSettings: 'Abrir ajustes del teléfono',

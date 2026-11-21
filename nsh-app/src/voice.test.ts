@@ -5,15 +5,15 @@ import { voicePolicy, voiceStrings } from './voice-strings.ts'
 const catalog = (): VoiceCatalog => ({ maxAudioBytes: 4194304, maxDurationSeconds: 120, selection: { providerId: 'local', language: 'auto' }, providers: [{ id: 'local', location: 'host-local', languages: ['auto'], preparation: { phase: 'ready' } }] })
 const deferred = () => { let resolve!: (v: any) => void; const promise = new Promise<any>(r => resolve = r); return { promise, resolve } }
 const tick = async () => { for (let n = 0; n < 5; n++) await Promise.resolve() }
-function setup(options: { catalog?: VoiceCatalog; audio?: any; reply?: any; error?: string } = {}) {
-  const calls: any[] = [], texts: string[] = [], errors: string[] = [], phases: string[] = []
+function setup(options: { catalog?: VoiceCatalog; audio?: any; reply?: any; error?: string; code?: string } = {}) {
+  const calls: any[] = [], texts: string[] = [], errors: string[] = [], phases: string[] = [], sheets: any[] = []
   const audio = deferred()
   const voice = createVoice({
-    client: () => ({ rpc: async (name, args) => { calls.push([name, args]); if (name === 'speech/catalog') return (options.catalog ?? catalog()) as any; if (options.error) throw new Error(options.error); return (options.reply ?? { text: 'editable transcript' }) as any } }),
-    call: async (name, args) => { calls.push([name, args]); if (name === 'voice.record') return options.audio === undefined ? audio.promise : options.audio; if (name === 'voice.stop') audio.resolve({ audioBase64: 'UklGRg==' }); if (name === 'voice.cancel') audio.resolve(null); return null as any },
-    phase: p => phases.push(p), onText: t => texts.push(t), onError: e => errors.push(e),
+    client: () => ({ rpc: async (name, args) => { calls.push([name, args]); if (name === 'speech/catalog') return (options.catalog ?? catalog()) as any; if (options.error) throw Object.assign(new Error(options.error), { code: options.code }); return (options.reply ?? { text: 'editable transcript' }) as any } }),
+    call: async (name, args) => { if (name === 'voice.permission') return { state: 'granted' } as any; calls.push([name, args]); if (name === 'voice.record') return options.audio === undefined ? audio.promise : options.audio; if (name === 'voice.stop') audio.resolve({ audioBase64: 'UklGRg==' }); if (name === 'voice.cancel') audio.resolve(null); return null as any },
+    phase: p => phases.push(p), sheet: v => sheets.push(v?.kind), onText: t => texts.push(t), onError: e => errors.push(e),
   })
-  return { voice, calls, texts, errors, phases, audio }
+  return { voice, calls, texts, errors, phases, audio, sheets }
 }
 
 test('voice uses official speech args, stops, and only returns editable draft text', async () => {
@@ -22,7 +22,7 @@ test('voice uses official speech args, stops, and only returns editable draft te
   expect(s.calls.map(c => c[0])).toEqual(['speech/catalog', 'voice.record', 'voice.stop', 'speech/transcribe'])
   expect(s.calls[3][1]).toEqual({ request: { audioBase64: 'UklGRg==', providerId: 'local', language: 'auto' } })
   expect(s.texts).toEqual(['editable transcript'])
-  expect(s.phases).toEqual(['checking', 'recording', 'transcribing', 'idle'])
+  expect(s.phases).toEqual(['checking', 'requesting', 'transcribing', 'idle'])
   expect(s.errors).toEqual([])
 })
 
@@ -39,13 +39,19 @@ test('voice does not inherit desktop cloud default or infer cloud credential rea
   expect(s.calls[2][1].request.providerId).toBe('local')
   const cloudOnly = setup({ catalog: { ...c, providers: c.providers.slice(0, 1) } }); await cloudOnly.voice.start()
   expect(cloudOnly.calls.length).toBe(1)
-  expect(cloudOnly.errors).toEqual(['voice/unavailable'])
+  expect(cloudOnly.sheets).toEqual(['cloud']); expect(cloudOnly.errors).toEqual([])
 })
 
-test('voice refuses unprepared providers before microphone permission', async () => {
-  const c = catalog(); c.providers[0].preparation.phase = 'unprepared'
-  const s = setup({ catalog: c }); await s.voice.start()
-  expect(s.calls.length).toBe(1); expect(s.errors).toEqual(['voice/not-ready'])
+test('voice explains an unprepared or preparing model before microphone permission', async () => {
+  for (const [phase, sheet] of [['unprepared', 'download'], ['failed', 'download'], ['downloading', 'preparing'], ['loading', 'preparing']]) {
+    const c = catalog(); c.providers[0].preparation.phase = phase
+    const s = setup({ catalog: c }); await s.voice.start()
+    expect(s.calls.length).toBe(1); expect(s.sheets).toEqual([sheet]); expect(s.errors).toEqual([])
+  }
+  // A plugin that is off answers 404; a computer out of reach does not answer at all.
+  const off = createVoice({ client: () => ({ rpc: async () => { throw Object.assign(new Error('HTTP 404'), { code: 'http/404' }) } }), call: async () => null as any,
+    phase: () => {}, sheet: v => sheets.push(v?.kind), onText: () => {}, onError: () => {} })
+  const sheets: any[] = []; await off.start(); expect(sheets).toEqual(['missing'])
 })
 
 test('voice cancellation during capture drops audio and never uploads', async () => {
@@ -65,16 +71,23 @@ test('voice rejects oversize audio, reports empty transcription and never overwr
   expect(large.errors).toEqual(['voice/limits']); expect(large.calls.length).toBe(2)
   const empty = setup({ audio: { audioBase64: 'AA==' }, reply: { text: '  ' } }); await empty.voice.start()
   expect(empty.errors).toEqual(['voice/empty']); expect(empty.texts).toEqual([])
-  const failed = setup({ audio: { audioBase64: 'AA==' }, error: 'synthetic failure' }); await failed.voice.start()
+  const failed = setup({ audio: { audioBase64: 'AA==' }, error: 'synthetic failure', code: 'speech/transcription-failed' }); await failed.voice.start()
   expect(failed.errors).toEqual(['voice/transcription']); expect(failed.calls.length).toBe(3); expect(failed.texts).toEqual([])
+  // Each failure names its side: the computer not answering is not the recognizer failing.
+  const late = setup({ audio: { audioBase64: 'AA==' }, error: 'The computer did not answer', code: 'timeout' }); await late.voice.start()
+  expect(late.errors).toEqual(['voice/offline'])
+  const busy = setup({ audio: Promise.reject(new Error('voice/microphone')) }); await busy.voice.start()
+  expect(busy.errors).toEqual(['voice/microphone']); expect(busy.calls.length).toBe(2)
 })
 
 test('voice permission denial never uploads; cancel discards late recognition result', async () => {
   const calls: string[] = [], errors: string[] = [], texts: string[] = [], recognition = deferred()
   let deny = true
   const v = createVoice({ client: () => ({ rpc: async (name) => { calls.push(name); return name === 'speech/catalog' ? catalog() as any : recognition.promise } }),
-    call: async (name) => { if (deny) throw new Error('native: voice/permission'); return { audioBase64: 'AA==' } as any }, phase: () => {}, onText: t => texts.push(t), onError: e => errors.push(e) })
-  await v.start(); expect(errors).toEqual(['voice/permission']); expect(calls).toEqual(['speech/catalog'])
+    call: async (name) => { if (name === 'voice.permission') return { state: 'granted' } as any; if (deny) throw new Error('native: voice/permission'); return { audioBase64: 'AA==' } as any },
+    phase: () => {}, sheet: v => sheets.push(v?.kind), onText: t => texts.push(t), onError: e => errors.push(e) })
+  const sheets: any[] = []
+  await v.start(); expect(sheets).toEqual([undefined, 'denied']); expect(errors).toEqual([]); expect(calls).toEqual(['speech/catalog'])
   deny = false; const started = v.start(); await tick(); v.cancel(); recognition.resolve({ text: 'must not insert' }); await started
   expect(texts).toEqual([])
 })
@@ -85,13 +98,14 @@ test('voice ignores a cancelled take’s late stop error after a new recording s
   const voice = createVoice({ client: () => ({ rpc: async () => catalog() as any }),
     call: async (name, args) => {
       const id = args.id as string
+      if (name === 'voice.permission') return { state: 'granted' } as any
       if (name === 'voice.record') { const d = deferred(); records.set(id, d); return d.promise }
       if (name === 'voice.stop') { await late.promise; throw new Error('stale native error') }
       records.get(id)?.resolve(null); return null as any
-    }, phase: p => { phase = p }, onText: () => {}, onError: e => errors.push(e) })
+    }, phase: p => { phase = p }, sheet: () => {}, onText: () => {}, onError: e => errors.push(e) })
   const first = voice.start(); await tick(); const stop = voice.stop(); voice.cancel(); await first
   const second = voice.start(); await tick(); late.resolve(null); await stop
-  expect(phase).toBe('recording'); expect(errors).toEqual([])
+  expect(phase).toBe('requesting'); expect(errors).toEqual([])
   voice.cancel(); await second
 })
 

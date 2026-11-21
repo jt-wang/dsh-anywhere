@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { isAbsolute, posix, sep, win32 } from 'node:path';
 
-/** The private folder's name. Releases up to 0.8.2 (when the project was still called DSH Mobile) used `DSHMobile`. */
+/** The private folder's name. Releases up to 0.8.3 (when the project was still called DSH Mobile) used `DSHMobile`. */
 export const DATA_FOLDER = 'DSHAnywhere', LEGACY_DATA_FOLDER = 'DSHMobile';
 
 /** The companion's private folder: ~/Library/Application Support on a Mac (Apple silicon and Intel), %LOCALAPPDATA% on

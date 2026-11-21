@@ -129,7 +129,7 @@ async function ownerOnly(path: string) {
   if (process.platform === 'win32') await assertPrivate(path); else assert.equal(statSync(path).mode & 0o077, 0, 'owner-only');
 }
 
-/** A private folder as 0.8.2 and earlier left it, under the old name: setup-tailcat's files plus a paired-phone database. */
+/** A private folder as 0.8.3 and earlier left it, under the old name: setup-tailcat's files plus a paired-phone database. */
 async function legacyFolder(): Promise<{ legacy: string; current: string; hostId: string }> {
   const legacy = dataFolder(process.platform, process.env, process.env.HOME!, LEGACY_DATA_FOLDER), current = dataFolder();
   await setupTailcat({ configPath: join(legacy, 'host', 'host.json'), dshVersion: '0.2.1-rc.3' });

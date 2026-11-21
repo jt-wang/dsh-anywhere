@@ -7,7 +7,7 @@
 // The runtime folder holds node_modules/@deepseek-ai/dsh (npm install @deepseek-ai/dsh). Everything DSH, pnpm and the
 // companion write goes to one new temp folder: HOME, USERPROFILE, LOCALAPPDATA, APPDATA, XDG_* and DSH_HOME point there.
 // Without --port the companion creates its configuration itself on first start (port 19445), as for a user.
-// --legacy-folder starts from a private folder that 0.8.2 and earlier left under the old name DSHMobile: the companion must
+// --legacy-folder starts from a private folder that 0.8.3 and earlier left under the old name DSHMobile: the companion must
 // move it to DSHAnywhere and keep its identity.
 // Prints statuses only, never keys or tokens. Exit code 0 only when the phone paired and read.
 import { spawn, spawnSync } from 'node:child_process';

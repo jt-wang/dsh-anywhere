@@ -13,7 +13,7 @@ export interface DshLlmStream {
 }
 
 /** Where the split is kept: `<DSH home>/dsh-anywhere/progress` (profileContext.home, the Harness home), else the folder the
- * plugin's row names. A `<DSH home>/dsh-mobile` folder from 0.8.2 and earlier is moved to `dsh-anywhere` first. */
+ * plugin's row names. A `<DSH home>/dsh-mobile` folder from 0.8.3 and earlier is moved to `dsh-anywhere` first. */
 export function progressDirectory(profile: { home?: unknown } | undefined, fallback: unknown): string | undefined {
   if (typeof profile?.home === 'string' && isAbsolute(profile.home)) return join(adoptLegacyFolder(join(profile.home, 'dsh-mobile'), join(profile.home, 'dsh-anywhere')), 'progress');
   return typeof fallback === 'string' && isAbsolute(fallback) ? fallback : undefined;

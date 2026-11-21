@@ -14,7 +14,7 @@ has no Linux or Windows on Arm app, so neither does DSH Anywhere.
 | `dsh` if it is not on PATH | `"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"` | `"<DSH Desktop folder>\resources\runtime\cli\bin\dsh.cmd"` |
 | DSH Anywhere's private folder (below: *the private folder*) | `~/Library/Application Support/DSHAnywhere` | `%LOCALAPPDATA%\DSHAnywhere` |
 
-DSH Anywhere 0.8.2 and earlier, from when the project was called DSH Mobile, kept the private folder under the name
+DSH Anywhere companion 0.8.3 and earlier, from when the project was called DSH Mobile, kept the private folder under the name
 `DSHMobile` in the same place. The companion renames it to `DSHAnywhere` on its first start; paired phones and settings
 move with it. Leave both folders alone.
 
@@ -37,7 +37,10 @@ is another author's DSH plugin (remote workspaces over SSH), not this one.
 4. Earlier install from source: if `profiles/desktop/cordis.patch.yml` in the DSH home contains
    `# DSH-MOBILE-COMPANION-BEGIN`, tell the person and, with their consent, delete the lines from `BEGIN` to `END`
    inclusive. Paired phones are kept: both installs use the same private folder.
-5. Tell the person the phone needs Android 9 or later. For an iPhone, install the companion here, then follow
+5. Tell the person which phone app to install. Android 9 or later:
+   [dsh-anywhere.apk](https://github.com/jt-wang/dsh-anywhere/releases/latest/download/dsh-anywhere.apk). iPhone on iOS 17
+   or later: open https://testflight.apple.com/join/nbURjw6a on the iPhone. Both pair the same way
+   ([§ 4](#4-pair-the-phone)). Only someone who wants to build the iPhone app themselves follows
    [AGENT-IPHONE.md](AGENT-IPHONE.md).
 6. Earlier install from a GitHub download (DSH Anywhere 0.1.10 and before installed the release's
    `dsh-anywhere-darwin-arm64.tgz` as a package named `dsh-anywhere`, which DSH cannot update): if
