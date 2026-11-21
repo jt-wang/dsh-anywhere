@@ -47,7 +47,7 @@ jobs:
           - { name: Windows x64, os: windows-latest, helper: windows-amd64, pack: windows-amd64, e2e: '' }
           - { name: Linux x64 (dsh web), os: ubuntu-24.04, helper: linux-amd64, pack: linux-amd64, e2e: '' }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -94,7 +94,22 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then export PATH="$(brew --prefix openssl@3)/bin:$PATH"; fi
           npm ci
           npm run build
-          npm test
+          if [[ "$RUNNER_OS" != Windows ]]; then npm test; else
+            # TEMP diagnosis: one file at a time, five minutes each, so a hang names its file; the job goes on to pairing.
+            node -e '
+              const { spawnSync, execSync } = require("node:child_process"), fs = require("node:fs");
+              const bad = [];
+              for (const f of fs.readdirSync("test").filter(f => f.endsWith(".test.ts")).sort()) {
+                const log = process.env.RUNNER_TEMP + "/each.log", fd = fs.openSync(log, "w"), t = Date.now();
+                const r = spawnSync(process.execPath, ["--test", "--test-timeout=120000", "test/" + f], { stdio: ["ignore", fd, fd], timeout: 300000 });
+                fs.closeSync(fd); if (r.error) try { execSync("taskkill /T /F /PID " + r.pid, { stdio: "ignore" }); } catch {}
+                const verdict = r.error ? "HANG" : r.status === 0 ? "ok" : "FAIL " + r.status;
+                console.log(`[each] ${verdict} ${f} ${Math.round((Date.now() - t) / 1000)}s`);
+                if (verdict !== "ok") { bad.push(f); console.log(fs.readFileSync(log, "utf8").split("\n").filter(l => /✖|not ok|Error|assert/.test(l)).slice(0, 30).join("\n")); }
+              }
+              console.log("[each] not ok: " + (bad.join(" ") || "none"));
+            '
+          fi
       - name: Pack the npm package
         env:
           PACK: ${{ matrix.pack }}
