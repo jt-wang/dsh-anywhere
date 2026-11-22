@@ -8,7 +8,8 @@ export const VOICE = '@deepseek-ai/dsh-experimental-voice-input-bundle'
 type Json = any
 const ns = (name: string, value: Record<string, Json>, extra: Record<string, Json> = {}) => ({ ns: name, schema: {}, value, base: {}, user: value, revision: 1, applies: 'live', autoGenerate: false, secrets: [], ...extra })
 
-export function computerDsh(options: { control?: boolean; down?: boolean; slow?: boolean } = {}) {
+export function computerDsh(options: { control?: boolean; down?: boolean; slow?: boolean; selfVersion?: string } = {}) {
+  const selfVersion = options.selfVersion ?? '0.8.7'
   let down = !!options.down, conflict = false
   const calls: { method: string; args: Record<string, Json> }[] = []
   const namespaces = [
@@ -28,10 +29,10 @@ export function computerDsh(options: { control?: boolean; down?: boolean; slow?:
   const bundles = [
     bundle(VOICE, { version: '0.2.2', enabled: false, removable: true, update: 'registry', meta: { title: { en: 'Voice input' }, description: { en: 'Transcribe recordings locally.' } } }),
     bundle('@deepseek-ai/dsh-cua-bundle', { version: '0.2.2', enabled: true, removable: false, listedByDefault: true }),
-    bundle(SELF, { official: false, availability: 'profile', version: '0.8.6', enabled: true, removable: true, update: 'registry', meta: { title: 'DSH Anywhere' } }),
+    bundle(SELF, { official: false, availability: 'profile', version: selfVersion, enabled: true, removable: true, update: 'registry', meta: { title: 'DSH Anywhere' } }),
   ]
   const registry = { url: 'https://registry.npmjs.org/' }
-  const newer: Record<string, string> = { [SELF]: '0.8.7', [VOICE]: '0.2.3' }
+  const newer: Record<string, string> = { [SELF]: '0.8.8', [VOICE]: '0.2.3' }
   const applied = (target: string) => ({ changed: true, application: 'applied', stage: 'enable', target })
   const answer = (method: string, args: Record<string, Json>): Json => {
     switch (method) {
@@ -62,7 +63,7 @@ export function computerDsh(options: { control?: boolean; down?: boolean; slow?:
     }
   }
   const network = {
-    'GET http://127.0.0.1:40001/v1/capabilities': () => ({ body: { hostName: 'DSH Anywhere companion', computerName: 'Studio', hostVersion: '0.8.6', release: '0.1.17', upstreamVersion: '0.2.2-rc.5', capabilities: { control: options.control !== false } } }),
+    'GET http://127.0.0.1:40001/v1/capabilities': () => ({ body: { hostName: 'DSH Anywhere companion', computerName: 'Studio', hostVersion: selfVersion, release: '0.1.18', upstreamVersion: '0.2.2-rc.5', capabilities: { control: options.control !== false } } }),
     [`POST ${ORIGIN}/api/*`]: (request: { url: string; body?: string | null }) => {
       const method = request.url.slice(`${ORIGIN}/api/`.length)
       if (down && method !== 'session/list') return { status: 503 }

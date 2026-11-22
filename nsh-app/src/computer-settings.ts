@@ -156,3 +156,16 @@ export const current = (store: Pick<ComputerStore, 'namespace'>, spec: FieldSpec
 /** The newest version DSH can update a bundle to: stable, a bundle, compatible, not deprecated (listVersions). */
 export interface VersionList { status: 'listed' | 'refused'; installed?: string; registry?: unknown; versions?: { version: string; prerelease: boolean; bundle: boolean; incompatible?: unknown; deprecated?: string }[] }
 export const updateTarget = (l: VersionList | undefined) => l?.status === 'listed' ? l.versions?.find(v => !v.prerelease && v.bundle && !v.incompatible && !v.deprecated)?.version : undefined
+
+/** The first companion that may update, turn off or remove itself for a phone. Up to 0.8.6 it keeps the phone's change
+ * only after DSH answers, when DSH has already stopped it, and DSH then exits its whole host (DSH Desktop's crash report
+ * "database is not open at HostState.recordPhoneChange"). Such a computer does it on DSH Desktop's Plugins page. */
+export const SELF_ACTIONS_FROM = '0.8.7'
+/** Whether the computer's DSH Anywhere may act on itself for this phone; an unknown version may not. */
+export const selfActionsSafe = (version: string | undefined) => {
+  const parts = (v: string) => v.split('-')[0]!.split('.').map(Number)
+  if (!version || !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) return false
+  const a = parts(version), b = parts(SELF_ACTIONS_FROM)
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! > b[i]!
+  return true
+}

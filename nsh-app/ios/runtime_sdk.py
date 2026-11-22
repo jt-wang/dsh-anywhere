@@ -9,7 +9,8 @@ import subprocess
 import sys
 
 PIN = '7b3031fb7c9b93b0dee65f48a227bcf15d2bda38'
-PATCH = Path(__file__).with_name('nsh-window-tap.patch')
+# The iOS host's window taps, and whole-number pads for whole-number fields (both platforms' builds apply the latter).
+PATCHES = (Path(__file__).with_name('nsh-window-tap.patch'), Path(__file__).parent.with_name('nsh-number-pad.patch'))
 SECRETS = ('APPLE_TEAM_ID', 'IOS_DISTRIBUTION_P12_BASE64', 'IOS_DISTRIBUTION_P12_PASSWORD',
            'IOS_PROVISION_PROFILE_BASE64', 'ASC_KEY_ID', 'ASC_ISSUER_ID', 'ASC_PRIVATE_KEY_P8')
 
@@ -34,10 +35,11 @@ def source():
     head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], env=clean).decode().strip()
     if head != PIN:
         raise ValueError('wrong NSH revision')
-    check = subprocess.run(['git', '-C', str(root), 'apply', '--reverse', '--check', str(PATCH)],
-                           env=clean, capture_output=True)
-    if check.returncode:
-        raise ValueError('NSH runtime patch is not applied')
+    for patch in PATCHES:
+        check = subprocess.run(['git', '-C', str(root), 'apply', '--reverse', '--check', str(patch)],
+                               env=clean, capture_output=True)
+        if check.returncode:
+            raise ValueError('NSH runtime patch is not applied')
     return root
 
 
@@ -61,7 +63,7 @@ def inventory(root):
 
 
 def metadata(root):
-    return {'schema': 1, 'nsh_commit': PIN, 'source': str(root), 'patch_sha256': digest(PATCH),
+    return {'schema': 1, 'nsh_commit': PIN, 'source': str(root), 'patch_sha256': {p.name: digest(p) for p in PATCHES},
             'builder_sha256': digest(Path(__file__)), 'cli_sha256': digest(root/'target/release/nsh'),
             'context': context()}
 

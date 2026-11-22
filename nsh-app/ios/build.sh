@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds ios/build/DSH.app: the NSH app bundle plus NSH's iOS runtime and the Tailcat client inside the native shell.
-#   NSH_SOURCE   a separate NSH checkout at the pinned revision below, with nsh-window-tap.patch applied
+#   NSH_SOURCE   a separate NSH checkout at the pinned revision below, with nsh-window-tap.patch and ../nsh-number-pad.patch applied
 #                and `cargo build --release -p nsh-cli` completed; local builds prepare and verify the SDK
 #   DSH_NSH_RECEIPT  consume a verified SDK from this workflow run without rebuilding (required by CI)
 #   DEVICE=1     build for a phone, signed automatically with your own Apple team; needs DSH_TEAM and DSH_BUNDLE_PREFIX,

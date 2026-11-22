@@ -1,0 +1,16 @@
+diff --git a/crates/nsh-base/src/number_input.rs b/crates/nsh-base/src/number_input.rs
+index 665e43c..cc49169 100644
+--- a/crates/nsh-base/src/number_input.rs
++++ b/crates/nsh-base/src/number_input.rs
+@@ -402,6 +402,11 @@ pub fn NumberInput(props: NumberInputProps, cx: Scope<NumberInputEvent>) -> impl
+                 .unwrap_or_default()
+         })
+         .keyboard_type(move || match ctl.bounds().0 {
++            // Whole steps from a whole, non-negative minimum only ever make
++            // whole numbers: the digits pad, without a separator or sign.
++            Some(min) if min >= 0.0 && min.fract() == 0.0 && ctl.step_size().fract() == 0.0 => {
++                KeyboardType::Number
++            }
+             // Phones' decimal pads have no minus sign.
+             Some(min) if min >= 0.0 => KeyboardType::Decimal,
+             _ => KeyboardType::NumbersAndPunctuation,

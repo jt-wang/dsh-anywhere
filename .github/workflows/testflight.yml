@@ -134,6 +134,8 @@ jobs:
           test "$(git -C "$RUNNER_TEMP/nsh" rev-parse HEAD)" = "$NSH_COMMIT"
           git -C "$RUNNER_TEMP/nsh" apply --check "$GITHUB_WORKSPACE/nsh-app/ios/nsh-window-tap.patch"
           git -C "$RUNNER_TEMP/nsh" apply "$GITHUB_WORKSPACE/nsh-app/ios/nsh-window-tap.patch"
+          git -C "$RUNNER_TEMP/nsh" apply --check "$GITHUB_WORKSPACE/nsh-app/nsh-number-pad.patch"
+          git -C "$RUNNER_TEMP/nsh" apply "$GITHUB_WORKSPACE/nsh-app/nsh-number-pad.patch"
           export RUSTFLAGS="--remap-path-prefix=$HOME=/build --remap-path-prefix=$RUNNER_TEMP=/tmp"
           cd "$RUNNER_TEMP/nsh"
           cargo build --locked --release -p nsh-cli

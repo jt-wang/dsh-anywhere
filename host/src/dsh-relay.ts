@@ -195,17 +195,22 @@ export function createDshRelay(options: DshRelayOptions): DshRelay {
         const path = url.pathname + (url.search === '?' ? '' : url.search);
         const body = Buffer.concat(chunks);
         const change = req.method === 'POST' && changed ? phoneChange(url.pathname, body) : undefined;
+        // DSH may stop the companion while it acts, closing the state that keeps changes. A change that cannot be kept
+        // is only logged: an error escaping here would make DSH exit its whole host.
+        const keep = (kept: PhoneChange) => {
+          try { changed!(kept); } catch (error) { console.error(`dsh-anywhere: a phone's change was not kept (${String((error as { code?: unknown })?.code ?? 'error')})`); }
+        };
         // Turning off, removing or updating the companion itself stops this process before DSH answers: keep the
         // change first, so DSH Desktop's page can say which phone did it once DSH Anywhere runs again.
         if (change && touchesSelf(change.method, argsOf(body))) {
-          changed!({ ...change, label: { title: 'DSH Anywhere' } });
+          keep({ ...change, label: { title: 'DSH Anywhere' } });
           session().then(value => forward(req, res, body, path, true, value), () => { res.writeHead(502); res.end(); });
           return;
         }
         const done = change && ((ok: boolean) => {
           if (!ok) return;
           labelOf(change.method, argsOf(body), call).catch(() => undefined)
-            .then(label => changed!(label ? { ...change, label } : change));
+            .then(label => keep(label ? { ...change, label } : change));
         });
         session().then(value => forward(req, res, body, path, true, value, done), () => { res.writeHead(502); res.end(); });
       });

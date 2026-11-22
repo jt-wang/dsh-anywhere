@@ -21,6 +21,7 @@ class RuntimePatch(unittest.TestCase):
         self.ios.mkdir(parents=True)
         for name in ('build.sh', 'nsh-window-tap.patch', 'runtime_sdk.py'):
             shutil.copyfile(IOS/name, self.ios/name)
+        shutil.copyfile(IOS.parent/'nsh-number-pad.patch', self.ios.parent/'nsh-number-pad.patch')
         (self.ios/'Frameworks/Dshtailcat.xcframework').mkdir(parents=True)
         self.nsh = self.root/'nsh'
         self.framework = self.nsh/'dist/nsh/embed/ios/NativeShell.xcframework'
@@ -36,7 +37,7 @@ with open(os.environ['TEST_EVENTS'],'a') as f:f.write(json.dumps([name]+args)+'\
 if name=='git':
  if args[2:]==['rev-parse','HEAD']:print(os.environ['TEST_HEAD'])
  elif args[2:5]==['apply','--reverse','--check']:
-  assert pathlib.Path(args[-1]).name=='nsh-window-tap.patch'
+  assert pathlib.Path(args[-1]).name in ('nsh-window-tap.patch','nsh-number-pad.patch')
   sys.exit(0 if os.environ['TEST_PATCHED']=='1' else 1)
  else:sys.exit(91)
 elif name=='cargo':

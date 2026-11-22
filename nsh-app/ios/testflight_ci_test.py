@@ -23,6 +23,7 @@ class TestFlight(unittest.TestCase):
         self.ios.mkdir(parents=True)
         for name in ('testflight_ci.py', 'build.sh', 'check-testflight.sh', 'nsh-window-tap.patch', 'runtime_sdk.py'):
             shutil.copyfile(SCRIPT.with_name(name), self.ios / name)
+        shutil.copyfile(SCRIPT.parent.with_name('nsh-number-pad.patch'), self.ios.parent / 'nsh-number-pad.patch')
         (self.ios / 'build.sh').chmod(0o755)
         (self.ios / 'check-testflight.sh').chmod(0o755)
         self.manifest = self.ios.parent / 'nsh.json'

@@ -8,7 +8,7 @@ async function computerSettings(options: Parameters<typeof computerDsh>[0] = {},
   const app = await open('./fixtures/connected/App.tsx', {
     platform, locale: 'en-US',
     host: { handlers: {
-      'app.info': { version: '0.1.17', build: '18' }, 'network.state': { online: true }, 'link.state': { paired: true, origin: ORIGIN, token: 'synthetic-device-token' },
+      'app.info': { version: '0.1.18', build: '19' }, 'network.state': { online: true }, 'link.state': { paired: true, origin: ORIGIN, token: 'synthetic-device-token' },
       'app.state': { active: true }, 'notify.watch': null, 'notify.clear': null, 'notify.permission': { granted: true }, 'link.forget': null, 'link.path': { kind: 'direct' }, haptic: null,
     } },
     network: dsh.network,
@@ -115,7 +115,7 @@ test('DSH Anywhere has no switch among the plugins; the danger zone turns it off
 test('the DSH Anywhere group offers the newer version DSH lists, outside the danger zone, and updates after one confirmation', async () => {
   const { app, dsh } = await computerSettings()
   await app.waitFor('id:computer-self-update')
-  expect(app.texts()).toContain('New version 0.8.7')
+  expect(app.texts()).toContain('New version 0.8.8')
   expect(app.texts()).toContain('Phones disconnect for a moment and reconnect on their own once it is installed.')
   expect(app.shows('id:danger-update')).toBe(false)
   expect(app.shows('id:danger-off')).toBe(true)
@@ -128,7 +128,22 @@ test('the DSH Anywhere group offers the newer version DSH lists, outside the dan
   await app.waitFor('id:action-yes')
   await app.press('id:action-yes')
   await app.waitFor('id:self-note')
-  expect(writes(dsh)).toEqual([{ method: 'pluginManager/updateBundle', args: { name: SELF, version: '0.8.7', options: { registry: { url: 'https://registry.npmjs.org/' } } } }])
+  expect(writes(dsh)).toEqual([{ method: 'pluginManager/updateBundle', args: { name: SELF, version: '0.8.8', options: { registry: { url: 'https://registry.npmjs.org/' } } } }])
+})
+
+// Companions up to 0.8.6 crash DSH Desktop's host when a phone updates, turns off or removes them through the relay
+// (they keep the change after DSH has stopped them). Such a computer shows the newer version and where to install it.
+test('a computer on DSH Anywhere 0.8.6 offers no update, turn-off or uninstall on the phone, only DSH Desktop\'s Plugins page', async () => {
+  const { app, dsh } = await computerSettings({ selfVersion: '0.8.6' })
+  await app.waitFor('id:computer-self-update-on-computer')
+  expect(app.texts()).toContain('New version 0.8.8')
+  expect(app.texts()).toContain('Install it on the computer: Update on DSH Desktop’s Plugins page.')
+  expect(app.shows('id:computer-self-update')).toBe(false)
+  expect(app.shows('id:danger-zone')).toBe(false)
+  expect(app.shows('id:danger-off')).toBe(false)
+  expect(app.shows('id:danger-uninstall')).toBe(false)
+  expect(app.texts()).toContain('With DSH Anywhere 0.8.6 on the computer, update, turn it off or uninstall it on DSH Desktop’s Plugins page. From 0.8.7 on, this phone can do it too.')
+  expect(writes(dsh)).toEqual([])
 })
 
 test('Shell shows seconds and kilobytes and writes DSH\'s milliseconds and bytes', async () => {

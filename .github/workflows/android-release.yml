@@ -55,6 +55,8 @@ jobs:
           git init -q "$NSH_SOURCE"
           git -C "$NSH_SOURCE" fetch -q --depth 1 https://github.com/longbridge/nsh.git "$NSH_COMMIT"
           git -C "$NSH_SOURCE" checkout -q --detach FETCH_HEAD
+          git -C "$NSH_SOURCE" apply --check "$GITHUB_WORKSPACE/nsh-app/nsh-number-pad.patch"
+          git -C "$NSH_SOURCE" apply "$GITHUB_WORKSPACE/nsh-app/nsh-number-pad.patch"
           export RUSTFLAGS="--remap-path-prefix=$HOME=/build --remap-path-prefix=$RUNNER_TEMP=/tmp"
           export CFLAGS_aarch64_linux_android="-ffile-prefix-map=$NSH_SOURCE=/nsh -ffile-prefix-map=$HOME=/build"
           cargo build --manifest-path "$NSH_SOURCE/Cargo.toml" --locked --release -p nsh-cli

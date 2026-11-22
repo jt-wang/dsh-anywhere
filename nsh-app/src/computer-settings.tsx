@@ -10,7 +10,7 @@ import { chooseAction, haptic, Icon, type IconName } from './ui.tsx'
 import { confirmDanger } from './danger.tsx'
 import { fill, reasonOf, pluginStrings } from './plugins-strings.ts'
 import { computerStrings, DSH_LANGUAGES, type ComputerWords } from './computer-settings-strings.ts'
-import { BUILT_IN, current, GENERAL, nsOf, pluginForms, SELF, updateTarget, valueAt, type ComputerStore, type FieldSpec, type VersionList } from './computer-settings.ts'
+import { BUILT_IN, current, GENERAL, nsOf, pluginForms, SELF, SELF_ACTIONS_FROM, selfActionsSafe, updateTarget, valueAt, type ComputerStore, type FieldSpec, type VersionList } from './computer-settings.ts'
 import { settingFields, type Json, type SettingsNamespace } from './desktop-settings.ts'
 import { outcomeOf, type Change } from './plugins.ts'
 import { PluginsPage } from './plugins.tsx'
@@ -113,6 +113,7 @@ function Field(props: {
   // Number and text: a draft the person edits, saved on Return, on leaving the field, or (steps) a moment after.
   const scale = props.control.kind === 'number' ? props.control.scale ?? 1 : 1
   const text = () => { const v = props.value(); return v === undefined || v === null ? '' : scale === 1 ? String(v) : String(Math.round(Number(v) / scale * 10) / 10) }
+  // The field being edited is outlined: Android's dark keyboard theme leaves no other sign of it.
   const draft = signal(text()), focused = signal(false)
   effect(() => { const t = text(); if (!focused()) draft.set(t) })
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -141,13 +142,13 @@ function Field(props: {
       <If when={c.kind === 'number'} else={
         <Input testID={props.testID} accessibilityLabel={props.label} value={draft()} disabled={disabled()} placeholder={W().fontDefault} returnKeyType="done"
           onChange={(e) => draft.set(e.value)} onFocus={() => focused.set(true)} onBlur={() => { focused.set(false); commit() }} onSubmit={commit} autoCapitalize="none" autoCorrect={false}
-          class="w-[150px] min-h-[36px] rounded-[8px] bg-secondary px-[10px] text-foreground text-[15px] text-right placeholder:text-muted-foreground disabled:opacity-60" />
+          class={`w-[150px] min-h-[36px] rounded-[8px] border ${focused() ? 'border-ring' : 'border-transparent'} bg-secondary px-[10px] text-foreground caret-foreground text-[15px] text-right placeholder:text-muted-foreground disabled:opacity-60`} />
       }>
         <NumberInput testID={props.testID} accessibilityLabel={props.label} value={draft() === '' ? null : Number(draft())} disabled={disabled()}
           min={c.kind === 'number' ? c.min : undefined} max={c.kind === 'number' ? c.max : undefined} step={c.kind === 'number' ? c.step ?? 1 : 1}
           onChange={(e) => { draft.set(e.value === null ? '' : String(e.value)); clearTimeout(timer); if (!focused()) timer = setTimeout(commit, 700) }}
           onFocus={() => focused.set(true)} onBlur={() => { focused.set(false); commit() }} onSubmit={commit}
-          class={`flex-row items-center rounded-[8px] bg-secondary h-[36px] disabled:opacity-60 ${c.kind === 'number' && c.unit ? 'w-[150px] justify-between' : ''}`} inputClass={`${c.kind === 'number' && c.unit ? 'w-[52px] text-right pr-[4px]' : 'w-[64px] text-center'} text-foreground text-[15px]`}
+          class={`flex-row items-center rounded-[8px] border ${focused() ? 'border-ring' : 'border-transparent'} bg-secondary h-[36px] disabled:opacity-60 ${c.kind === 'number' && c.unit ? 'w-[150px] justify-between' : ''}`} inputClass={`${c.kind === 'number' && c.unit ? 'w-[52px] text-right pr-[4px]' : 'w-[64px] text-center'} text-foreground caret-foreground text-[15px]`}
           decrementButtonClass="w-[34px] h-[36px] items-center justify-center active:opacity-60 disabled:opacity-30" incrementButtonClass="w-[34px] h-[36px] items-center justify-center active:opacity-60 disabled:opacity-30"
           decrementButton={<Text class="text-foreground text-[18px]">−</Text>} incrementButton={<Text class="text-foreground text-[18px]">+</Text>}
           suffix={c.kind === 'number' && c.unit ? <Text testID={`${props.testID}-unit`} class="text-muted-foreground text-[15px] pr-1">{W()[c.unit]}</Text> : undefined} />
@@ -387,7 +388,13 @@ export function SelfSection(props: { store: ComputerStore }) {
         <Text class="flex-1 text-foreground text-[15px]">{W().selfVersion}</Text>
         <Text testID="computer-self-version" class="text-muted-foreground text-[15px]">{self()?.version ?? ''}</Text>
       </View></Line>
-      <If when={target()}>
+      <If when={target() && !selfActionsSafe(self()?.version)}>
+        <View testID="computer-self-update-on-computer" class="px-[14px] py-[11px] gap-[3px] border-t border-border">
+          <Text class="text-foreground text-[15px] font-medium">{fill(W().updateNew, { version: target()?.version ?? '' })}</Text>
+          <Text class="text-muted-foreground text-[13px] leading-[18px]">{W().updateOnComputer}</Text>
+        </View>
+      </If>
+      <If when={target() && selfActionsSafe(self()?.version)}>
         <View role="button" testID="computer-self-update" accessibilityLabel={fill(W().updateNew, { version: target()?.version ?? '' })} accessibilityState={{ disabled: working() }} onPress={() => void update()}
           class={`px-[14px] py-[11px] gap-[3px] border-t border-border ${working() ? 'opacity-50' : 'active:bg-secondary'}`}>
           <View class="flex-row items-center gap-3">
@@ -433,11 +440,16 @@ export function DangerZone(props: { store: ComputerStore }) {
     </View>
   )
   return <If when={self()}>
-    <View testID="danger-zone" class="pt-6"><Group>
-      <Action id="off" first title={W().offRow} press={() => void run('off')} />
-      <If when={self()?.removable}><Action id="uninstall" title={W().uninstallRow} press={() => void run('uninstall')} /></If>
-    </Group></View>
-    <Text testID="danger-footer" class="px-2 pt-[6px] text-muted-foreground text-[12px] leading-[16px]">{W().dangerFooter}</Text>
+    <If when={!selfActionsSafe(self()?.version)}>
+      <Text testID="self-on-computer" class="px-2 pt-6 text-muted-foreground text-[12px] leading-[16px]">{fill(W().selfOnComputer, { version: self()?.version ?? '', from: SELF_ACTIONS_FROM })}</Text>
+    </If>
+    <If when={selfActionsSafe(self()?.version)}>
+      <View testID="danger-zone" class="pt-6"><Group>
+        <Action id="off" first title={W().offRow} press={() => void run('off')} />
+        <If when={self()?.removable}><Action id="uninstall" title={W().uninstallRow} press={() => void run('uninstall')} /></If>
+      </Group></View>
+      <Text testID="danger-footer" class="px-2 pt-[6px] text-muted-foreground text-[12px] leading-[16px]">{W().dangerFooter}</Text>
+    </If>
     <Note id="danger-note" text={note()} />
   </If>
 }

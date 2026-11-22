@@ -112,6 +112,12 @@ jobs:
         env:
           E2E: ${{ matrix.e2e }}
         run: node tools/computer-e2e.mjs "$RUNNER_TEMP/pack/dsh-anywhere.tgz" "$RUNNER_TEMP/phone$(go env GOEXE)" "$RUNNER_TEMP/dsh" $E2E 2>&1 | tee "$RUNNER_TEMP/pairing.log"
+      # A phone updates, turns off and uninstalls DSH Anywhere itself through the relay, from the last release and from
+      # this build; DSH's host must stay up (companion 0.8.6 crashed it). Published packages carry no Linux helper, and
+      # one Mac is enough for the relay's logic.
+      - name: A phone updates, turns off and uninstalls DSH Anywhere and DSH keeps running
+        if: matrix.helper == 'darwin-arm64'
+        run: node --no-warnings host/test/self-change-e2e.mjs "$RUNNER_TEMP/pack/dsh-anywhere.tgz" "$RUNNER_TEMP/dsh" --from 0.8.7 --from current 2>&1 | tee "$RUNNER_TEMP/self-change.log"
       # The pairing as the computer and the phone saw it (statuses and emoji only; no key, token or address is printed).
       - name: Keep the pairing log
         if: always()

@@ -125,6 +125,24 @@ test('a phone turning DSH Anywhere itself off is kept before DSH answers, even w
   ]);
 });
 
+// DSH stops the companion while it acts on some changes (an update or reinstall of DSH Anywhere, a reload of its
+// settings), closing the companion's state before the answer comes back. Keeping the change then fails; that must stay
+// inside the companion, because an unhandled rejection makes DSH exit its whole host (DSH Desktop 0.2.2-rc.5 crash
+// report "database is not open at HostState.recordPhoneChange", companion 0.8.6).
+test('a change answered after DSH stopped the companion reaches the phone and never escapes as an error', async t => {
+  const { dsh, host, base, owner } = await setup(t);
+  const escaped: unknown[] = [];
+  const onError = (error: unknown) => { escaped.push(error); };
+  process.on('unhandledRejection', onError); process.on('uncaughtException', onError);
+  t.after(() => { process.off('unhandledRejection', onError); process.off('uncaughtException', onError); });
+  dsh.answers.set('pluginManager/installBundle', () => { host.state.close(); return { changed: true, application: 'applied' }; });
+  const res = await fetch(`${base}/dsh/api/pluginManager/installBundle`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${owner}` }, body: JSON.stringify({ type: 'client-request', rpcId: 'r', method: 'pluginManager/installBundle', payload: { args: { options: { expected: { name: '@jt-wang/dsh-anywhere' } } } } }) });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json() as { result: { ok: boolean } }).result.ok, true, 'the phone still gets DSH\'s answer');
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.deepEqual(escaped, [], 'nothing escapes the companion to DSH');
+});
+
 test('an expired DSH session is renewed once and the request still succeeds', async t => {
   const { dsh, post, owner } = await setup(t);
   assert.equal((await post('/api/session/list', owner)).status, 200);

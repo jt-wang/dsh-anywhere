@@ -133,9 +133,9 @@ elif name=='cargo':
                 if failure:self.assertFalse(cargo)
                 else:
                     applied=[i for i,e in enumerate(commands) if e[0]=='git' and 'apply' in e and '--check' not in e]
-                    self.assertEqual(len(applied),1)
+                    self.assertEqual([Path(commands[i][-1]).name for i in applied],['nsh-window-tap.patch','nsh-number-pad.patch'])
                     self.assertTrue(cargo)
-                    self.assertLess(applied[0],min(cargo))
+                    self.assertLess(max(applied),min(cargo))
                     self.assertTrue((d/'dsh-runtime.json').is_file())
                     self.assertEqual(sum(e[:2]==['cargo','xtask'] for e in commands),1)
                     receipt=json.loads((d/'dsh-runtime.json').read_text())

@@ -63,7 +63,14 @@ receipts stop the build. Cargo's compilation cache is retained.
 # From nsh-app/, with NSH_SOURCE pointing to that separate checkout at the revision above:
 git -C "$NSH_SOURCE" apply --check "$PWD/ios/nsh-window-tap.patch"
 git -C "$NSH_SOURCE" apply "$PWD/ios/nsh-window-tap.patch"
+git -C "$NSH_SOURCE" apply --check "$PWD/nsh-number-pad.patch"
+git -C "$NSH_SOURCE" apply "$PWD/nsh-number-pad.patch"
 ```
+
+`nsh-number-pad.patch` goes into both platforms' builds (Android's release workflow applies it too). NSH's
+`NumberInput` shows a decimal pad whenever its minimum is not negative; with the patch, a whole minimum and a whole
+step get the digits-only pad (iOS `NumberPad`, Android's unsigned number keyboard), as the Settings pages' counts,
+seconds and kilobytes need.
 
 ```sh
 ios/build.sh                                      # → ios/build/DSH.app for the simulator
