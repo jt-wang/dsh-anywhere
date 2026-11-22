@@ -11,6 +11,11 @@ import { askText, cardOf, jobLines, loadSeen, markSeen, oneAtATime, sectionsOf, 
 
 export { markSeen }
 
+/** The page is hidden (user decision, 2026-11-22) until it follows DSH's own progress design and data: with it off the
+ * home is the chat list alone, Settings has no "Split chats into jobs", and the phone never asks for `progress/list`.
+ * Tests turn it on with fixtures/progress-on. */
+export const progressPage = { enabled: false }
+
 /** Whether the linked computer's companion has the page (undefined until it said). */
 export const progressAvailable = signal<boolean | undefined>(undefined)
 export const progressView = signal<ProgressView | undefined>(undefined)
@@ -23,7 +28,8 @@ export const judgeLanguage = (l: string) => (l === 'zh' || l.startsWith('zh-Hans
 
 /** Mounted once per link: asks whether the companion has the page, then keeps the jobs fresh while the app is in front. */
 export function ProgressFeed() {
-  progressAvailable.set(undefined); progressView.set(undefined); progressError.set('')
+  progressAvailable.set(progressPage.enabled ? undefined : false); progressView.set(undefined); progressError.set('')
+  if (!progressPage.enabled) return null
   loadSeen()
   let stopped = false
   const ask = async () => {

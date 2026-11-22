@@ -48,6 +48,12 @@ export class Workspaces {
     else if (f.type === 'pinned') this.pinned = ids(f.pinnedSessionIds)
   }
 
+  /** A chat the computer just put in the workspace of another (a fork's reply), before its frame arrives. */
+  attach(sessionId: string, beside: string): void {
+    const w = this.list().find((x) => x.sessionIds.includes(beside))
+    if (w && !w.sessionIds.includes(sessionId)) this.byId.set(w.workspaceId, { ...w, sessionIds: [...w.sessionIds, sessionId] })
+  }
+
   list(): Workspace[] { return this.order.flatMap((id) => (this.byId.has(id) ? [this.byId.get(id)!] : [])) }
   snapshot() { return { items: this.list(), archivedSessionIds: [...this.archived], pinnedSessionIds: [...this.pinned] } }
 }

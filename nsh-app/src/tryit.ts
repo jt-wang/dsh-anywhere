@@ -132,10 +132,11 @@ export function tryComputer(): { fetch: typeof fetch; socket: (url: string) => S
       case 'session/cancel': cancel(r?.sessionId); return {}
       case 'session/modelCatalog': return { groups: [{ id: 'sample', name: t.computer, models: [{ id: 'sample-model', name: t.model }] }] }
       case '$events/result': answered(args); return {}
-      case 'workspace/pinSession': pinned = [...pinned, r?.sessionId]; toWorkspaces({ type: 'pinned', pinnedSessionIds: pinned }); return {}
-      case 'workspace/unpinSession': pinned = pinned.filter((id) => id !== r?.sessionId); toWorkspaces({ type: 'pinned', pinnedSessionIds: pinned }); return {}
-      case 'workspace/archiveSession': archived = [...archived, r?.sessionId]; toWorkspaces({ type: 'archived', archivedSessionIds: archived }); return {}
-      case 'workspace/unarchiveSession': archived = archived.filter((id) => id !== r?.sessionId); toWorkspaces({ type: 'archived', archivedSessionIds: archived }); return {}
+      // As DSH answers them (dsh-api-workspace-controller commands.ts): the complete set, the latest pin first; archiving drops the pin.
+      case 'workspace/pinSession': pinned = [r?.sessionId, ...pinned.filter((id) => id !== r?.sessionId)]; toWorkspaces({ type: 'pinned', pinnedSessionIds: pinned }); return { pinnedSessionIds: pinned }
+      case 'workspace/unpinSession': pinned = pinned.filter((id) => id !== r?.sessionId); toWorkspaces({ type: 'pinned', pinnedSessionIds: pinned }); return { pinnedSessionIds: pinned }
+      case 'workspace/archiveSession': archived = [...archived, r?.sessionId]; pinned = pinned.filter((id) => id !== r?.sessionId); toWorkspaces({ type: 'archived', archivedSessionIds: archived }); toWorkspaces({ type: 'pinned', pinnedSessionIds: pinned }); return { archivedSessionIds: archived }
+      case 'workspace/unarchiveSession': archived = archived.filter((id) => id !== r?.sessionId); toWorkspaces({ type: 'archived', archivedSessionIds: archived }); return { archivedSessionIds: archived }
       case 'workspaceFiles/list': return { path: args?.path === '.' ? '' : args?.path, entries: FILES[args?.path] ?? [], truncated: false }
       case 'workspaceFiles/read': { const body = args?.path === 'README.md' ? t.readme : CODE[args?.path] ?? ''; const lines = body.split('\n'); return { offset: 1, text: body, lines: lines.length, totalLines: lines.length } }
       case 'schedule/catalog': return [{ id: 'try-task', kind: 'daily', title: t.taskTitle, prompt: t.taskPrompt, scheduledAt: new Date(now + 8 * hour).toISOString(), sessionId: 'try-fix', status: 'active', time: '09:00' }]

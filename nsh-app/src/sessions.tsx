@@ -1,6 +1,6 @@
 // The chat list, as DSH Desktop's sidebar shows it: chats under their workspaces (workspace/follow), pinned first,
 // archived hidden, a "+" to start a chat in a workspace. Subagent and blank chats stay out of the list.
-import { cleanup, createAnimatedValue, effect, LayoutAnimation, List, locale, PanResponder, signal, Text, untracked, View } from 'nsh'
+import { cleanup, computed, createAnimatedValue, effect, LayoutAnimation, List, locale, PanResponder, signal, Text, untracked, View } from 'nsh'
 import { Input } from 'nsh/base'
 import { chatAction, chatMenu, RenameSheet, type ChatAction } from './manage.tsx'
 import { dragTo, release, swipeThresholds } from './swipe.ts'
@@ -12,7 +12,8 @@ import { appActive, asks, connection, dsh, network, offlineCache, pending, pollF
 import { oneAtATime } from './progress.ts'
 import { ago, language, readable, S } from './strings.ts'
 import { problemOf } from './files.ts'
-import { archivedChats, searchChats, summaries, Workspaces, type ChatSummary } from './workspaces.ts'
+import { archivedChats, searchChats, summaries, type ChatSummary } from './workspaces.ts'
+import { applyWorkspaces, isArchived, isPinned, listedChats, listRead, resetChats, showSaved, titleOf, workspaces } from './chat-store.ts'
 import { moveLocalSession, rememberWorkspaceOrders, setWorkspaceView, syncWorkspaceOrders, workspaceView } from './prefs.ts'
 import { visibleWorkspaceChat, workspaceAccounts, workspaceViewRows, type WorkspaceViewRow } from './workspace-settings-view.ts'
 import { workspaceViewStrings } from './workspace-settings-view-strings.ts'
@@ -27,14 +28,15 @@ type Item =
 export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: () => boolean; onNewChatClosed: () => void }) {
   const cache = offlineCache()
   const saved = cache?.data.list
-  const chats = signal<Summary[]>(saved?.value ?? [])
-  const workspaces = new Workspaces()
-  if (cache?.data.workspaces) workspaces.apply({ type: 'baseline', value: cache.data.workspaces.value })
+  resetChats()
+  showSaved(saved?.value ?? [])
+  // Chats and titles come from the store: a fork, a rename here or in the chat, and the chat's own title show at once.
+  const chats = computed(() => listedChats().map((c) => { const t = titleOf(c.sessionId, c.title); return t === c.title ? c : { ...c, title: t } }))
+  if (cache?.data.workspaces) applyWorkspaces({ type: 'baseline', value: cache.data.workspaces.value })
   const copiedAt = signal(saved?.at ?? 0)
   const fresh = signal(false)
   effect(() => { if (connection() !== 'online') fresh.set(false) })
   const known = signal(Boolean(saved))
-  const version = signal(0)
   const error = signal('')
   const refreshing = signal(false)
   const loading = signal(!saved)
@@ -53,13 +55,14 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
     // A refresh that cannot reach the computer keeps the chats it has: the connection bar speaks for the connection
     // (back from the background, the first refresh often goes out before the connection is back).
     try {
+      const install = listRead()
       const value = summaries(await list().catch(async (e) => {
         await new Promise((r) => setTimeout(r, 400))
         if (stopped || !appActive() || (!network() && !trying())) throw e
         return list()
       }))
       if (stopped) return
-      chats.set(value); known.set(true); fresh.set(true); copiedAt.set(Date.now()); error.set(''); cache?.list(value)
+      install(value); known.set(true); fresh.set(true); copiedAt.set(Date.now()); error.set(''); cache?.list(value)
     } catch (e) { if (!stopped) error.set(problemOf(e) === 'offline' ? '' : readable(e)) } finally { if (!stopped) loading.set(false) }
   })
   const pull = async () => { refreshing.set(true); await load(); refreshing.set(false) }
@@ -69,15 +72,15 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
   let followed = false
   cleanup(dsh().stream('workspace/follow', {}, (frame) => {
     if (followed) LayoutAnimation.configureNext(LayoutAnimation.create(220, 'easeInEaseOut', 'opacity'))
-    followed = true; workspaces.apply(frame); version.update((n) => n + 1)
-    if (workspaces.loaded) cache?.workspaces(workspaces.snapshot())
+    followed = true; applyWorkspaces(frame)
   }, (e) => error.set(readable(e))))
+  // What the list shows is saved for offline, whichever of the follow stream or an action's reply changed it.
+  effect(() => { const w = workspaces(); if (w.loaded) untracked(() => cache?.workspaces(w.snapshot())) })
   effect(() => {
-    version()
-    const orders = workspaceAccounts(workspaces, chats(), workspaceView())
+    const orders = workspaceAccounts(workspaces(), chats(), workspaceView())
     rememberWorkspaceOrders(orders)
     // A bounded/offline cached list is not complete membership, and must not prune saved manual slots.
-    if (workspaces.loaded && followed && fresh()) syncWorkspaceOrders(orders)
+    if (workspaces().loaded && followed && fresh()) syncWorkspaceOrders(orders)
   })
   // Titles match at once; DSH's full-text search adds hits when the install has its index (it can be turned off).
   let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -94,26 +97,24 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
   cleanup(() => clearTimeout(searchTimer))
   const searching = () => Boolean(query().trim())
   const items = (): Item[] => {
-    version()
     const prefs = workspaceView()
-    if (searching()) return searchChats(chats().filter(c => visibleWorkspaceChat(workspaces, c.sessionId, prefs.archivedFilter)), query(), hits().filter(h => visibleWorkspaceChat(workspaces, h.sessionId, prefs.archivedFilter))).map((c) => ({ kind: 'chat' as const, id: `r:${c.sessionId}`, chat: { ...c, title: c.title || S.untitled }, snippet: c.snippet }))
+    if (searching()) return searchChats(chats().filter(c => visibleWorkspaceChat(workspaces(), c.sessionId, prefs.archivedFilter)), query(), hits().filter(h => visibleWorkspaceChat(workspaces(), h.sessionId, prefs.archivedFilter))).map((c) => ({ kind: 'chat' as const, id: `r:${c.sessionId}`, chat: { ...c, title: c.title || S.untitled }, snippet: c.snippet }))
     const row = (c: Summary): Item => ({ kind: 'chat', id: c.sessionId, chat: c })
-    const archived = archivedChats(workspaces, chats())
+    const archived = archivedChats(workspaces(), chats())
     return [
-      ...workspaceViewRows(workspaces, chats(), prefs),
+      ...workspaceViewRows(workspaces(), chats(), prefs),
       // Archived is a header of its own that opens and closes, its chats under it.
       ...(prefs.archivedFilter === 'default' && archived.length ? [{ kind: 'toggle' as const, id: 'toggle', count: archived.length }, ...(showArchived() ? archived.map(row) : [])] : []),
     ]
   }
   const localMove = (item: Extract<Item, { kind: 'chat' }>, down: boolean) => {
     if (item.account === undefined) return
-    const pinned = (id: string) => workspaces.pinned.includes(id) && !workspaces.archived.has(id)
-    const members = workspaceViewRows(workspaces, chats(), workspaceView()).filter((r): r is Extract<WorkspaceViewRow, { kind: 'chat' }> => r.kind === 'chat' && r.account === item.account && pinned(r.id) === pinned(item.chat.sessionId)).map(r => r.id)
+    const members = workspaceViewRows(workspaces(), chats(), workspaceView()).filter((r): r is Extract<WorkspaceViewRow, { kind: 'chat' }> => r.kind === 'chat' && r.account === item.account && isPinned(r.id) === isPinned(item.chat.sessionId)).map(r => r.id)
     const at = members.indexOf(item.chat.sessionId)
     if ((!down && at <= 0) || (down && at >= members.length - 1)) return
     moveLocalSession(item.account, item.chat.sessionId, members[at + (down ? 2 : -1)])
   }
-  const menu = (chat: Summary) => chatMenu(chat, { pinned: workspaces.pinned.includes(chat.sessionId), archived: workspaces.archived.has(chat.sessionId) }, () => renaming.set(chat), (m) => error.set(m), props.onOpen)
+  const menu = (chat: Summary) => chatMenu(chat, { pinned: isPinned(chat.sessionId), archived: isArchived(chat.sessionId) }, () => renaming.set(chat), (m) => error.set(m), props.onOpen)
   const sheetOpen = () => props.newChat() || startIn() !== undefined
   return (
     <View class="flex-1 bg-background">
@@ -132,8 +133,8 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
         {(i) => (
           <>
             <If when={i().kind === 'chat'}><View style={{ marginLeft: ((i() as Extract<Item, { kind: 'chat' }>).depth ?? 0) * 12 }}><ChatRow chat={() => (i() as Extract<Item, { kind: 'chat' }>).chat} snippet={() => (i() as Extract<Item, { kind: 'chat' }>).snippet} onOpen={props.onOpen} onMenu={menu}
-              pinned={() => (version(), workspaces.pinned.includes((i() as Extract<Item, { kind: 'chat' }>).chat.sessionId))}
-              archived={() => (version(), workspaces.archived.has((i() as Extract<Item, { kind: 'chat' }>).chat.sessionId))} onError={(m) => error.set(m)} />
+              pinned={() => isPinned((i() as Extract<Item, { kind: 'chat' }>).chat.sessionId)}
+              archived={() => isArchived((i() as Extract<Item, { kind: 'chat' }>).chat.sessionId)} onError={(m) => error.set(m)} />
               <If when={workspaceView().orderBy === 'manual' && (i() as Extract<Item, { kind: 'chat' }>).account !== undefined && !searching()}><View class="flex-row justify-end px-3">
                 <IconButton name="arrowUp" testID={`local-chat-up-${(i() as Extract<Item, { kind: 'chat' }>).chat.sessionId}`} label={workspaceViewStrings(language() === 'system' ? locale() : language()).up} onPress={() => localMove(i() as Extract<Item, { kind: 'chat' }>, false)} />
                 <IconButton name="chevronDown" testID={`local-chat-down-${(i() as Extract<Item, { kind: 'chat' }>).chat.sessionId}`} label={workspaceViewStrings(language() === 'system' ? locale() : language()).down} onPress={() => localMove(i() as Extract<Item, { kind: 'chat' }>, true)} />
@@ -165,10 +166,10 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
       </List>
       <If when={searching() && !items().length}><View class="absolute inset-0 items-center justify-center pointer-events-none"><Text class="text-muted-foreground text-[15px]">{S.noResults}</Text></View></If>
       <If when={!chats().length && !loading() && (!error() || connection() === 'offline') && !searching()}><View class="absolute inset-0 items-center justify-center px-6 pointer-events-none"><Text class="text-muted-foreground text-[15px] text-center">{known() ? S.empty : S.noSavedChats}</Text></View></If>
-      <NewChat open={sheetOpen} workspaces={() => (version(), workspaces.list())} chats={chats} workspaceId={startIn}
+      <NewChat open={sheetOpen} workspaces={() => workspaces().list()} chats={chats} workspaceId={startIn}
         onClose={() => { startIn.set(undefined); props.onNewChatClosed() }}
         onCreated={(sessionId, where) => { startIn.set(undefined); props.onNewChatClosed(); props.onOpen({ sessionId, title: S.untitled, updatedAt: Date.now(), running: false, ...(where ? { cwd: where.path, project: where.title } : {}) }) }} />
-      <RenameSheet chat={renaming} onClose={() => renaming.set(undefined)} onRenamed={(id, title) => chats.update((l) => l.map((c) => (c.sessionId === id ? { ...c, title } : c)))} />
+      <RenameSheet chat={renaming} onClose={() => renaming.set(undefined)} />
     </View>
   )
 }
@@ -214,7 +215,7 @@ function ChatRow(props: { chat: () => Summary; snippet: () => string | undefined
     <View class="mx-2 rounded-[10px] overflow-hidden" onLayout={(e) => { width = e.bounds.size.width }}>
       <If when={swipes()}>
         <View class="absolute inset-y-0 right-0 flex-row" style={{ width: actions(), opacity: x.interpolate({ inputRange: [-24, 0], outputRange: [1, 0] }) }}>
-          <View role="button" accessibilityLabel={props.pinned() ? S.unpin : S.pin} testID="swipe-pin" onPress={() => act(props.pinned() ? 'unpin' : 'pin')} class="flex-1 items-center justify-center bg-secondary active:opacity-80">
+          <View role="button" accessibilityLabel={props.pinned() ? S.unpin : S.pin} testID={`swipe-pin-${props.chat().sessionId}`} onPress={() => act(props.pinned() ? 'unpin' : 'pin')} class="flex-1 items-center justify-center bg-secondary active:opacity-80">
             <Icon name="pin" size={18} class="tint-foreground" />
           </View>
           <View role="button" accessibilityLabel={S.archive} testID="swipe-archive" onPress={() => act('archive')} class="flex-1 items-center justify-center bg-destructive active:opacity-80">
@@ -227,6 +228,7 @@ function ChatRow(props: { chat: () => Summary; snippet: () => string | undefined
         style={{ translate: [x, 0] }} class="px-3 py-[9px] rounded-[10px] bg-background active:bg-secondary transition-colors duration-150">
       <View class="flex-row items-center gap-2">
         <If when={props.chat().running}><LiveDot /></If>
+        <If when={props.pinned()}><View testID="row-pinned" accessibilityLabel={S.pinned}><Icon name="pin" size={14} class="tint-muted-foreground" /></View></If>
         <Text class="flex-1 text-foreground text-[15px] leading-5 line-clamp-1">{props.chat().title}</Text>
         <If when={(asks(), pending.sessionsWaiting().includes(props.chat().sessionId))} else={<Text class="text-muted-foreground text-[12px] tabular-nums">{props.chat().updatedAt ? ago(props.chat().updatedAt) : ''}</Text>}>
           <Text class="text-[#F54E00] text-[12px] font-medium">{S.waiting}</Text>

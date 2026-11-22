@@ -86,7 +86,10 @@ test('in the app, another chat’s answer is a banner, not a notification; its t
   const app = await start(running)
   await app.clock.runFor(30_100)
   running.build = false
-  await app.clock.runFor(31_700)
+  await app.clock.runFor(30_000)
+  // The list's reply comes in real time and the answer then waits 1.5 s of the app's time: move the clock a little at a
+  // time, letting replies land in between, until the banner shows (it stays 6 s).
+  for (let i = 0; i < 60 && !app.shows('id:attention-banner'); i++) { await app.clock.runFor(100); await new Promise((r) => setTimeout(r, 20)) }
   await app.waitFor('id:attention-banner')
   expect(app.shows('text:The build passes again.')).toBe(true)
   expect(calls(app, 'notify.show')).toEqual([])

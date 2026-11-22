@@ -11,7 +11,8 @@ import { SettingsPage } from './src/settings.tsx'
 import { DiagnosticsSettings } from './src/diagnostics-settings.tsx'
 import { HomeTabs, markSeen, progressAvailable, ProgressFeed, ProgressScreen, ProjectPage } from './src/progress.tsx'
 import { loadPrefs } from './src/prefs.ts'
-import { forkChat, RenameSheet } from './src/manage.tsx'
+import { chatAction, forkChat, RenameSheet } from './src/manage.tsx'
+import { isPinned, setTitles, titleOf } from './src/chat-store.ts'
 import { language, readable, S } from './src/strings.ts'
 import { PluginsPage } from './src/plugins.tsx'
 import { pluginStrings } from './src/plugins-strings.ts'
@@ -126,7 +127,6 @@ function App() {
   })
   boot()
   const nav = createNavStack<Route>([{ name: 'sessions' }])
-  const titles = signal<Record<string, string>>({})
   const newChat = signal(false)
   const menu = signal(false)
   const chatMenu = signal(false)
@@ -140,7 +140,7 @@ function App() {
   effect(() => { nav.routes(); tab(); untracked(() => refreshLists.update((n) => n + 1)) })
   effect(() => { if (progressAvailable() === false) tab.set('chats') })
   const openJob = (j: { sessionId: string; chatTitle: string; messageId?: string; index: number }) =>
-    nav.push({ name: 'chat', session: { sessionId: j.sessionId, title: titles()[j.sessionId] ?? j.chatTitle, updatedAt: 0, running: false }, ...(j.index > 1 && j.messageId ? { at: j.messageId } : {}) })
+    nav.push({ name: 'chat', session: { sessionId: j.sessionId, title: titleOf(j.sessionId, j.chatTitle), updatedAt: 0, running: false }, ...(j.index > 1 && j.messageId ? { at: j.messageId } : {}) })
   const page = (route: Route) => route.name === 'terminals'
     ? <NavPage title={S.terminals} headerClass={HEADER} class="bg-background">
         <TerminalsPage sessionId={route.session.sessionId} onOpen={(target, title) => nav.push({ name: 'terminal', session: route.session, target, title })} />
@@ -186,27 +186,28 @@ function App() {
     : chatPage(route)
   const chatPage = (route: Route & { name: 'chat' }) => {
     const activity = route.child ? undefined : createActivity()
-    return <NavPage title={titles()[route.session.sessionId] ?? route.session.title} headerClass={HEADER} class="bg-background"
+    return <NavPage title={titleOf(route.session.sessionId, route.session.title)} headerClass={HEADER} class="bg-background"
         headerRight={route.child ? <ConnectionDot /> : <View class="flex-row items-center">
           <ConnectionDot />
           <ActivityButton activity={activity!} />
           <IconButton name="more" label={S.more} testID="chat-more" onPress={() => { if (Date.now() - menuClosed > 300) chatMenu.set(true) }} />
         </View>}>
         <View class="flex-1">
-          <ChatScreen sessionId={route.session.sessionId} child={route.child} {...(route.at ? { at: route.at } : {})} activity={activity} where={route.session.project && route.session.cwd ? { title: route.session.project, path: route.session.cwd } : undefined} onTitle={(t) => { if (!route.child && titles()[route.session.sessionId] !== t) titles.update((m) => ({ ...m, [route.session.sessionId]: t })) }}
+          <ChatScreen sessionId={route.session.sessionId} child={route.child} {...(route.at ? { at: route.at } : {})} activity={activity} where={route.session.project && route.session.cwd ? { title: route.session.project, path: route.session.cwd } : undefined} onTitle={(t) => { if (!route.child) setTitles({ [route.session.sessionId]: t }) }}
             onOpenChild={(c) => nav.push({ name: 'chat', session: { ...route.session, sessionId: c.id, title: c.name, running: c.running }, child: { parentSessionId: route.session.sessionId, subagent: c } })} />
           <If when={notice()}><Text testID="chat-notice" class="absolute top-2 left-4 right-4 rounded-[10px] bg-popover border border-border px-3 py-2 text-foreground text-[13px] shadow-md">{notice()}</Text></If>
           <HeaderMenu open={chatMenu} onClose={() => { menuClosed = Date.now(); chatMenu.set(false) }}
-            actions={[{ id: 'rename', label: S.rename, icon: 'pencil' }, { id: 'fork', label: S.fork, icon: 'fork' }, { id: 'files', label: S.files, icon: 'folder' }, { id: 'terminal', label: S.terminal, icon: 'terminal' }, { id: 'trajectory', label: S.trajectory, icon: 'route' }, { id: 'details', label: S.details, icon: 'info' }]}
+            actions={[{ id: 'rename', label: S.rename, icon: 'pencil' }, { id: 'fork', label: S.fork, icon: 'fork' }, ...(route.child ? [] : [{ id: isPinned(route.session.sessionId) ? 'unpin' : 'pin', label: isPinned(route.session.sessionId) ? S.unpin : S.pin, icon: 'pin' as const }]), { id: 'files', label: S.files, icon: 'folder' }, { id: 'terminal', label: S.terminal, icon: 'terminal' }, { id: 'trajectory', label: S.trajectory, icon: 'route' }, { id: 'details', label: S.details, icon: 'info' }]}
             onChoose={(id) => {
               if (id === 'files') return nav.push({ name: 'files', session: route.session, path: '' })
               if (id === 'terminal') return nav.push({ name: 'terminals', session: route.session })
-              const chat = { ...route.session, title: titles()[route.session.sessionId] ?? route.session.title }
+              const chat = { ...route.session, title: titleOf(route.session.sessionId, route.session.title) }
               if (id === 'trajectory' || id === 'details') nav.push(id === 'trajectory' ? { name: 'trajectory', session: chat } : { name: 'details', session: chat })
               else if (id === 'rename') renaming.set(chat)
+              else if (id === 'pin' || id === 'unpin') chatAction(id, chat).catch((e) => { notice.set(readable(e)); setTimeout(() => notice.set(''), 4000) })
               else forkChat(chat).then((forked) => nav.push({ name: 'chat', session: forked }), (e) => { notice.set(readable(e)); setTimeout(() => notice.set(''), 4000) })
             }} />
-          <RenameSheet chat={renaming} onClose={() => renaming.set(undefined)} onRenamed={(id, t) => titles.update((m) => ({ ...m, [id]: t }))} />
+          <RenameSheet chat={renaming} onClose={() => renaming.set(undefined)} />
         </View>
       </NavPage>
   }
@@ -217,14 +218,14 @@ function App() {
   const openChat = (sessionId: string, title: string) => {
     if (visible() === sessionId) return
     nav.popToRoot()
-    nav.push({ name: 'chat', session: { sessionId, title: titles()[sessionId] ?? title, updatedAt: 0, running: false } })
+    nav.push({ name: 'chat', session: { sessionId, title: titleOf(sessionId, title), updatedAt: 0, running: false } })
   }
   // A chat that was on screen: its finished jobs are no longer for you to check (marked on leaving too, for what finished while it was open).
   let shown: string | undefined
   effect(() => { const v = visible(); if (shown && shown !== v) markSeen(shown); if (v) markSeen(v); shown = v })
   // A new link may be another computer: back to its chats.
   let lastLink: string | undefined
-  effect(() => { const key = settings()?.key; if (lastLink && key !== lastLink) { nav.popToRoot(); titles.set({}) }; lastLink = key })
+  effect(() => { const key = settings()?.key; if (lastLink && key !== lastLink) { nav.popToRoot() }; lastLink = key })
   return (
     <If when={loaded()}>
       <If when={settings()} else={<Connect />}>

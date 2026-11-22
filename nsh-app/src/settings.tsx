@@ -8,7 +8,7 @@ import { appActive, connection, dsh, PRIVACY_URL, routeText, setTailcatOnly, tai
 import { language, S, type Language } from './strings.ts'
 import { notifyPrefs, setLanguage, setNotify, setTheme, theme, type NotifyPrefs, type Theme } from './prefs.ts'
 import { chooseAction, Icon } from './ui.tsx'
-import { ProgressSetting } from './progress.tsx'
+import { progressAvailable, ProgressSetting } from './progress.tsx'
 import { CATEGORIES, diagnostics } from './diagnostics.ts'
 import { DesktopSettings } from './desktop-settings.tsx'
 import { pluginStrings } from './plugins-strings.ts'
@@ -51,7 +51,7 @@ export function SettingsPage(props: { onDiagnostics: () => void; onPlugins?: () 
   const appInfo = signal<{ version: string; build: string } | undefined>(undefined)
   const appInfoFailed = signal(false)
   host.call<{ version: string; build: string }>('app.info').then((v) => appInfo.set(v), () => appInfoFailed.set(true))
-  const computer = signal<{ name: string; companionVersion: string; release: string; dshVersion: string; progress: boolean } | undefined>(undefined)
+  const computer = signal<{ name: string; companionVersion: string; release: string; dshVersion: string } | undefined>(undefined)
   const granted = signal<boolean | undefined>(undefined)
   const load = () => dsh().computer().then((c) => computer.set(c), () => {})
   const permission = () => host.call<{ granted?: boolean }>('notify.permission').then((v) => granted.set(v?.granted === true), () => {})
@@ -161,7 +161,7 @@ export function SettingsPage(props: { onDiagnostics: () => void; onPlugins?: () 
         {toggle('background', S.notifyBackground, platform.os === 'android' ? S.notifyBackgroundHint : undefined)}
       </Group>
 
-      <If when={computer()?.progress && !trying()}>
+      <If when={progressAvailable() && !trying()}>
         <Label text={S.progress.settingsTitle} />
         <ProgressSetting />
       </If>

@@ -21,9 +21,9 @@ const VIEW = { judge: false, language: 'en', chats: 4, needsYou: 2, projects: [
   ] },
 ] }
 
-async function home(options: { capabilities?: Record<string, unknown>; list?: () => unknown; settings?: (args: Record<string, unknown>) => unknown; locale?: string; colorScheme?: 'dark' | 'light' } = {}) {
+async function home(options: { hidden?: boolean; capabilities?: Record<string, unknown>; list?: () => unknown; settings?: (args: Record<string, unknown>) => unknown; locale?: string; colorScheme?: 'dark' | 'light' } = {}) {
   const asked: Record<string, unknown>[] = []
-  const app = await open('../App.tsx', {
+  const app = await open(options.hidden ? '../App.tsx' : './fixtures/progress-on/App.tsx', {
     locale: options.locale ?? 'en-US', ...(options.colorScheme ? { colorScheme: options.colorScheme } : {}),
     host: { handlers: { 'link.state': paired, 'app.state': { active: true }, 'notify.watch': null, 'notify.clear': null, 'notify.permission': { granted: true }, 'link.path': { route: 'direct' } } },
     network: {
@@ -41,6 +41,19 @@ test('with a companion that has Progress, the list gets a Progress tab with how 
   await app.waitFor('id:tab-progress')
   await app.waitFor('label:Progress, 2 need you')
   expect(app.shows('id:tab-chats')).toBe(true)
+})
+
+test('the shipped app hides Progress: even a companion that has it gets the chat list alone, no setting and no list call', async () => {
+  const { app } = await home({ hidden: true })
+  await app.waitFor('text:Move billing to the v2 API')
+  await app.wait(300)
+  expect(app.shows('id:tab-progress')).toBe(false)
+  expect(app.shows('id:tab-chats')).toBe(false)
+  await app.press('id:more')
+  await app.press('text:Settings')
+  await app.waitFor('text:Banners while in the app')
+  expect(app.texts().some((s) => s.includes('Split chats into jobs'))).toBe(false)
+  expect(app.requests().some((r) => r.url.includes('/companion/progress/'))).toBe(false)
 })
 
 test('an older companion: no Progress tab, the chat list as before', async () => {
