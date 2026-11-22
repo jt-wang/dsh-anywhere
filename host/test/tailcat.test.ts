@@ -251,6 +251,24 @@ test('CLI pairing round trip: an emoji window, bootstrap v2 renders, the compute
   assert.deepEqual(state.tailcatAllowedClients(), []);
 });
 
+test('revoking the old device record leaves a fresh pairing of the same phone reachable', async t => {
+  const { config } = await tailcatSetup(t);
+  const state = new HostState(config.statePath); t.after(() => state.close());
+  const grants = { readWorkspaceIds: ['*'], executeWorkspaceIds: ['*'] };
+  const pair = (key: string) => {
+    const offer = state.createPairing(grants);
+    state.recordTailcatPaired(key, { pairingHash: hashSecret(offer.pairingToken), offerExpiresAt: offer.expiresAt });
+    return state.consumePairing(offer.pairingToken, 'Synthetic phone');
+  };
+  const old = pair(PHONE);
+  const fresh = pair(OTHER);
+  assert.deepEqual(state.tailcatAllowedClients(), [PHONE, OTHER]);
+  assert.equal(state.revokeDevice(old.deviceId), true);
+  assert.deepEqual(state.tailcatAllowedClients(), [OTHER]);
+  assert.equal(state.authenticate(old.deviceToken), undefined);
+  assert.equal(state.authenticate(fresh.deviceToken)?.deviceId, fresh.deviceId);
+});
+
 test('Settings pairing: the QR returns while the emoji window waits, the page shows the phone\'s emoji, and its answer decides', async t => {
   const { dir, config, configPath } = await tailcatSetup(t), log = join(dir, 'helper.log');
   fakeEnv(t, { FAKE_TAILCAT_LOG: log, FAKE_TAILCAT_AUTOPAIR: PHONE });

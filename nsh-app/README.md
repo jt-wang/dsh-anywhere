@@ -23,8 +23,10 @@ For changing the app. To just use it, download it from the [latest release](http
 
 ```sh
 # NSH from source (v0.3.0 lacks fixes this app needs):
-#   git clone -b dsh-anywhere https://github.com/jt-wang/nsh
-#   cd nsh && cargo build --release -p nsh-cli && cargo xtask android --release --abi arm64-v8a
+# Apply the whole-number keyboard patch below before building the Android runtime.
+#   git clone https://github.com/jt-wang/nsh
+#   cd nsh && git checkout 33512ba2268774f5a8904e1532aabe37b2f2a65f
+#   cargo build --release -p nsh-cli && cargo xtask android --release --abi arm64-v8a
 export NSH_SOURCE=/path/to/nsh
 "$NSH_SOURCE/target/release/nsh" test            # app tests (fold, client, link screen)
 "$NSH_SOURCE/target/release/nsh" check
@@ -50,7 +52,7 @@ keytool -genkeypair -alias release -keyalg RSA -keysize 4096 -validity 10000 -st
 ```
 
 iOS needs Xcode and xcodegen. The runtime fix in `ios/nsh-window-tap.patch` is based on
-`jt-wang/nsh` revision `7b3031fb7c9b93b0dee65f48a227bcf15d2bda38`. Apply it in a separate NSH source checkout
+`jt-wang/nsh` revision `33512ba2268774f5a8904e1532aabe37b2f2a65f` (the [shared Text shimmer backport](https://github.com/jt-wang/nsh/pull/1), including native clip/viewport gates, directly on the previous pin). Apply it in a separate NSH source checkout
 before building the app. It gives a handled header press priority over system taps on both `UIWindow` and
 `UINavigationBar`. On iPhone 17 Pro Max / iOS 27.2, the system tap is on the navigation bar: the old window-only
 patch let buttons highlight but swallowed the press before its JS callback. The same arbitration also prevents

@@ -25,7 +25,7 @@ type Item =
   | { kind: 'chat'; id: string; chat: Summary; snippet?: string; account?: string; depth?: number }
   | { kind: 'toggle'; id: string; count: number }
 
-export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: () => boolean; onNewChatClosed: () => void }) {
+export function SessionsScreen(props: { onOpen: (s: Summary) => void; selected?: () => string | undefined; newChat: () => boolean; onNewChatClosed: () => void }) {
   const cache = offlineCache()
   const saved = cache?.data.list
   resetChats()
@@ -96,6 +96,10 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
   }
   cleanup(() => clearTimeout(searchTimer))
   const searching = () => Boolean(query().trim())
+  // Read the existing question/permission reducer, never a second polling or notification system.
+  const waiting = computed(() => { asks(); const ids = new Set(pending.sessionsWaiting()), registry = workspaces(), prefs = workspaceView(); return chats().filter((c) => ids.has(c.sessionId) && visibleWorkspaceChat(registry, c.sessionId, prefs.archivedFilter)) })
+  // In split view the current request is already visible; successive taps visit every waiting chat.
+  const nextWaiting = () => { const list = waiting(), at = list.findIndex((c) => c.sessionId === props.selected?.()); return list[(at + 1) % list.length] }
   const items = (): Item[] => {
     const prefs = workspaceView()
     if (searching()) return searchChats(chats().filter(c => visibleWorkspaceChat(workspaces(), c.sessionId, prefs.archivedFilter)), query(), hits().filter(h => visibleWorkspaceChat(workspaces(), h.sessionId, prefs.archivedFilter))).map((c) => ({ kind: 'chat' as const, id: `r:${c.sessionId}`, chat: { ...c, title: c.title || S.untitled }, snippet: c.snippet }))
@@ -120,19 +124,28 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
     <View class="flex-1 bg-background">
       <ConnectionBar always />
       <SavedCopy at={!fresh() || connection() !== 'online' ? copiedAt() : 0} failed={cache?.failed() ?? false} />
-      <View class="mx-4 mt-1 mb-1 flex-row items-center gap-2 rounded-[10px] bg-secondary px-[10px]">
+      <If when={!searching() && waiting().length}>
+        <View role="button" testID="needs-you" accessibilityLabel={`${S.waiting}: ${waiting().length}. ${nextWaiting()?.title ?? ''}`} onPress={() => { const next = nextWaiting(); if (next) props.onOpen(next) }} class="mx-3 my-1 flex-row items-center gap-[10px] rounded-[12px] border border-border bg-card px-[10px] py-[10px] active:bg-secondary">
+          <Icon name="message" size={15} class={nextWaiting()?.sessionId === props.selected?.() ? 'tint-muted-foreground' : 'tint-attention'} />
+          <View class="flex-1 gap-[2px]"><Text class="text-foreground text-[15px] leading-[21px] font-medium">{S.waiting}</Text><Text class="text-muted-foreground text-[12px] leading-[18px] line-clamp-1">{nextWaiting()?.title ?? ''}</Text></View>
+          <Text class="text-muted-foreground text-[12px] tabular-nums">{String(waiting().length)}</Text><Chevron dir="right" font={12} />
+        </View>
+      </If>
+      <View class="mx-3 mt-1 mb-1 flex-row items-center gap-2 rounded-[10px] border border-transparent focus-within:border-ring bg-card px-[10px]">
         <Icon name="search" size={16} />
+        {/* Local focus tracking feeds the enclosing native focus-within border. */}
         <Input testID="search" placeholder={S.search} value={query()} onChange={(e) => search(e.value)} returnKeyType="search" autoCapitalize="none"
-          class="flex-1 bg-transparent py-[8px] text-foreground placeholder:text-muted-foreground text-[15px]" />
+          class="flex-1 bg-transparent focus:bg-transparent py-[8px] text-foreground placeholder:text-muted-foreground text-[15px]" />
         <If when={query()}><IconButton name="x" label={S.clear} onPress={() => search('')} size={16} class="w-[28px] h-[28px]" iconClass="tint-muted-foreground" /></If>
       </View>
       <If when={error() && connection() !== 'offline'}>
         <View class="mx-4 my-2 rounded-[10px] bg-secondary px-3 py-2"><Text class="text-destructive text-[13px] leading-[18px]">{error()}</Text></View>
       </If>
-      <List each={items()} keyExtractor={(i) => i.id} estimatedItemSize={56} refreshing={refreshing()} onRefresh={pull} testID="sessions" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+      <List each={items()} keyExtractor={(i) => i.id} estimatedItemSize={57} refreshing={refreshing()} onRefresh={pull} testID="sessions" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
         {(i) => (
           <>
             <If when={i().kind === 'chat'}><View style={{ marginLeft: ((i() as Extract<Item, { kind: 'chat' }>).depth ?? 0) * 12 }}><ChatRow chat={() => (i() as Extract<Item, { kind: 'chat' }>).chat} snippet={() => (i() as Extract<Item, { kind: 'chat' }>).snippet} onOpen={props.onOpen} onMenu={menu}
+              selected={() => props.selected?.() === (i() as Extract<Item, { kind: 'chat' }>).chat.sessionId}
               pinned={() => isPinned((i() as Extract<Item, { kind: 'chat' }>).chat.sessionId)}
               archived={() => isArchived((i() as Extract<Item, { kind: 'chat' }>).chat.sessionId)} onError={(m) => error.set(m)} />
               <If when={workspaceView().orderBy === 'manual' && (i() as Extract<Item, { kind: 'chat' }>).account !== undefined && !searching()}><View class="flex-row justify-end px-3">
@@ -149,11 +162,11 @@ export function SessionsScreen(props: { onOpen: (s: Summary) => void; newChat: (
               </View>
             </If>
             <If when={i().kind === 'header'}>
-              <View class="flex-row items-center gap-[6px] pl-5 pr-3 pt-4 pb-[2px]" style={{ marginLeft: (i() as Extract<Item, { kind: 'header' }>).depth * 12 }}>
+              <View class="flex-row items-center gap-[6px] pl-[22px] pr-3 pt-1" style={{ marginLeft: (i() as Extract<Item, { kind: 'header' }>).depth * 12 }}>
                 <View role="button" testID={`workspace-group-${(i() as Extract<Item, { kind: 'header' }>).id}`} accessibilityLabel={(i() as Extract<Item, { kind: 'header' }>).title} accessibilityState={{ expanded: (i() as Extract<Item, { kind: 'header' }>).expanded }} class="flex-1 min-h-[44px] flex-row items-center gap-2" onPress={() => { const g = i() as Extract<Item, { kind: 'header' }>; setWorkspaceView({ groupExpansion: { ...workspaceView().groupExpansion, [g.workspaceId ?? '']: !g.expanded } }) }}>
                   <Chevron dir={(i() as Extract<Item, { kind: 'header' }>).expanded ? 'down' : 'right'} font={13} />
                   <If when={(i() as Extract<Item, { kind: 'header' }>).workspaceId}><Icon name="folder" size={14} /></If>
-                  <Text class="flex-1 text-muted-foreground text-[13px] font-medium line-clamp-1">{(i() as Extract<Item, { kind: 'header' }>).title}</Text>
+                  <Text class="flex-1 text-muted-foreground text-[12px] font-medium line-clamp-1">{(i() as Extract<Item, { kind: 'header' }>).title}</Text>
                 </View>
                 <If when={(i() as Extract<Item, { kind: 'header' }>).workspaceId}>
                   <IconButton name="plus" label={S.newChat} testID={`new-in-${(i() as Extract<Item, { kind: 'header' }>).workspaceId}`} onPress={() => { const id = (i() as Extract<Item, { kind: 'header' }>).workspaceId!; setWorkspaceView({ groupExpansion: { ...workspaceView().groupExpansion, [id]: true } }); startIn.set(id) }}
@@ -180,7 +193,7 @@ const ACTION = 58 // t3code's action width
 const spring = { damping: 26, stiffness: 330, mass: 0.7 } // t3code's: settles without overshoot
 
 /** A chat row; swiped left it shows Pin and Archive, and a full swipe archives it (t3code's swipe actions). */
-function ChatRow(props: { chat: () => Summary; snippet: () => string | undefined; onOpen: (s: Summary) => void; onMenu: (s: Summary) => void; pinned: () => boolean; archived: () => boolean; onError: (m: string) => void }) {
+function ChatRow(props: { chat: () => Summary; snippet: () => string | undefined; selected?: () => boolean; onOpen: (s: Summary) => void; onMenu: (s: Summary) => void; pinned: () => boolean; archived: () => boolean; onError: (m: string) => void }) {
   const x = createAnimatedValue(0)
   let width = 360, start = 0, offset = 0, armed = false
   // NSH still fires the row's long press 400 ms in after a slow swipe took the touch: a swipe silences it.
@@ -212,7 +225,7 @@ function ChatRow(props: { chat: () => Summary; snippet: () => string | undefined
   })
   const swipes = () => actions() > 0
   return (
-    <View class="mx-2 rounded-[10px] overflow-hidden" onLayout={(e) => { width = e.bounds.size.width }}>
+    <View class="mx-3 rounded-[10px] overflow-hidden" onLayout={(e) => { width = e.bounds.size.width }}>
       <If when={swipes()}>
         <View class="absolute inset-y-0 right-0 flex-row" style={{ width: actions(), opacity: x.interpolate({ inputRange: [-24, 0], outputRange: [1, 0] }) }}>
           <View role="button" accessibilityLabel={props.pinned() ? S.unpin : S.pin} testID={`swipe-pin-${props.chat().sessionId}`} onPress={() => act(props.pinned() ? 'unpin' : 'pin')} class="flex-1 items-center justify-center bg-secondary active:opacity-80">
@@ -223,18 +236,19 @@ function ChatRow(props: { chat: () => Summary; snippet: () => string | undefined
           </View>
         </View>
       </If>
-      <View role="button" testID={`session-${props.chat().sessionId}`} onPress={() => (offset < 0 ? close() : props.onOpen(props.chat()))} onLongPress={() => { if (!swiping && offset === 0) { haptic('press'); props.onMenu(props.chat()) } }}
+      <View role="button" testID={`session-${props.chat().sessionId}`} accessibilityState={{ selected: props.selected?.() ?? false }} onPress={() => (offset < 0 ? close() : props.onOpen(props.chat()))} onLongPress={() => { if (!swiping && offset === 0) { haptic('press'); props.onMenu(props.chat()) } }}
         {...(swipes() ? { panActivation: { activeOffsetX: 12, failOffsetY: 10 }, ...responder.panHandlers } : {})}
-        style={{ translate: [x, 0] }} class="px-3 py-[9px] rounded-[10px] bg-background active:bg-secondary transition-colors duration-150">
+        style={{ translate: [x, 0] }} class={`px-[10px] py-2 min-h-[57px] justify-center rounded-[10px] ${props.selected?.() ? 'bg-secondary' : 'bg-background'} active:bg-secondary transition-colors duration-150`}>
       <View class="flex-row items-center gap-2">
         <If when={props.chat().running}><LiveDot /></If>
         <If when={props.pinned()}><View testID="row-pinned" accessibilityLabel={S.pinned}><Icon name="pin" size={14} class="tint-muted-foreground" /></View></If>
-        <Text class="flex-1 text-foreground text-[15px] leading-5 line-clamp-1">{props.chat().title}</Text>
-        <If when={(asks(), pending.sessionsWaiting().includes(props.chat().sessionId))} else={<Text class="text-muted-foreground text-[12px] tabular-nums">{props.chat().updatedAt ? ago(props.chat().updatedAt) : ''}</Text>}>
-          <Text class="text-[#F54E00] text-[12px] font-medium">{S.waiting}</Text>
+        <Text class="flex-1 text-foreground text-[15px] leading-[21px] font-medium line-clamp-1">{props.chat().title}</Text>
+        <If when={(asks(), pending.sessionsWaiting().includes(props.chat().sessionId))} else={<Text class="text-muted-foreground text-[11px] tabular-nums">{props.chat().updatedAt ? ago(props.chat().updatedAt) : ''}</Text>}>
+          <Text class="text-muted-foreground text-[12px] font-medium">{S.waiting}</Text>
         </If>
       </View>
-      <If when={props.snippet()}><Text class="mt-1 text-muted-foreground text-[13px] leading-[18px] line-clamp-2">{props.snippet()}</Text></If>
+      <If when={props.snippet()}><Text class="mt-[2px] text-muted-foreground text-[12px] leading-[18px] line-clamp-2">{props.snippet()}</Text></If>
+      <If when={!props.snippet() && (props.chat().running || props.chat().project || props.chat().cwd)}><Text class="mt-[2px] text-muted-foreground text-[12px] leading-[18px] line-clamp-1">{props.chat().running ? S.working : (props.chat().project || props.chat().cwd?.split(/[\\/]/).filter(Boolean).at(-1) || '')}</Text></If>
       </View>
     </View>
   )

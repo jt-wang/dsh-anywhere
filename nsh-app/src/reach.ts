@@ -35,7 +35,7 @@ export function causeOf(s: { connection: ConnectionState; network: boolean; chec
 }
 
 /** Whether a cause offers pairing again: only as a button the person presses, keeping the link until a new one works. */
-export const offersPairAgain = (cause: Cause) => cause === 'refused' || cause === 'not-running' || cause === 'computer'
+export const offersPairAgain = (cause: Cause) => cause === 'refused' || cause === 'not-running' || cause === 'computer' || cause === 'no-answer'
 
 /** What each part answered, for the sheet's rows, from the cause: a part is "not working" (false) only where the cause
  * says that part did not answer, "OK" (true) only where it answered, and "not known" (undefined) behind the first part

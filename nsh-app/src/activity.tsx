@@ -14,6 +14,7 @@ import { teamBoardOf, teamBoardOffline, type TeamBoardState } from './team-board
 import { dsh, network, pollForeground, trying } from './state.ts'
 import { S } from './strings.ts'
 import { chooseAction, haptic, Chevron, Icon, IconButton, LiveDot } from './ui.tsx'
+import { coverWorkingText } from './work-cover.ts'
 
 export interface ChatActivity {
   todos: Signal<Todo[]>; jobs: Signal<Job[]>; children: Signal<Child[]>; context: Signal<Activity['context']>; goal: Signal<Activity['goal']>
@@ -83,6 +84,7 @@ type Opens = { openJobs: () => void; openChildren: () => void; onOpenChild: (c: 
 /** The panel hangs from the top right of the chat, under the header, as the ⋯ menu does (see HeaderMenu). */
 export function ActivityPanel(props: { activity: ChatActivity } & Opens) {
   const a = props.activity
+  coverWorkingText(a.open)
   let anchor: ViewRef | undefined
   const close = () => { a.closedAt.at = Date.now(); a.open.set(false) }
   // Opened while typing: the keyboard goes, or the panel's lower part would be under it.
@@ -209,8 +211,8 @@ function Contents(props: { activity: ChatActivity; done: () => void; percentAbov
 /** The panel's last row: pins the activity above the composer. Its text starts where the section headings' does. */
 export function PinRow(props: { onPress: () => void; onLabelLayout?: (e: { bounds: Bounds }) => void }) {
   return (
-    <View role="button" testID="activity-pin" onPress={props.onPress}
-      class="mt-[4px] flex-row items-center gap-2 px-[14px] h-[44px] active:bg-secondary">
+    <View role="button" testID="activity-pin" onPress={props.onPress} hitSlop={2}
+      class="mt-[4px] flex-row items-center gap-2 px-[14px] py-[8px] min-h-[44px] active:bg-secondary">
       <Icon name="pin" size={16} />
       <Text onLayout={props.onLabelLayout} class="flex-1 text-foreground text-[15px]">{S.pinActivity}</Text>
     </View>

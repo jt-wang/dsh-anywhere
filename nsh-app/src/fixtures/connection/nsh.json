@@ -1,0 +1,6 @@
+{
+  "name": "Connection",
+  "capabilities": {
+    "host": ["link.scan", "link.pair", "link.forget", "link.path"]
+  }
+}

@@ -6,29 +6,27 @@ import { approvalAnswer, questionAnswer, type Request } from './events.ts'
 import { toolLabel } from './fold.ts'
 import { answer, asks, pending } from './state.ts'
 import { readable, S } from './strings.ts'
-import { haptic } from './ui.tsx'
+import { haptic, Icon } from './ui.tsx'
 
 export function Asks(props: { sessionId: string; onError: (m: string) => void }) {
   const requests = () => { asks(); return pending.forSession(props.sessionId) }
   return (
     <View class="gap-2 pb-2">
-      {requests().map((r) => (r.kind === 'approval' ? <ApprovalCard request={r} onError={props.onError} /> : <QuestionCard request={r} onError={props.onError} />))}
+      {requests().map((r, index) => (r.kind === 'approval' ? <ApprovalCard request={r} attention={index === 0} onError={props.onError} /> : <QuestionCard request={r} attention={index === 0} onError={props.onError} />))}
     </View>
   )
 }
 
-/** The card's corners and its buttons' corners are concentric: a button in a corner sits the padding and the 1 pt border
- * in from both outer edges, and the card's radius is the button's plus that space. Inside the card's border nothing else
- * draws one. */
-export const CONTROL_RADIUS = 10
+/** Concentric inset buttons in the shared 18 pt approval surface; only the outer card draws a border. */
+export const CONTROL_RADIUS = 5
 export const CARD = { radius: CONTROL_RADIUS + 12 + 1 }
 const card = 'border border-border bg-card p-[12px] gap-[10px]'
 const cardStyle = { borderRadius: CARD.radius }
-const button = (primary: boolean) => `flex-1 h-[36px] items-center justify-center ${primary ? 'bg-primary' : 'bg-secondary'} active:opacity-70`
+const button = (primary: boolean) => `flex-1 min-h-[44px] py-2 items-center justify-center ${primary ? 'bg-primary' : 'bg-secondary'} active:opacity-70`
 const buttonStyle = { borderRadius: CONTROL_RADIUS }
 type Layout = (e: { bounds: Bounds }) => void
 
-export function ApprovalCard(props: { request: Extract<Request, { kind: 'approval' }>; onError: (m: string) => void; onCardLayout?: Layout; onRowLayout?: Layout; onButtonLayout?: Layout }) {
+export function ApprovalCard(props: { request: Extract<Request, { kind: 'approval' }>; attention?: boolean; onError: (m: string) => void; onCardLayout?: Layout; onRowLayout?: Layout; onButtonLayout?: Layout }) {
   const busy = signal(false)
   const reply = async (allow: boolean) => {
     busy.set(true)
@@ -37,17 +35,18 @@ export function ApprovalCard(props: { request: Extract<Request, { kind: 'approva
   }
   return (
     <View class={card} style={cardStyle} onLayout={props.onCardLayout} testID={`approval-${props.request.eventId}`}>
+      <If when={props.attention ?? true}><AttentionLabel /></If>
       <Text class="text-foreground text-[15px] leading-[21px] font-medium">{S.allowTool(toolLabel(props.request.tool))}</Text>
       {props.request.reason ? <Text class="text-muted-foreground text-[13px] leading-[18px] line-clamp-4">{props.request.reason}</Text> : null}
       <View class="flex-row gap-2" onLayout={props.onRowLayout}>
-        <View role="button" testID="reject" onPress={() => { if (!busy()) reply(false) }} class={button(false)} style={buttonStyle} onLayout={props.onButtonLayout}><Text class="text-foreground text-[15px]">{S.reject}</Text></View>
-        <View role="button" testID="allow" onPress={() => { if (!busy()) reply(true) }} class={button(true)} style={buttonStyle}><Text class="text-primary-foreground text-[15px] font-medium">{S.allow}</Text></View>
+        <View role="button" testID="reject" hitSlop={2} onPress={() => { if (!busy()) reply(false) }} class={button(false)} style={buttonStyle} onLayout={props.onButtonLayout}><Text class="text-foreground text-[15px]">{S.reject}</Text></View>
+        <View role="button" testID="allow" hitSlop={2} onPress={() => { if (!busy()) reply(true) }} class={button(true)} style={buttonStyle}><Text class="text-primary-foreground text-[15px] font-medium">{S.allow}</Text></View>
       </View>
     </View>
   )
 }
 
-function QuestionCard(props: { request: Extract<Request, { kind: 'question' }>; onError: (m: string) => void }) {
+function QuestionCard(props: { request: Extract<Request, { kind: 'question' }>; attention?: boolean; onError: (m: string) => void }) {
   const picks = signal<Record<string, { selected?: string[]; custom?: string }>>({})
   const busy = signal(false)
   const toggle = (id: string, label: string, multi: boolean) => { haptic('tick'); picks.update((p) => {
@@ -61,6 +60,7 @@ function QuestionCard(props: { request: Extract<Request, { kind: 'question' }>; 
   }
   return (
     <View class={card} style={cardStyle} testID={`question-${props.request.eventId}`}>
+      <If when={props.attention ?? true}><AttentionLabel /></If>
       {props.request.questions.map((q) => (
         <View class="gap-2">
           {q.header ? <Text class="text-muted-foreground text-[12px] font-medium">{q.header}</Text> : null}
@@ -77,7 +77,7 @@ function QuestionCard(props: { request: Extract<Request, { kind: 'question' }>; 
             {q.options.map((o) => {
               const on = () => (picks()[q.id]?.selected ?? []).includes(o.label)
               return (
-                <View role="button" testID={`option-${q.id}-${o.label}`} onPress={() => toggle(q.id, o.label, q.multiSelect)} class={`rounded-full px-[12px] h-[32px] justify-center ${on() ? 'bg-primary' : 'bg-secondary'} active:opacity-70`}>
+                <View role="button" testID={`option-${q.id}-${o.label}`} hitSlop={2} onPress={() => toggle(q.id, o.label, q.multiSelect)} class={`rounded-full px-[12px] min-h-[44px] py-2 justify-center ${on() ? 'bg-primary' : 'bg-secondary'} active:opacity-70`}>
                   <Text class={`text-[13px] ${on() ? 'text-primary-foreground' : 'text-foreground'}`}>{o.label}</Text>
                 </View>
               )
@@ -88,8 +88,13 @@ function QuestionCard(props: { request: Extract<Request, { kind: 'question' }>; 
         </View>
       ))}
       <View class="flex-row gap-2">
-        <View role="button" testID="submit-answer" onPress={() => { if (!busy()) submit() }} class={button(true)} style={buttonStyle}><Text class="text-primary-foreground text-[15px] font-medium">{S.sendAnswer}</Text></View>
+        <View role="button" testID="submit-answer" hitSlop={2} onPress={() => { if (!busy()) submit() }} class={button(true)} style={buttonStyle}><Text class="text-primary-foreground text-[15px] font-medium">{S.sendAnswer}</Text></View>
       </View>
     </View>
   )
+}
+
+/** One local attention glyph; the caption, command and answer buttons remain neutral. */
+function AttentionLabel() {
+  return <View class="flex-row items-center gap-[6px]"><Icon name="message" size={14} class="tint-attention" /><Text class="text-muted-foreground text-[12px] leading-[18px]">{S.waiting}</Text></View>
 }

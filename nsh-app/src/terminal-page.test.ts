@@ -7,8 +7,8 @@ test('the page inlines xterm.js and closes each inline tag only once', () => {
   expect(html.match(/<\/script>/g)?.length).toBe(3)
   expect(html.match(/<\/style>/g)?.length).toBe(1)
   expect(html.includes('"fontSize":13')).toBe(true)
-  expect(html.includes('#14120B')).toBe(true)
-  expect(terminalPage({ dark: false, fontSize: 13, scrollback: 1000 }).includes('#F7F7F4')).toBe(true)
+  expect(html.includes('#000000')).toBe(true)
+  expect(terminalPage({ dark: false, fontSize: 13, scrollback: 1000 }).includes('#FFFFFF')).toBe(true)
 })
 
 test('only well-formed page messages are read', () => {

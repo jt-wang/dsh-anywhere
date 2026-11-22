@@ -55,9 +55,9 @@ export function HomeTabs(props: { tab: () => 'chats' | 'progress'; onTab: (t: 'c
     <View role="tab" testID={`tab-${id}`} accessibilityState={{ selected: props.tab() === id }}
       accessibilityLabel={id === 'progress' && needsYou() ? `${label()}, ${S.progress.needYou(needsYou())}` : label()} onPress={() => props.onTab(id)}
       class={`h-[34px] px-[14px] rounded-[9px] flex-row items-center gap-[6px] ${props.tab() === id ? 'bg-background shadow-sm' : 'active:opacity-70'}`}>
-      <Text class={`text-[15px] ${props.tab() === id ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>{label()}</Text>
+      <Text class={`text-[19px] tracking-[-0.5px] ${props.tab() === id ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>{label()}</Text>
       <If when={id === 'progress' && needsYou() > 0}>
-        <View class="min-w-[18px] h-[18px] px-[5px] rounded-full bg-[#F54E00] items-center justify-center"><Text class="text-white text-[11px] font-semibold tabular-nums">{String(needsYou())}</Text></View>
+        <View class="min-w-[18px] h-[18px] px-[5px] rounded-full bg-secondary items-center justify-center"><Text class="text-muted-foreground text-[11px] font-semibold tabular-nums">{String(needsYou())}</Text></View>
       </If>
     </View>
   )
@@ -81,7 +81,7 @@ function CardLine(props: { job: Job; kind: 'ask' | 'check'; onOpen: (j: Job) => 
       accessibilityLabel={props.kind === 'ask' ? `${props.job.title}, ${S.progress.sections.ask}, ${ask()}` : `${props.job.title}, ${S.progress.toCheck}, ${props.job.result?.text ?? ''}`}
       class="flex-row gap-3 px-4 py-[7px] active:bg-secondary">
       <View class="w-[16px] pt-[5px] items-center">
-        <If when={props.kind === 'ask'} else={<Icon name="check" size={16} class="tint-foreground" />}><View class="w-[11px] h-[11px] rounded-full bg-[#F54E00]" /></If>
+        <If when={props.kind === 'ask'} else={<Icon name="check" size={16} class="tint-foreground" />}><View class="w-[11px] h-[11px] rounded-full bg-muted-foreground" /></If>
       </View>
       <View class="flex-1">
         <View class="flex-row flex-wrap items-baseline gap-x-[6px]">
@@ -89,7 +89,7 @@ function CardLine(props: { job: Job; kind: 'ask' | 'check'; onOpen: (j: Job) => 
           <If when={props.kind === 'check'}><Text class="text-[15px] leading-[21px] text-muted-foreground">{S.progress.toCheck}</Text></If>
         </View>
         <If when={props.kind === 'ask'} else={<Text class="text-muted-foreground text-[14px] leading-[20px] line-clamp-1">{props.job.result?.text ?? ''}</Text>}>
-          <Text class="text-[#F54E00] text-[14px] leading-[20px]">{ask()}</Text>
+          <Text class="text-muted-foreground text-[14px] leading-[20px]">{ask()}</Text>
         </If>
       </View>
     </View>
@@ -160,7 +160,7 @@ function JobRow(props: { job: Job; kind: Kind; first: boolean; onOpen: (j: Job) 
           <Text class="flex-1 text-foreground text-[16px] leading-[22px]">{j.title}</Text>
           <Text class="text-muted-foreground text-[13px] leading-[22px] tabular-nums">{right()}</Text>
         </View>
-        <If when={j.ask}><Text class="text-[#F54E00] text-[14px] leading-[20px]">{j.ask ? askText(j.ask) : ''}</Text></If>
+        <If when={j.ask}><Text class="text-muted-foreground text-[14px] leading-[20px]">{j.ask ? askText(j.ask) : ''}</Text></If>
         <Each of={lines()} key={(l) => l}>{(line) => <Text class="text-muted-foreground text-[14px] leading-[20px]">{line()}</Text>}</Each>
         <If when={j.result && props.kind !== 'ask'}>
           <View class="mt-[6px] rounded-[12px] bg-secondary px-3 py-[10px] gap-[3px]">
@@ -187,8 +187,8 @@ export function ProjectPage(props: { projectId: string; onOpen: (j: Job) => void
           <Each of={sections()} key={(s) => s.kind}>{(s) => (
             <View>
               <View class="flex-row items-center px-5 pt-5 pb-2">
-                <Text role="header" class={`flex-1 text-[15px] font-medium ${s().kind === 'ask' ? 'text-[#F54E00]' : 'text-muted-foreground'}`}>{S.progress.sections[s().kind]}</Text>
-                <Text class={`text-[15px] font-medium tabular-nums ${s().kind === 'ask' ? 'text-[#F54E00]' : 'text-muted-foreground'}`}>{String(s().jobs.length)}</Text>
+                <Text role="header" class="flex-1 text-[15px] font-medium text-muted-foreground">{S.progress.sections[s().kind]}</Text>
+                <Text class="text-[15px] font-medium tabular-nums text-muted-foreground">{String(s().jobs.length)}</Text>
               </View>
               <View class="mx-4 rounded-[16px] bg-card border border-border overflow-hidden">
                 <Each of={s().jobs} key={(j) => `${j.sessionId}-${j.index}`}>{(j) => <JobRow job={j()} kind={s().kind} first={s().jobs[0] === j()} onOpen={props.onOpen} />}</Each>

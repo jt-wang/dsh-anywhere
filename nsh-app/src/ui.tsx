@@ -1,8 +1,8 @@
 // Icons: one-colour SVGs tinted with the theme (`tint-*`), the round icon button used in headers and the composer,
 // the action sheet every menu on the phone uses, and the phone's haptics.
-import { createMotion, effect, host, Image, Keyboard, keyboardFrame, LayoutAnimation, Overlay, safeAreaInsets, signal, Text, untracked, View, type Bounds, type ViewRef, windowSize } from 'nsh'
+import { createMotion, effect, host, Image, Keyboard, keyboardFrame, LayoutAnimation, Overlay, platform, safeAreaInsets, signal, Text, untracked, View, type Bounds, type JSX, type ViewRef, windowSize } from 'nsh'
 import { Sheet, type SheetProps } from 'nsh/base'
-import { glow } from './motion.ts'
+import { coverWorkingText } from './work-cover.ts'
 import { bySize, SIZES } from './icons.gen.ts'
 import archive from '../assets/icons/archive.svg'
 import check from '../assets/icons/check.svg'
@@ -73,15 +73,15 @@ export function Chevron(props: { dir: 'down' | 'up' | 'right'; font: number; cla
 export function DropdownButton(props: { label: string; onPress: () => void; testID?: string; accessibilityLabel?: string; maxLabelWidth?: number
   onButtonLayout?: (e: { bounds: Bounds }) => void; onLabelLayout?: (e: { bounds: Bounds }) => void; onChevronLayout?: (e: { bounds: Bounds }) => void }) {
   return (
-    <View role="button" testID={props.testID} accessibilityLabel={props.accessibilityLabel} onPress={props.onPress} hitSlop={4} onLayout={props.onButtonLayout}
-      class="flex-row items-center gap-[5px] h-[32px] px-[10px] rounded-full active:bg-secondary">
-      <Text onLayout={props.onLabelLayout} class="shrink text-muted-foreground text-[13px] line-clamp-1" style={{ maxWidth: props.maxLabelWidth ?? 200 }}>{props.label}</Text>
+    <View role="button" testID={props.testID} accessibilityLabel={props.accessibilityLabel} onPress={props.onPress} hitSlop={6} onLayout={props.onButtonLayout}
+      class="shrink min-w-[44px] flex-row items-center gap-[5px] h-[36px] px-[10px] rounded-full active:bg-secondary">
+      <Text onLayout={props.onLabelLayout} class="min-w-0 shrink text-muted-foreground text-[13px] line-clamp-1" style={{ maxWidth: props.maxLabelWidth ?? 200 }}>{props.label}</Text>
       <Chevron dir="down" font={13} onLayout={props.onChevronLayout} />
     </View>
   )
 }
 
-/** A 36 pt target around an icon (Android's minimum is 48 dp of touch area; the hit slop makes up the rest). */
+/** Compact visual controls retain a 48 dp touch target through their 6 dp hit slop. */
 export function IconButton(props: { name: IconName; label: string; onPress: () => void; testID?: string; size?: IconSize; class?: string; iconClass?: string }) {
   return (
     <View role="button" accessibilityLabel={props.label} testID={props.testID} onPress={props.onPress} hitSlop={6}
@@ -106,23 +106,37 @@ export function sheetMaxHeight(cap: number, at: { window: number; top: number; b
 /** `sheetMaxHeight` on this screen, now. */
 export const sheetMax = (cap: number) => sheetMaxHeight(cap, { window: windowSize().height, top: insets().top, bottom: sheetBottom() })
 
-/** Material 3's bottom sheet: 28 pt top corners over a 32% scrim; every sheet of the app wears it. */
-/** Something running: a dot in the text colour that breathes (see `glow`). */
+/** List rows, connections and background work are static. Only the current working text may animate. */
 export function LiveDot(props: { size?: number; class?: string }) {
-  const m = createMotion()
-  m.play(glow)
-  return <View testID="live-dot" class={`rounded-full bg-live ${props.class ?? ''}`} style={{ width: props.size ?? 6, height: props.size ?? 6, ...m.style }} />
+  return <View testID="live-dot" class={`rounded-full bg-live ${props.class ?? ''}`} style={{ width: props.size ?? 6, height: props.size ?? 6 }} />
 }
 
 export const SHEET = 'bg-background rounded-t-[28px]'
 export const SCRIM = { backgroundColor: 'rgba(0, 0, 0, 0.32)' }
 
+// Apple control material only; the transcript stays opaque. Android keeps a tonal Material surface, not faux glass.
+const appleMaterial = platform.os === 'ios' || platform.os === 'macos'
+const composerMaterial = { glassEffect: 'regular' as const, backdropFilter: 'blur(12px)' }
+
+/** Keep the focus stroke outside Apple's material view so native glass cannot cover its restyle. */
+export function ComposerFrame(props: { children?: JSX.Element | JSX.Element[] }) {
+  const frame = 'rounded-[21px] border border-input focus-within:border-ring'
+  return appleMaterial
+    ? <View class={frame}><View class="rounded-[20px] bg-card/80" style={composerMaterial}>{props.children}</View></View>
+    : <View class={`${frame} bg-card`}>{props.children}</View>
+}
+
 /** The app's bottom sheet: Material 3's look, closed by a swipe down, and the keyboard put away as it opens, so a sheet
  * opened while the person types is never behind the keyboard or on top of it. Every sheet of the app is one. An input
  * inside the sheet can take the focus after it opens; the sheet then sits above the keyboard (`sheetBottom`). */
 export function BottomSheet(props: Omit<SheetProps, 'popupClass' | 'backdropStyle' | 'closeOnSwipe'> & { closeOnSwipe?: boolean }) {
-  effect(() => { if (props.open) untracked(() => Keyboard.dismiss()) })
-  return <Sheet closeOnSwipe {...props} popupClass={SHEET} backdropStyle={SCRIM} />
+  const visible = signal(props.open ?? props.defaultOpen ?? false)
+  coverWorkingText(visible)
+  effect(() => { if (props.open) { visible.set(true); untracked(() => Keyboard.dismiss()) } })
+  // Keep covered until the exit finishes, including during a handoff to another sheet.
+  return <Sheet closeOnSwipe {...props} popupClass={SHEET} backdropStyle={SCRIM}
+    onOpenChange={(e) => { if (e.open) visible.set(true); props.onOpenChange?.(e) }}
+    onClose={() => { if (!props.open) visible.set(false); props.onClose?.() }} />
 }
 /** The sheet's drag handle, 32 × 4 pt. */
 export function Grabber() { return <View class="self-center w-8 h-1 rounded-full bg-input mb-2" /> }
@@ -176,6 +190,7 @@ export function ActionSheetHost() {
 export function HeaderMenu(props: { open: () => boolean; onClose: () => void; actions: SheetAction[]; onChoose: (id: string) => void }) {
   let anchor: ViewRef | undefined
   const shown = signal(false)
+  coverWorkingText(shown)
   const m = createMotion({ initial: { opacity: 0, scale: 0.8 } })
   effect(() => {
     if (props.open()) { untracked(() => Keyboard.dismiss()); shown.set(true); m.play({ duration: 150, keyframes: [{ opacity: 0, scale: 0.8, easing: [0.05, 0.7, 0.1, 1] }, { opacity: 1, scale: 1 }] }) }

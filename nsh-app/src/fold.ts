@@ -98,6 +98,8 @@ export function liveText(line: LiveLine, label: ProcessLabel, t: Strings = S): s
 
 /** A finished process's title, as Desktop's: its three activities with the most calls (ties by first call); the rest are in the open process. */
 export function doneTitle(steps: Step[], t: Strings = S): string {
+  // A denied or failed tool result is not evidence that its requested action happened.
+  if (steps.some((s) => s.status !== 'completed')) return t.activity
   const counts = new Map<Activity, number>()
   for (const s of steps) counts.set(activity(s.tool), (counts.get(activity(s.tool)) ?? 0) + 1)
   const labels = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a]) => t.done[a])
@@ -358,18 +360,22 @@ export function turnEnds(rows: readonly Row[], running: boolean): Set<string> {
  * and the code, except for an interruption. */
 export function failureCopy(row: Extract<Row, { kind: 'failure' }>, tag?: string): { title: string; message: string; code?: string } {
   const t = tag === undefined ? S : stringsFor(tag), code = row.code
-  const title = code === 'ACCOUNT_SIGNED_OUT' || code === 'INTERRUPTED' ? t.taskStopped : t.turnError
+  const title = code === 'ACCOUNT_SIGNED_OUT' || code === 'INTERRUPTED' || code === 'STOPPED' ? t.taskStopped : t.turnError
   const message = code === 'ACCOUNT_SIGNED_OUT' ? t.failure.accountSignedOut : code === 'INTERRUPTED' ? t.failure.interrupted
     : code === 'ACCOUNT_SIGN_IN_REQUIRED' ? t.failure.accountSignInRequired : code === 'QUOTA' || code === 'ACCOUNT_QUOTA' ? t.failure.quota
     : code === 'AUTH' ? t.failure.auth : row.message
-  return { title, message, ...(code !== undefined && code !== 'INTERRUPTED' ? { code } : {}) }
+  return { title, message, ...(code !== undefined && code !== 'INTERRUPTED' && code !== 'STOPPED' ? { code } : {}) }
 }
 
 /** What ended a turn, when Desktop shows it as a failure (dsh-client-ui-chat turn-error `endFailure` + `displayFailure`):
  * a recorded error, a stop on signing out of DeepSeek, or a turn closed because the DSH process exited. */
 function failureOf(reason: Record<string, any> | undefined): { code?: string; message: string } | undefined {
   if (reason?.kind === 'interrupted') return { code: 'INTERRUPTED', message: '' }
-  if (reason?.kind === 'aborted') return obj(reason.reason)?.kind === 'hook' && obj(reason.reason)?.reason === 'deepseek-account/signed-out' ? { code: 'ACCOUNT_SIGNED_OUT', message: '' } : undefined
+  if (reason?.kind === 'aborted') {
+    const cause = obj(reason.reason)
+    if (cause?.kind === 'user') return { code: 'STOPPED', message: '' }
+    return cause?.kind === 'hook' && cause?.reason === 'deepseek-account/signed-out' ? { code: 'ACCOUNT_SIGNED_OUT', message: '' } : undefined
+  }
   if (reason?.kind !== 'error') return undefined
   const error = reason.error
   if (!error || typeof error !== 'object') return { message: String(error) }

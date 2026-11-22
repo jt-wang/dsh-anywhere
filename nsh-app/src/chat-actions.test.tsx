@@ -15,10 +15,10 @@ const TITLES = ['Move billing to the v2 API', 'Backfill old invoices', 'Nightly 
 // The headless List gives its cells' texts last row first (the workspace header comes last), so the order reads backwards.
 const order = (texts: string[]) => TITLES.filter((t) => texts.includes(t)).sort((a, b) => texts.lastIndexOf(b) - texts.lastIndexOf(a))
 
-async function app(pin: (method: string, args: any) => StubResponse, computer: Record<string, any> = {}) {
+async function app(pin: (method: string, args: any) => StubResponse, computer: Record<string, any> = {}, hostHandlers: Record<string, unknown> = {}) {
   const asked: { method: string; sessionId: string }[] = []
   const a = await open('./fixtures/pins/App.tsx', {
-    host: { handlers: { 'link.state': paired } },
+    host: { handlers: { 'link.state': paired, ...hostHandlers } },
     network: {
       [`POST ${ORIGIN}/api/session/list`]: LIST,
       ...computer,
@@ -29,6 +29,72 @@ async function app(pin: (method: string, args: any) => StubResponse, computer: R
   await a.waitFor('text:Nightly backup check')
   return { app: a, asked }
 }
+
+test('sidebar replacement preserves draft attachments and failed outbox messages without resending them', async () => {
+  const { app: a } = await app(() => ok({}), { [`POST ${ORIGIN}/api/session/prompt`]: fail('unavailable') }, {
+    'files.pick': { receiptId: 'reference-file', file: { name: 'reference.txt', bytes: 8 } },
+  })
+  await a.setViewport(1120, 800)
+  const select = async (title: string) => { await a.press(`id:wide-sidebar >> text:${title}`); await a.waitFor('id:composer') }
+  await select(TITLES[0]!)
+  await a.type('id:composer', 'Keep my caption')
+  await a.press('id:attach'); await a.press('id:action-file'); await a.waitFor('id:draft-reference-file')
+  await select(TITLES[1]!); expect(a.shows('id:draft-reference-file')).toBe(false)
+  await select(TITLES[0]!)
+  expect(a.value('id:composer')).toBe('Keep my caption'); expect(a.shows('id:draft-reference-file')).toBe(true)
+  await a.press('id:send'); await a.waitFor('text:Not sent. Tap to try again')
+  const prompts = () => a.requests().filter((r) => r.url.endsWith('/api/session/prompt')).length
+  expect(prompts()).toBe(1)
+  await a.type('id:composer', 'Another unfinished draft')
+  await select(TITLES[1]!); await select(TITLES[0]!)
+  expect(a.shows('text:Not sent. Tap to try again')).toBe(true); expect(a.value('id:composer')).toBe('Another unfinished draft')
+  expect(prompts()).toBe(1)
+  await a.press('id:discard-outgoing')
+  expect(a.shows('id:outgoing-failed')).toBe(false); expect(prompts()).toBe(1)
+  expect(a.value('id:composer')).toBe('Another unfinished draft')
+})
+
+test('a list rename retains its edited input across phone and sidebar layouts', async () => {
+  const { app: a } = await app(() => ok({}))
+  await a.longPress('text:Nightly backup check'); await a.press('id:action-rename'); await a.waitFor('id:rename')
+  await a.clear('id:rename'); await a.type('id:rename', 'Unfinished rename')
+  await a.setViewport(1120, 800)
+  expect(a.value('id:rename')).toBe('Unfinished rename'); expect(a.count('id:sessions')).toBe(1)
+  await a.setViewport(390, 844)
+  expect(a.value('id:rename')).toBe('Unfinished rename')
+})
+
+test('replacing the Tailcat transport keeps unsent attachments for the same paired identity', async () => {
+  let only = false, states = 0
+  const { app: a } = await app(() => ok({}), {}, {
+    'link.state': () => { states++; return { ...paired, cacheId: 'reference-paired-identity' } },
+    'link.tailcatOnly': (data?: { on?: boolean }) => { if (typeof data?.on === 'boolean') only = data.on; return { on: only } },
+    'files.pick': { receiptId: 'transport-file', file: { name: 'transport-reference.txt', bytes: 8 } },
+  })
+  await a.setViewport(1120, 800)
+  await a.press(`id:wide-sidebar >> text:${TITLES[0]}`); await a.waitFor('id:composer')
+  await a.type('id:composer', 'Same paired computer')
+  await a.press('id:attach'); await a.press('id:action-file'); await a.waitFor('id:draft-transport-file')
+  await a.press('id:more'); await a.press('id:menu-settings'); await a.waitFor('id:tailcat-only')
+  const before = states
+  await a.press('id:tailcat-only')
+  await a.waitUntil(() => only && states > before)
+  await a.back()
+  await a.press(`id:wide-sidebar >> text:${TITLES[1]}`); await a.waitFor('id:composer')
+  expect(a.shows('id:draft-transport-file')).toBe(false)
+  await a.press(`id:wide-sidebar >> text:${TITLES[0]}`); await a.waitFor('id:composer')
+  expect(a.value('id:composer')).toBe('Same paired computer'); expect(a.shows('id:draft-transport-file')).toBe(true)
+})
+
+test('a typed new-workspace path survives unfolding and folding without restarting the picker', async () => {
+  const { app: a } = await app(() => ok({}))
+  await a.press('id:new-chat'); await a.press('id:add-workspace'); await a.waitFor('id:folder-search')
+  await a.type('id:folder-search', '~/unfinished-project')
+  await a.setViewport(1120, 800)
+  expect(a.value('id:folder-search')).toBe('~/unfinished-project'); expect(a.count('id:sessions')).toBe(1)
+  await a.setViewport(390, 844)
+  expect(a.value('id:folder-search')).toBe('~/unfinished-project')
+})
 
 test('Pin in a chat\'s ⋯ menu pins it on the computer; the reply alone moves it to the top, marks it and turns the menu to Unpin', async () => {
   const { app: a, asked } = await app((m) => ok({ pinnedSessionIds: m === 'pin' ? ['s3'] : [] }))

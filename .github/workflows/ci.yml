@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # NSH from source: the app needs fixes that are on NSH's main branch but not yet in a release.
-  NSH_COMMIT: 7b3031fb7c9b93b0dee65f48a227bcf15d2bda38
+  # Shared paint-only Text shimmer backport on 7b3031f; no unrelated runtime upgrade.
+  NSH_COMMIT: 33512ba2268774f5a8904e1532aabe37b2f2a65f
   GITLEAKS_VERSION: "8.30.1"
   # SHA-256 of gitleaks_8.30.1_linux_x64.tar.gz, from the release's checksums file. Update both together.
   GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
@@ -174,7 +174,7 @@ jobs:
         shell: bash
         run: |
           git init -q "$RUNNER_TEMP/nsh" && cd "$RUNNER_TEMP/nsh"
-          git fetch -q --depth 1 https://github.com/longbridge/nsh.git "$NSH_COMMIT"
+          git fetch -q --depth 1 https://github.com/jt-wang/nsh.git "$NSH_COMMIT"
           git checkout -q FETCH_HEAD
           cargo build --release -p nsh-cli
           mkdir -p "$RUNNER_TEMP/nsh-bin" && cp target/release/nsh "$RUNNER_TEMP/nsh-bin/"

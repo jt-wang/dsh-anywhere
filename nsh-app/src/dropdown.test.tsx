@@ -22,3 +22,12 @@ test('the chevron is drawn to the label’s size: about 0.6 of the font size wid
   expect(chevron.w).toBe(8) // 13 pt label
   expect(Math.abs(chevron.h - 4.8) <= 1).toBe(true) // the headless layout rounds to whole points
 })
+
+test('a constrained composer shrinks the model label before pushing Send outside its padded surface', async () => {
+  const app = await open('./fixtures/dropdown.tsx')
+  await app.waitUntil(() => ['toolbar', 'compact-model', 'send'].every((k) => app.storage()[k]))
+  const toolbar = box(app, 'toolbar'), model = box(app, 'compact-model'), send = box(app, 'send')
+  expect(model.w >= 44).toBe(true)
+  expect(send.w).toBe(32)
+  expect(send.x + send.w <= toolbar.w - 6 + 0.5).toBe(true)
+})

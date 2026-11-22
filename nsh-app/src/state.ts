@@ -212,13 +212,20 @@ export async function setTailcatOnly(on: boolean) {
   } catch (e) { tailcatOnly.set(!on); linkError.set(readable(e)) }
 }
 export async function pairWith(text: string) {
+  if (linking()) return false
   linking.set(true); linkError.set('')
-  try { await adopt(await host.call<LinkState>('link.pair', { text })) } catch (e) { linkError.set(readable(e)) } finally { linking.set(false); pairEmoji.set([]) }
+  try {
+    await adopt(await host.call<LinkState>('link.pair', { text }))
+    return true
+  } catch (e) {
+    linkError.set(readable(e))
+    return false
+  } finally { linking.set(false); pairEmoji.set([]) }
 }
 export async function scan() {
   let text: string
-  try { text = await host.call<string>('link.scan') } catch (e) { if ((e as Error).message !== 'cancelled') linkError.set(readable(e)); return }
-  await pairWith(text)
+  try { text = await host.call<string>('link.scan') } catch (e) { if ((e as Error).message !== 'cancelled') linkError.set(readable(e)); return false }
+  return pairWith(text)
 }
 /** The link screen comes at once. Telling the computer goes on behind it, up to 30 seconds when the computer is silent;
  * a code linked meanwhile waits for that on the link's own thread. */

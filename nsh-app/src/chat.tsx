@@ -5,17 +5,17 @@ import { BlankChat } from './blankchat.tsx'
 import { cleanup, computed, createMotion, effect, Image, untracked, keyboardFrame, LayoutAnimation, List, safeAreaInsets, signal, Text, View, type InputRef, type ListRef } from 'nsh'
 import { Input, TextView } from 'nsh/base'
 import { doneTitle, Fold, headline, keepUnchanged, liveText, toolLabel, turnEnds, type Attached, type Entry, type LiveLine, type Row, type Step, type Todo } from './fold.ts'
-import { appActive, connection, dsh, interfaceError, offlineCache, openInterface, trying } from './state.ts'
+import { appActive, asks, connection, dsh, interfaceError, offlineCache, openInterface, pending, trying } from './state.ts'
 import { readable, S } from './strings.ts'
 import { ModelPicker } from './picker.tsx'
 import { Asks } from './asks.tsx'
 import { ConnectionBar, SavedCopy } from './status.tsx'
-import { haptic, Chevron, Icon, IconButton, LiveDot } from './ui.tsx'
+import { ComposerFrame, haptic, Chevron, Icon, IconButton, LiveDot } from './ui.tsx'
 import { appear, FRESH_MS, rise, STANDARD } from './motion.ts'
 import { copyText, messageMenu } from './copy.tsx'
 import { addAttachment, DraftChips, forget, SentAttachments } from './attachments.tsx'
 import { createVoiceInput } from './voice.tsx'
-import { promptContent, type Draft } from './attach.ts'
+import { promptContent } from './attach.ts'
 import { awaitingFirstStep, outgoing, retext, settle, type Outgoing } from './outbox.ts'
 import { Bubble, OutgoingView, WorkingRow } from './sent.tsx'
 import { steady } from './live.ts'
@@ -36,6 +36,9 @@ import { followsEnd, PADDING } from './scroll.ts'
 import { Continuation, type ContinuationView as ContinuationState } from './continuation.ts'
 import { ContinuationView } from './continuation-view.tsx'
 import { C } from './continuation-strings.ts'
+import { conversationInset } from './layout.ts'
+import { WorkingText } from './working.tsx'
+import { composerState } from './chat-state.ts'
 
 type Process = Extract<Row, { kind: 'process' }>
 type CommandRow = Extract<Row, { kind: 'command' }>
@@ -47,7 +50,7 @@ let requestCounter = 0
 /** A child chat: a subagent of `parentSessionId`, read and continued through its parent, as Desktop opens it. */
 export interface ChildOf { parentSessionId: string; subagent: Subagent }
 
-export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => void; child?: ChildOf; onOpenChild?: (child: Child) => void; activity?: ChatActivity; where?: { title: string; path: string }; at?: string }) {
+export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => void; isCurrent?: () => boolean; child?: ChildOf; onOpenChild?: (child: Child) => void; activity?: ChatActivity; where?: { title: string; path: string }; at?: string }) {
   const child = props.child
   const composer = child ? composerOf(child.subagent.mode) : 'compose'
   const cache = offlineCache()
@@ -61,16 +64,13 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   const model = signal<Selection | undefined>(undefined)
   const loaded = signal(Boolean(saved?.at))
   const error = signal('')
-  const draft = signal(saved?.draft ?? '')
+  const { draft, attached, uploading, outbox } = composerState(cache ?? dsh(), child ? [child.parentSessionId, child.subagent.id] : [props.sessionId], saved?.draft)
   // A subagent's chat takes text only; a take is cancelled whenever sending could not reach the computer.
   // A tap without a computer to transcribe explains why (the sample, or the computer out of reach) instead of recording.
   const voice = createVoiceInput({ disabled: () => !!child || !appActive(),
     blocked: () => trying() ? 'sample' : connection() !== 'online' || !live() ? 'offline' : undefined,
     onText: (text) => draft.set(draft() + (draft().trim() ? ' ' : '') + text) })
   effect(() => { cache?.draft(props.sessionId, draft()) })
-  const attached = signal<Draft[]>([])
-  const uploading = signal(false)
-  const outbox = signal<Outgoing[]>([])
   const inbox = signal(inboxOf(undefined))
   const todos = signal<Todo[]>([])
   const todosOpen = signal(false) // the to-do list folds when the chat is touched
@@ -96,6 +96,8 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   const caret = signal(0)
   const references = signal<Reference[]>([])
   const composerHeight = signal(LINE)
+  const paneWidth = signal(0)
+  const contentInset = () => conversationInset(paneWidth())
   const open = signal<Set<string>>(new Set())
   const foldedThinking = signal<Set<string>>(new Set())
   const scrollY = signal(0)
@@ -192,7 +194,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   // A long Think cell can have both ends offscreen. Offer its own collapse control, not a global
   // "collapse all", only while its header has scrolled away and its body is still being read.
   const readingThink = computed(() => {
-    measured(); const y = scrollY(), bottom = y + viewport(); let top = 12
+    measured(); const y = scrollY(), bottom = y + viewport(); let top = 21
     for (const item of items()) {
       const height = heights.get(item.id) ?? 48
       if (item.kind === 'entry' && item.entry.kind === 'think' && !foldedThinking().has(item.id) && top + 32 < y && top + height > y + 44 && top < bottom) return item.id
@@ -229,6 +231,9 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   // The last answer of each finished turn carries its Copy button, as in ChatGPT's and Claude's apps.
   const ends = computed(() => turnEnds(rows(), running()))
   const lastProcess = computed(() => { const r = rows(); for (let i = r.length - 1; i >= 0; i--) if (r[i]!.kind === 'process') return i === r.length - 1 || r.slice(i + 1).every((x) => x.kind !== 'user') ? r[i]!.id : ''; return '' })
+  const workRow = computed(() => awaitingFirstStep(rows(), running()) ? 'working' : lastProcess())
+  // Pending human input is not Working, even if DSH still marks the turn running. Covered native pages stay mounted.
+  const workActive = () => { asks(); return running() && appActive() && props.isCurrent?.() !== false && !error() && (trying() || connection() === 'online') && !pending.sessionsWaiting().includes(props.sessionId) }
   const toggle = (id: string) => { LayoutAnimation.configureNext(LayoutAnimation.create(180, 'easeInEaseOut', 'opacity')); open.update((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n }) }
   const canSend = computed(() => (Boolean(draft().trim()) || attached().length > 0) && !uploading())
   const mark = (id: string, change: Partial<Outgoing>) => outbox.update((l) => l.map((o) => (o.id === id ? { ...o, ...change } : o)))
@@ -255,7 +260,10 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
     deliver(o)
   }
   const queue = computed(() => waiting(inbox(), outbox()))
-  const drop = (id: string) => outbox.update((l) => l.filter((o) => o.id !== id))
+  const drop = (id: string) => {
+    outbox().find((o) => o.id === id)?.drafts.forEach(forget)
+    outbox.update((l) => l.filter((o) => o.id !== id))
+  }
   // An item the agent took meanwhile is no longer DSH's to change: nothing to report.
   const updateQueue = async (w: Waiting, action: Record<string, unknown>) => {
     if (!w.item) return true
@@ -308,19 +316,20 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
   }
 
   return (
-    <View class="flex-1 bg-background pb-[env(keyboard-inset-height)]">
+    <View class="flex-1 bg-background pb-[env(keyboard-inset-height)]" onLayout={(e) => paneWidth.set(e.bounds.size.width)}>
       <ConnectionBar />
       <SavedCopy at={!live() || connection() !== 'online' ? copiedAt() : 0} failed={cache?.failed() ?? false} />
       <View class="flex-1" onTouchStart={() => { readingAnchor = undefined; if (todosOpen()) todosOpen.set(false) }}>
       <List ref={list} each={items()} keyExtractor={(r) => r.id} estimatedItemSize={48} testID="thread" style={{ flex: 1, opacity: placed() ? 1 : 0 }} class="transition-opacity duration-150" scrollbar={false}
         onLayout={(e) => viewport.set(e.bounds.size.height)}
         maintainVisibleContentPosition={{}} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled"
-        contentStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }} scrollEventThrottle={50}
+        contentStyle={{ paddingHorizontal: contentInset(), paddingTop: 21, paddingBottom: 4 }} scrollEventThrottle={50}
         onScroll={(e) => { scrollY.set(e.offset.y); atBottom.set(e.offset.y + e.size.height >= e.contentSize.height - 80) }}>
         {(r) => <RowView sessionId={props.sessionId} item={r} line={line} live={() => running() && r().id === lastProcess()} open={() => open().has(r().id)} toggle={() => toggle(r().id)}
+          animateWork={() => workActive() && r().id === workRow()}
           thinkingOpen={() => !foldedThinking().has(r().id)} toggleThinking={() => toggleThinking(r().id)}
           continuation={{ visible: () => failedEnding() !== undefined && r().id === `failure:${failedEnding()}`, state: continuationState, blocked: continuationBlocked, send: continueGeneration, refresh: refreshContinuation }}
-          onHeight={(h) => measure(r().id, h)} busy={running} retry={(o) => deliver(o)} ends={() => ends().has(r().id)} fresh={fresh} />}
+          onHeight={(h) => measure(r().id, h)} busy={running} retry={(o) => deliver(o)} discard={drop} ends={() => ends().has(r().id)} fresh={fresh} />}
       </List>
       <If when={readingThink()}>
         <View role="button" testID="think-collapse-reading" accessibilityLabel={S.collapseThink} onPress={() => { const id = readingThink(); if (id) toggleThinking(id) }}
@@ -345,7 +354,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
       <If when={activity}><ActivityPanel activity={activity!} openJobs={() => jobsOpen.set(true)} openChildren={openKids} onOpenChild={(c) => props.onOpenChild?.(c)} /></If>
       <voice.Sheet />
       <ControlsSheet open={controlsOpen} onClose={() => controlsOpen.set(false)} sessionId={props.sessionId} commands={commands} skills={skills} run={execute} insert={(t) => setDraft(t)} reload={loadCommands} />
-      <View class="px-3 pt-1" style={{ paddingBottom: 8 + (keyboardFrame().height > 0 ? 0 : insets().bottom) }}>
+      <View class="px-3 pt-1" style={{ marginHorizontal: contentInset() - 22, paddingBottom: 8 + (keyboardFrame().height > 0 ? 0 : insets().bottom) }}>
         <Asks sessionId={props.sessionId} onError={(m) => error.set(m)} />
         {/* Typing "/" or "@" shows only what can be picked: the docks step aside until the pick or the text is gone. */}
         {/* A chat with the header's activity button pins its whole panel here; a subagent's chat has its own docks. */}
@@ -366,12 +375,13 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
           </View>
         </If>
         <If when={composer === 'compose'}>
-        <View class="rounded-[16px] border border-border bg-card">
+        <ComposerFrame>
           <DraftChips items={attached} uploading={uploading} remove={(d) => { forget(d); attached.update((l) => l.filter((x) => x.id !== d.id)) }} />
+          {/* Native inputs opt into focus tracking so the enclosing focus-within border receives it. */}
           <Input ref={input} placeholder={S.message} accessibilityLabel={S.message} value={draft()} onChange={(e) => draft.set(e.value)} multiline submitBehavior="newline" testID="composer"
             onSelectionChange={(e) => caret.set(e.end)}
             onContentSizeChange={(e) => composerHeight.set(Math.min(Math.max(e.size.height, LINE), LINE * 6))}
-            style={{ height: composerHeight() + 16 }} class="bg-transparent px-[14px] pt-[10px] pb-[6px] text-foreground placeholder:text-muted-foreground text-[15px] leading-[22px]" />
+            style={{ height: composerHeight() + 16 }} class="bg-transparent focus:bg-transparent px-[14px] pt-[10px] pb-[6px] text-foreground placeholder:text-muted-foreground text-[15px] leading-[22px]" />
           <voice.Status />
           {/* While a take is under way its bar takes the toolbar's place: Cancel, timer and level, Done. */}
           <View class="flex-row items-center px-[6px] pb-[6px] gap-[2px] min-h-[42px]">
@@ -388,18 +398,18 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
             <If when={!child}><voice.Button /></If>
             {/* While the agent works, Stop stays and a typed message queues beside it (t3code's Queue + Stop). */}
             <If when={running()}>
-              <View role="button" accessibilityLabel={S.stop} testID="stop" onPress={cancel} hitSlop={6} class={`w-[32px] h-[32px] rounded-full items-center justify-center active:opacity-80 ${canSend() ? 'bg-secondary' : 'bg-primary'}`}>
+              <View role="button" accessibilityLabel={S.stop} testID="stop" onPress={cancel} hitSlop={8} class={`w-[32px] h-[32px] rounded-full items-center justify-center active:opacity-80 ${canSend() ? 'bg-secondary' : 'bg-primary'}`}>
                 <View class={`w-[10px] h-[10px] rounded-[2.5px] ${canSend() ? 'bg-foreground' : 'bg-primary-foreground'}`} />
               </View>
             </If>
             <If when={!running() || canSend()}>
-              <View role="button" accessibilityLabel={running() ? S.queue : S.send} testID="send" onPress={submit} hitSlop={6} class={`ml-[6px] w-[32px] h-[32px] rounded-full items-center justify-center ${canSend() ? 'bg-primary active:opacity-80' : 'bg-secondary'}`}>
+              <View role="button" accessibilityLabel={running() ? S.queue : S.send} accessibilityState={{ disabled: !canSend() }} testID="send" onPress={submit} hitSlop={8} class={`ml-[6px] w-[32px] h-[32px] rounded-full items-center justify-center ${canSend() ? 'bg-primary active:opacity-80' : 'bg-secondary'}`}>
                 <Icon name="arrowUp" size={18} class={canSend() ? 'tint-primary-foreground' : 'tint-muted-foreground'} />
               </View>
             </If>
             </>}><voice.Bar /></If>
           </View>
-        </View>
+        </ComposerFrame>
         </If>
       </View>
     </View>
@@ -407,7 +417,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
 }
 
 /** One cell; it reads `props.item()` where it is used because the List reuses cells for other rows. */
-function RowView(props: { sessionId: string; item: () => Item; line: () => LiveLine; live: () => boolean; open: () => boolean; toggle: () => void; thinkingOpen: () => boolean; toggleThinking: () => void; onHeight: (h: number) => void; busy: () => boolean; retry: (o: Outgoing) => void; ends: () => boolean; fresh: (id: string) => boolean; continuation: { visible: () => boolean; state: () => ContinuationState; blocked: () => 'offline' | 'draft' | undefined; send: () => void; refresh: () => void } }) {
+function RowView(props: { sessionId: string; item: () => Item; line: () => LiveLine; live: () => boolean; animateWork: () => boolean; open: () => boolean; toggle: () => void; thinkingOpen: () => boolean; toggleThinking: () => void; onHeight: (h: number) => void; busy: () => boolean; retry: (o: Outgoing) => void; discard: (id: string) => void; ends: () => boolean; fresh: (id: string) => boolean; continuation: { visible: () => boolean; state: () => ContinuationState; blocked: () => 'offline' | 'draft' | undefined; send: () => void; refresh: () => void } }) {
   const kind = () => props.item().kind
   const sent = () => { const i = props.item(); return i.kind === 'outgoing' ? [i.message] : [] }
   const text = () => (props.item() as { text?: string }).text ?? ''
@@ -422,8 +432,8 @@ function RowView(props: { sessionId: string; item: () => Item; line: () => LiveL
           <If when={text()}><Bubble text={text()} /></If>
         </View>
       </If>
-      <If when={kind() === 'working'}><WorkingRow title={() => liveText(props.line(), 'analyzing')} /></If>
-      <Each of={sent()} key={(o) => o.id}>{(o) => <OutgoingView message={o} busy={props.busy} retry={() => props.retry(o())} />}</Each>
+      <If when={kind() === 'working'}><WorkingRow title={() => liveText(props.line(), 'analyzing')} active={props.animateWork} /></If>
+      <Each of={sent()} key={(o) => o.id}>{(o) => <OutgoingView message={o} busy={props.busy} retry={() => props.retry(o())} discard={() => props.discard(o().id)} />}</Each>
       <Each of={kind() === 'command' ? [props.item() as CommandRow] : []} key={(c) => c.id}>{(c) => <CommandView command={c} />}</Each>
       <Each of={kind() === 'failure' ? [props.item() as Extract<Row, { kind: 'failure' }>] : []} key={(f) => f.id}>{(f) => <FailureView failure={f} />}</Each>
       <If when={props.continuation.visible()}><ContinuationView {...props.continuation} /></If>
@@ -437,7 +447,7 @@ function RowView(props: { sessionId: string; item: () => Item; line: () => LiveL
           <If when={props.ends()}><CopyButton text={text} /></If>
         </View>
       ) }}</Each>
-      <Each of={process()} key={(p) => p.id}>{(p) => <ProcessView process={p} line={props.line} live={props.live} open={props.open} toggle={props.toggle} />}</Each>
+      <Each of={process()} key={(p) => p.id}>{(p) => <ProcessView process={p} line={props.line} live={props.live} animateWork={props.animateWork} open={props.open} toggle={props.toggle} />}</Each>
     </View>
   )
 }
@@ -473,14 +483,13 @@ function latestInterfaces(steps: Step[]): Step[] {
   return [...byTitle.values()]
 }
 
-function ProcessView(props: { process: () => Process; line: () => LiveLine; live: () => boolean; open: () => boolean; toggle: () => void }) {
+function ProcessView(props: { process: () => Process; line: () => LiveLine; live: () => boolean; animateWork: () => boolean; open: () => boolean; toggle: () => void }) {
   const h = () => headline(props.process(), props.live())
   const title = () => h().label === 'done' ? doneTitle(props.process().steps) : liveText(props.line(), h().label)
   return (
     <View class="self-stretch">
       <View role="button" testID="process" onPress={props.toggle} hitSlop={{ top: 8, bottom: 8 }} class="self-stretch flex-row items-center gap-[6px] py-[4px] active:opacity-60">
-        <If when={props.live()}><LiveDot /></If>
-        <Text class={`shrink text-[13px] leading-5 line-clamp-1 ${props.live() ? 'text-foreground' : 'text-muted-foreground'}`}>{title()}</Text>
+        <WorkingText title={title} active={() => props.animateWork() && h().label !== 'done'} />
         <View class={`transition-transform duration-200 ${props.open() ? 'rotate-90' : 'rotate-0'}`}><Chevron dir="right" font={13} class={props.live() ? 'tint-foreground' : 'tint-muted-foreground'} /></View>
       </View>
       {latestInterfaces(props.process().steps).map((s) => (

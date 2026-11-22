@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      NSH_COMMIT: 7b3031fb7c9b93b0dee65f48a227bcf15d2bda38
+      NSH_COMMIT: 33512ba2268774f5a8904e1532aabe37b2f2a65f
       RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           git init -q "$NSH_SOURCE"
-          git -C "$NSH_SOURCE" fetch -q --depth 1 https://github.com/longbridge/nsh.git "$NSH_COMMIT"
+          git -C "$NSH_SOURCE" fetch -q --depth 1 https://github.com/jt-wang/nsh.git "$NSH_COMMIT"
           git -C "$NSH_SOURCE" checkout -q --detach FETCH_HEAD
           git -C "$NSH_SOURCE" apply --check "$GITHUB_WORKSPACE/nsh-app/nsh-number-pad.patch"
           git -C "$NSH_SOURCE" apply "$GITHUB_WORKSPACE/nsh-app/nsh-number-pad.patch"

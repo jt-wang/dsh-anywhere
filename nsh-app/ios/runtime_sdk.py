@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 
-PIN = '7b3031fb7c9b93b0dee65f48a227bcf15d2bda38'
+PIN = '33512ba2268774f5a8904e1532aabe37b2f2a65f'
 # The iOS host's window taps, and whole-number pads for whole-number fields (both platforms' builds apply the latter).
 PATCHES = (Path(__file__).with_name('nsh-window-tap.patch'), Path(__file__).parent.with_name('nsh-number-pad.patch'))
 SECRETS = ('APPLE_TEAM_ID', 'IOS_DISTRIBUTION_P12_BASE64', 'IOS_DISTRIBUTION_P12_PASSWORD',

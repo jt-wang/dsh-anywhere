@@ -1,15 +1,20 @@
 // The connection's state on its own, over a connection the test sets with buttons (src/status.test.tsx): the bar under
 // a chat's header, the one on the chats page, the dot in a chat's header, and the sheet they open.
 import { mount, signal, Text, View } from 'nsh'
-import type { ConnectionState } from '../dsh.ts'
-import type { Check } from '../reach.ts'
-import { ConnectionBar, ConnectionDot, ReachSheet, type Reach } from '../status.tsx'
-import { routeWords, type LinkPath } from '../state.ts'
+import type { ConnectionState } from '../../dsh.ts'
+import type { Check } from '../../reach.ts'
+import { ConnectionBar, ConnectionDot, ReachSheet, type Reach } from '../../status.tsx'
+import { routeWords, scan, type LinkPath } from '../../state.ts'
 
 const connection = signal<ConnectionState>('online'), network = signal(true), active = signal(true)
 const check = signal<Check | undefined>(undefined), retryAt = signal<number | undefined>(undefined), route = signal('')
 const open = signal(false), onChats = signal(false), retried = signal(0), scanned = signal(0)
-const reach: Reach = { connection, network, active, check, retryAt, routeText: route, open, retry: () => retried.update((n) => n + 1), scan: () => scanned.update((n) => n + 1) }
+const slowScan = signal(false)
+const reach: Reach = { connection, network, active, check, retryAt, routeText: route, open, retry: () => retried.update((n) => n + 1), scan: async () => {
+  scanned.update((n) => n + 1)
+  if (slowScan()) await new Promise<void>((resolve) => setTimeout(resolve, 2_000))
+  return scan()
+} }
 const set = (label: string, f: () => void) => <View role="button" testID={label} onPress={f}><Text>{label}</Text></View>
 const failing = (c: Check) => { connection.set('offline'); check.set(c) }
 const paths: [string, LinkPath][] = [
@@ -40,6 +45,7 @@ function App() {
         {set('refused', () => { failing({ relay: 'reachable', computer: 'reachable', access: 'refused' }); retryAt.set(undefined) })}
         {set('not-running', () => failing({ relay: 'reachable', computer: 'unreachable', failure: 'handshake-closed' }))}
         {set('no-answer', () => failing({ relay: 'reachable', computer: 'unreachable', failure: 'no-answer' }))}
+        {set('slow-scan', () => slowScan.set(true))}
         {set('relay-down', () => failing({ relay: 'reachable', computer: 'unreachable', failure: 'relay-down' }))}
         {set('slow', () => { connection.set('online'); check.set({ access: 'ok', latencyMs: 2400 }) })}
         {set('next-try', () => retryAt.set(Date.now() + 8_000))}

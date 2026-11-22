@@ -139,9 +139,16 @@ final class Modules {
             w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); // the module's fields stay above the keyboard
             // dark system bar icons on the light theme, as the app's own window has (MainActivity.systemBars)
             boolean dark = (activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES;
-            android.view.WindowInsetsController c = Build.VERSION.SDK_INT >= 30 ? w.getInsetsController() : null;
-            int light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
-            if (c != null) c.setSystemBarsAppearance(dark ? 0 : light, light);
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.view.WindowInsetsController c = w.getInsetsController();
+                int light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                if (c != null) c.setSystemBarsAppearance(dark ? 0 : light, light);
+            } else {
+                android.view.View decor = w.getDecorView();
+                int flags = decor.getSystemUiVisibility();
+                int light = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                decor.setSystemUiVisibility(dark ? flags & ~light : flags | light);
+            }
         }
     }
 }

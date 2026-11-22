@@ -56,7 +56,7 @@ env:
   DSH_UPLOAD: ${{ inputs.upload }}
   DSH_STATUS_ONLY: ${{ inputs.status_only }}
   DSH_SUBMIT_BETA: ${{ inputs.submit_beta }}
-  NSH_COMMIT: 7b3031fb7c9b93b0dee65f48a227bcf15d2bda38
+  NSH_COMMIT: 33512ba2268774f5a8904e1532aabe37b2f2a65f
 
 jobs:
   gate:
@@ -129,7 +129,7 @@ jobs:
           xcodebuild -version
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim
           git init -q "$RUNNER_TEMP/nsh"
-          git -C "$RUNNER_TEMP/nsh" fetch -q --depth 1 https://github.com/longbridge/nsh.git "$NSH_COMMIT"
+          git -C "$RUNNER_TEMP/nsh" fetch -q --depth 1 https://github.com/jt-wang/nsh.git "$NSH_COMMIT"
           git -C "$RUNNER_TEMP/nsh" checkout -q --detach FETCH_HEAD
           test "$(git -C "$RUNNER_TEMP/nsh" rev-parse HEAD)" = "$NSH_COMMIT"
           git -C "$RUNNER_TEMP/nsh" apply --check "$GITHUB_WORKSPACE/nsh-app/ios/nsh-window-tap.patch"

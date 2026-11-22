@@ -72,7 +72,7 @@ test('only TailPocket\'s four reasons count; an empty or new one says nothing', 
 
 test('pairing again is offered where the computer may no longer know this phone, never for the network or relay', () => {
   expect((['refused', 'not-running', 'computer', 'no-answer', 'relay-down', 'blocked', 'companion', 'trying', 'connected'] as const).filter(offersPairAgain))
-    .toEqual(['refused', 'not-running', 'computer'])
+    .toEqual(['refused', 'not-running', 'computer', 'no-answer'])
 })
 
 test('each part reads from the cause: only the part that did not answer fails, and nothing behind it is known', () => {

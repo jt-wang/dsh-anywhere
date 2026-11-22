@@ -142,16 +142,15 @@ final class Link {
             let clientKey = link["clientKey"] as? String
         else { return ["paired": false] }
         let port = try Link.connect(try Invite.invitation(invitation), clientKey: clientKey, saved: link["tailpocket"] as? String,
-                                    onSynced: { [weak self] in self?.saveSynced($0) })
+                                    onSynced: { [weak self] in self?.saveSynced($0, $1) })
         let cacheId = SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
         return ["paired": true, "origin": "http://127.0.0.1:\(port)/dsh", "token": token, "cacheId": cacheId, "dialMs": DshtailcatDialMs(Link.tunnel)]
     }
 
     private func pair(_ text: String) throws -> [String: Any] {
         let boot = try Invite.bootstrap(text.trimmingCharacters(in: .whitespacesAndNewlines), nowMs: Int64(Date().timeIntervalSince1970 * 1000))
-        var link = saved() ?? [:]
-        if link["clientKey"] == nil { link["clientKey"] = ConnectmobileNewKey(); try save(link) }
-        let clientKey = link["clientKey"] as! String
+        // A device revocation removes its transport key, so the replacement needs its own key.
+        let clientKey = ConnectmobileNewKey()
         // 1. The pairing node: trade the QR's proof and this phone's public key for the computer's Link; its payload is the
         // invitation. The reply's address is the normal node's, so it replaces the payload's.
         // Bootstrap v2 (an emoji pairing): both screens show four emoji and the computer's user confirms there; the Link
@@ -179,16 +178,22 @@ final class Link {
         payload["tailcat"] = tailcat
         let inv = try Invite.invitation(String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self))
         // 2. The computer itself, over pinned TLS: the one-time pairing token becomes this phone's device token.
-        let port = try Link.connect(inv, clientKey: clientKey, saved: pairedText, onSynced: { [weak self] in self?.saveSynced($0) })
-        let body = try JSONSerialization.data(withJSONObject: ["pairingToken": inv.pairingToken, "deviceName": deviceName])
-        let answer = try Link.http("POST", "http://127.0.0.1:\(port)/v1/pairings", auth: nil, body: body)
-        guard let device = try? JSONSerialization.jsonObject(with: answer) as? [String: Any], let token = device["deviceToken"] as? String else {
-            throw LinkFailure("link/invalid")
+        let candidate = try Link.openTransport(inv, clientKey: clientKey, saved: pairedText)
+        do {
+            let body = try JSONSerialization.data(withJSONObject: ["pairingToken": inv.pairingToken, "deviceName": deviceName])
+            let answer = try Link.http("POST", "http://127.0.0.1:\(candidate.bridge.port)/v1/pairings", auth: nil, body: body)
+            guard let device = try? JSONSerialization.jsonObject(with: answer) as? [String: Any], let token = device["deviceToken"] as? String else {
+                throw LinkFailure("link/invalid")
+            }
+            var link = ["clientKey": clientKey, "invitation": inv.json, "token": token]
+            if let pairedText { link["tailpocket"] = pairedText }
+            try save(link)
+        } catch {
+            candidate.bridge.close()
+            ConnectmobileStop(candidate.handle)
+            throw error
         }
-        link["invitation"] = inv.json
-        link["token"] = token
-        if let pairedText { link["tailpocket"] = pairedText }
-        try save(link)
+        _ = Link.activate(candidate, onSynced: { [weak self] in self?.saveSynced($0, $1) })
         return try state()
     }
 
@@ -207,18 +212,21 @@ final class Link {
     }
 
     /// Keeps the Link Sync returned, with the routes the computer added, for when Tailcat cannot be reached.
-    private func saveSynced(_ synced: String) {
+    private func saveSynced(_ handle: Int64, _ synced: String) {
         work.async { [self] in
-            guard var link = saved(), link["token"] != nil else { return }
+            guard handle == Link.tunnel, var link = saved(), link["token"] != nil else { return }
             link["tailpocket"] = synced
             try? save(link) // the next start syncs again
         }
     }
 
-    private static func connect(_ inv: Invitation, clientKey: String, saved: String?, onSynced: @escaping (String) -> Void) throws -> Int {
+    private static func connect(_ inv: Invitation, clientKey: String, saved: String?, onSynced: @escaping (Int64, String) -> Void) throws -> Int {
         if let bridge, bridge.serves(inv) { return bridge.port }
-        // Pairing with another computer: the old tunnel and bridge reach the old one.
         disconnect()
+        return activate(try openTransport(inv, clientKey: clientKey, saved: saved), onSynced: onSynced)
+    }
+
+    private static func openTransport(_ inv: Invitation, clientKey: String, saved: String?) throws -> (handle: Int64, bridge: Bridge) {
         // connectmobile's Link: the invitation's node and this phone's key (all a phone paired before TailPocket has), or the
         // one the last Sync stored for that same node and key, which also names the computer's opaque relay.
         var linkJSON = String(decoding: try JSONSerialization.data(withJSONObject: ["address": inv.address, "port": inv.port, "name": "", "key": clientKey]), as: UTF8.self)
@@ -227,24 +235,29 @@ final class Link {
             linkJSON = saved
         }
         let normal = try started(ConnectmobileConnect(linkJSON, ""))
-        tunnel = normal.handle
-        DshtailcatWatchPath(normal.handle, pathEvents)
+        let handle = normal.handle
         do {
             // The TLS answer waits for the forward's dial, so 5 s more than its bound (routes the computer adds later count).
-            let handle = normal.handle
-            bridge = try Bridge(invitation: inv, tailcatPort: normal.port, forwardToken: normal.token,
-                                handshake: { TimeInterval(DshtailcatDialMs(handle)) / 1000 + 5 })
+            return (handle, try Bridge(invitation: inv, tailcatPort: normal.port, forwardToken: normal.token,
+                                       handshake: { TimeInterval(DshtailcatDialMs(handle)) / 1000 + 5 }))
         } catch {
-            disconnect()
+            ConnectmobileStop(handle)
             throw error
         }
-        let handle = normal.handle
+    }
+
+    private static func activate(_ transport: (handle: Int64, bridge: Bridge), onSynced: @escaping (Int64, String) -> Void) -> Int {
+        disconnect()
+        let handle = transport.handle
+        tunnel = handle
+        bridge = transport.bridge
+        DshtailcatWatchPath(handle, pathEvents)
         DispatchQueue.global(qos: .utility).async {
             // Over Tailcat only, best effort: registers this phone's end-to-end key and fetches the computer's routes.
             let synced = ConnectmobileSync(handle, 30_000)
-            if let o = (try? JSONSerialization.jsonObject(with: Data(synced.utf8))) as? [String: Any], o["error"] == nil { onSynced(synced) }
+            if let o = (try? JSONSerialization.jsonObject(with: Data(synced.utf8))) as? [String: Any], o["error"] == nil { onSynced(handle, synced) }
         }
-        return bridge!.port
+        return transport.bridge.port
     }
 
     private static func disconnect() {

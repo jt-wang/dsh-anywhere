@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 IOS = Path(__file__).resolve().parent
-PIN = '7b3031fb7c9b93b0dee65f48a227bcf15d2bda38'
+PIN = '33512ba2268774f5a8904e1532aabe37b2f2a65f'
 
 
 class RuntimePatch(unittest.TestCase):

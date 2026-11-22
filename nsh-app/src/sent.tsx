@@ -3,20 +3,22 @@
 // the agent is on it, so a quiet screen is not mistaken for a lost message.
 import { cleanup, createMotion, Image, signal, Text, View } from 'nsh'
 import { outgoingStatus, type Outgoing } from './outbox.ts'
-import { Icon, LiveDot } from './ui.tsx'
+import { Icon, IconButton } from './ui.tsx'
+import { S } from './strings.ts'
 import { rise } from './motion.ts'
 import { messageMenu } from './copy.tsx'
+import { WorkingText } from './working.tsx'
 
 export function Bubble(props: { text: string; dim?: boolean }) {
   return (
-    <View testID="bubble" onLongPress={() => messageMenu(props.text)} class={`max-w-[85%] bg-secondary rounded-[18px] px-[14px] py-[9px] transition-opacity duration-200 ${props.dim ? 'opacity-60' : 'opacity-100'}`}>
+    <View testID="bubble" onLongPress={() => messageMenu(props.text)} class={`max-w-[88%] bg-secondary rounded-[18px] rounded-br-[5px] px-[14px] py-[11px] transition-opacity duration-200 ${props.dim ? 'opacity-60' : 'opacity-100'}`}>
       <Text class="text-foreground text-[15px] leading-[22px]">{props.text}</Text>
     </View>
   )
 }
 
 /** A message on its way: shown at once, dimmed, with where it is; a failed one says why and sends again on a press. */
-export function OutgoingView(props: { message: () => Outgoing; busy: () => boolean; retry: () => void }) {
+export function OutgoingView(props: { message: () => Outgoing; busy: () => boolean; retry: () => void; discard?: () => void }) {
   const o = props.message
   const photos = () => o().drafts.filter((d) => d.kind === 'image' && d.preview)
   const files = () => o().drafts.filter((d) => d.kind === 'file')
@@ -38,9 +40,12 @@ export function OutgoingView(props: { message: () => Outgoing; busy: () => boole
       <If when={status().failed} else={
         <Text testID="outgoing-status" class="text-muted-foreground text-[12px] leading-4 pr-1 text-right max-w-[85%]">{status().text}</Text>
       }>
-        <View role="button" testID="retry" onPress={props.retry} hitSlop={8} class="items-end gap-[2px] pr-1 max-w-[85%] active:opacity-60">
-          <Text class="text-destructive text-[12px] leading-4">{status().text}</Text>
-          <If when={status().reason}><Text testID="not-sent-reason" class="text-muted-foreground text-[12px] leading-4 text-right">{status().reason}</Text></If>
+        <View class="flex-row items-center gap-4 max-w-[85%]">
+          <View role="button" testID="retry" onPress={props.retry} hitSlop={8} class="shrink items-end justify-center min-h-[44px] gap-[2px] pr-1 active:opacity-60">
+            <Text class="text-destructive text-[12px] leading-4">{status().text}</Text>
+            <If when={status().reason}><Text testID="not-sent-reason" class="text-muted-foreground text-[12px] leading-4 text-right">{status().reason}</Text></If>
+          </View>
+          <If when={props.discard}><IconButton name="x" label={S.remove} testID="discard-outgoing" onPress={() => props.discard?.()} size={14} class="w-[44px] h-[44px]" iconClass="tint-muted-foreground" /></If>
         </View>
       </If>
     </View>
@@ -48,12 +53,10 @@ export function OutgoingView(props: { message: () => Outgoing; busy: () => boole
 }
 
 /** The agent has started on the message and no step shows yet: what it is on (fold.ts `liveText`). */
-export function WorkingRow(props: { title: () => string }) {
-  const m = createMotion({ enter: rise })
+export function WorkingRow(props: { title: () => string; active?: () => boolean }) {
   return (
-    <View testID="working" class="flex-row items-center gap-2 py-[2px]" style={m.style}>
-      <LiveDot />
-      <Text class="shrink text-muted-foreground text-[14px] leading-5 line-clamp-1">{props.title()}</Text>
+    <View testID="working" class="flex-row items-center py-[2px]">
+      <WorkingText title={props.title} active={() => props.active?.() ?? false} />
     </View>
   )
 }

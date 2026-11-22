@@ -3,6 +3,6 @@
     <style name="Dsh" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/background</item>
     </style>
-    <color name="background">#F7F7F4</color>
-    <color name="foreground">#26251E</color>
+    <color name="background">#FFFFFF</color>
+    <color name="foreground">#171717</color>
 </resources>

@@ -8,8 +8,8 @@ export type PageMessage = { t: 'ready' | 'size'; cols: number; rows: number } | 
 export type BarKey = 'esc' | 'tab' | 'up' | 'down' | 'left' | 'right' | 'home' | 'end'
 
 const THEMES = {
-  dark: { background: '#14120B', foreground: '#EDECEC', cursor: '#EDECEC', cursorAccent: '#14120B', selectionBackground: '#EDECEC40' },
-  light: { background: '#F7F7F4', foreground: '#26251E', cursor: '#26251E', cursorAccent: '#F7F7F4', selectionBackground: '#26251E30' },
+  dark: { background: '#000000', foreground: '#F5F5F5', cursor: '#F5F5F5', cursorAccent: '#000000', selectionBackground: '#8BB2FF40' },
+  light: { background: '#FFFFFF', foreground: '#171717', cursor: '#171717', cursorAccent: '#FFFFFF', selectionBackground: '#2459C430' },
 }
 
 const BOOT = `(function () {

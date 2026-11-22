@@ -210,6 +210,15 @@ test('a finished process\'s title lists its activities in the language\'s own wa
   expect(doneTitle(steps(), stringsFor('zh'))).toBe('已完成分析')
 })
 
+test('a failed or denied tool never claims its requested action happened in the collapsed history', () => {
+  const failed: Step = { callId: 'denied', tool: 'bash', title: 'Delete old build folder', kind: 'execute', status: 'failed', at: 1 }
+  expect(doneTitle([failed])).toBe('Activity')
+  expect(doneTitle([failed], stringsFor('zh'))).toBe('活动')
+  const completed: Step = { callId: 'read', tool: 'read', title: 'Read reference', kind: 'read', status: 'completed', at: 0 }
+  expect(doneTitle([completed, failed])).toBe('Activity')
+  expect(doneTitle([completed])).toBe('Read files')
+})
+
 test('an answer to the agent\'s question shows as the person\'s message, in whichever step DSH takes it', () => {
   seq = 0
   const fold = new Fold()
@@ -306,6 +315,7 @@ test('the failure reads as Desktop words it: AUTH is an invalid key, a sign-out 
     { title: 'This turn failed', message: 'socket hang up', code: 'NETWORK' },
     { title: 'Task stopped', message: 'Stopped because you signed out of DeepSeek.', code: 'ACCOUNT_SIGNED_OUT' },
     { title: 'Task stopped', message: 'The DSH process exited before this turn finished (for example, it was killed, crashed, or timed out while shutting down), so the turn was closed when DSH restarted. Unfinished tool calls have unknown outcomes.' },
+    { title: 'Task stopped', message: '' },
     { title: 'This turn failed', message: 'Request quota exhausted.', code: 'QUOTA' },
   ])
   expect(failureCopy(fold.rows().find((r) => r.kind === 'failure')!, 'ru').title).toBe('Ход завершился ошибкой')

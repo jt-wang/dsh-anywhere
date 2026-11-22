@@ -11,5 +11,3 @@ export const FRESH_MS = 3000
 export const rise: MotionSpec = { duration: 220, keyframes: [{ opacity: 0, translateY: 10, easing: DECELERATE }, { opacity: 1, translateY: 0 }] }
 /** A new answer fades in. */
 export const appear: MotionSpec = { duration: 220, keyframes: [{ opacity: 0, easing: DECELERATE }, { opacity: 1 }] }
-/** What runs breathes: a neutral dot fading in and out says so without a colour that reads as an alert. */
-export const glow: MotionSpec = { duration: 2000, iterations: 'infinite', keyframes: [{ opacity: 1, easing: 'easeInOut' }, { opacity: 0.25, easing: 'easeInOut' }, { opacity: 1 }] }

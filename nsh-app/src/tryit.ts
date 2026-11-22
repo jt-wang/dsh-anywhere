@@ -113,7 +113,7 @@ export function tryComputer(): { fetch: typeof fetch; socket: (url: string) => S
     for (const timer of timers.get(sessionId) ?? []) clearTimeout(timer)
     timers.delete(sessionId)
     for (const open of [...opens.values()]) if (open.sessionId === sessionId) { opens.delete(open.eventId); for (const s of events) s.send({ type: 'cancel', eventId: open.eventId }) }
-    emit(turnEnd(chat.turn, Date.now(), 'interrupted'), chat)
+    emit(ev('turn/end', { turn: chat.turn, reason: { kind: 'aborted', reason: { kind: 'user' } } }, Date.now()), chat)
     status(chat, false)
   }
 

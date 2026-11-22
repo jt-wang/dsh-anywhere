@@ -105,6 +105,24 @@ test('a draft blocks continuation without clearing the person’s text; child ch
   await child.waitFor('id:turn-failure'); expect(child.count('id:continuation')).toBe(0)
 })
 
+test('discarding a retained failed prompt unlocks generation recovery without resending that prompt', async () => {
+  const app = await open('./continuation-fixture/App.tsx', { locale: 'en-US' })
+  await app.waitFor('id:continue-generation')
+  await app.press('id:fixture-unconfirmed'); await app.waitFor('id:continue-generation')
+  await app.type('id:composer', 'Unsent follow-up'); await app.press('id:send')
+  await app.waitFor('id:outgoing-failed')
+  expect(app.count('id:continue-generation')).toBe(0)
+  expect(app.texts()).toContain('unconfirmed · writes: 1')
+  await app.press('id:discard-outgoing')
+  await app.waitFor('id:continue-generation')
+  expect(app.count('id:outgoing-failed')).toBe(0)
+  expect(app.texts()).toContain('unconfirmed · writes: 1')
+  await app.press('id:fixture-eligible'); await app.waitFor('id:continue-generation')
+  await app.press('id:continue-generation'); await app.waitFor('id:continuation-receipt')
+  expect(app.texts()).toContain('eligible · writes: 2')
+  expect(app.texts()).not.toContain('Unsent follow-up')
+})
+
 test('continuation copy covers eight languages and all other languages fall back to English', () => {
   for (const tag of ['zh-CN', 'zh-TW', 'en', 'es', 'fr', 'ko', 'ja', 'ru']) for (const text of Object.values(continuationStrings(tag))) expect(text.length > 0).toBe(true)
   expect(continuationStrings('de')).toEqual(continuationStrings('en'))

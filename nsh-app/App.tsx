@@ -1,7 +1,8 @@
 // DSH on the phone: the same chats as DSH Desktop, read and driven through DSH's own protocol.
 import { effect, host, Keyboard, locale, mount, openUrl, safeAreaInsets, signal, Text, untracked, View } from 'nsh'
-import { createNavStack, Input, NavPage, NavStack } from 'nsh/base'
-import { asks, backgroundWatch, boot, connection, dsh, linkError, linking, loaded, network, news, pairEmoji, pairWith, pending, PRIVACY_URL, refreshLists, scan, settings, started, trying, tryIt, turnErrors, unlink } from './src/state.ts'
+import { createNavStack, NavPage, NavStack } from 'nsh/base'
+import { asks, backgroundWatch, boot, connection, dsh, linkError, linking, loaded, network, news, pairWith, pending, PRIVACY_URL, refreshLists, scan, settings, started, trying, tryIt, turnErrors, unlink } from './src/state.ts'
+import { PairEmoji, PastePairingCode } from './src/pairing.tsx'
 import { Attention } from './src/notify.tsx'
 import { summaries } from './src/workspaces.ts'
 import { SessionsScreen, type Summary } from './src/sessions.tsx'
@@ -22,6 +23,7 @@ import { ActionSheetHost, HeaderMenu, IconButton } from './src/ui.tsx'
 import { SelectTextHost } from './src/copy.tsx'
 import { TrajectoryPage } from './src/trajectory.tsx'
 import { DetailsPage } from './src/details.tsx'
+import { sidebarWidth, wideLayout } from './src/layout.ts'
 import { ActivityButton, createActivity } from './src/activity.tsx'
 import { ConnectionDot, ReachSheet } from './src/status.tsx'
 import { FilesPage } from './src/files.tsx'
@@ -38,18 +40,6 @@ type Route = { name: 'sessions' } | { name: 'project'; id: string; title: string
   | { name: 'files'; session: Summary; path: string; file?: FileEntry } // a folder ('' the workspace root) or, with `file`, one file
   | { name: 'terminals'; session: Summary } | { name: 'terminal'; session: Summary; target: TerminalTarget; title?: string }
 const HEADER = 'bg-background text-foreground tint-foreground'
-
-/** An emoji pairing waits on the computer: the four emoji the phone shows, to compare with the computer's, confirmed there. */
-function PairEmoji() {
-  return (
-    <If when={pairEmoji().length > 0}>
-      <View testID="pair-emoji" class="items-center gap-2 py-2">
-        <Text class="text-[34px] leading-[44px] tracking-[6px]">{pairEmoji().join(' ')}</Text>
-        <Text class="text-muted-foreground text-[13px] leading-[18px] text-center">{S.pairEmoji}</Text>
-      </View>
-    </If>
-  )
-}
 
 /** A pairing link opened while the phone is linked: linking, then why the computer refused it, over every page.
  * The phone stays linked as it was; a tap or six seconds take the notice away. */
@@ -72,10 +62,6 @@ function LinkNotice() {
  * A pasted code links with Return or the Link button; the page stays above the keyboard so the button and why a code was
  * refused show while typing (seen on the iOS simulator, 2026-11-02: the keyboard covered both). */
 function Connect() {
-  const pasting = signal(false)
-  const code = signal('')
-  const focused = signal(false)
-  const link = () => { const t = code().trim(); if (t && !linking()) { Keyboard.dismiss(); pairWith(t) } }
   return (
     <View class="flex-1 bg-background px-6 pt-[env(safe-area-inset-top)] pb-[env(keyboard-inset-height)] justify-center gap-3">
       <Text class="text-foreground text-[17px] font-semibold tracking-[-0.2px]">{S.linkTitle}</Text>
@@ -84,19 +70,7 @@ function Connect() {
         <Text class="text-primary-foreground text-[15px] font-medium">{linking() ? S.linking : S.scan}</Text>
       </View>
       <PairEmoji />
-      <If when={pasting()} else={
-        <View role="button" testID="paste" onPress={() => pasting.set(true)} class="py-3 items-center active:opacity-60"><Text class="text-muted-foreground text-[15px]">{S.paste}</Text></View>
-      }>
-        <View class="gap-3">
-        <Input testID="code" placeholder="dshm1:…" value={code()} onChange={(e) => code.set(e.value)} autoCapitalize="none" autoCorrect={false} submitBehavior="submit"
-          onSubmit={link} onFocus={() => focused.set(true)} onBlur={() => focused.set(false)}
-          class={`rounded-[10px] border ${focused() ? 'border-ring' : 'border-input'} bg-card px-3 py-3 text-foreground caret-foreground placeholder:text-muted-foreground font-mono text-[13px]`} />
-        <View role="button" testID="link-code" accessibilityLabel={S.linkCode} onPress={link}
-          class={`rounded-[10px] border border-border py-3 items-center ${code().trim() && !linking() ? 'active:bg-secondary' : 'opacity-50'}`}>
-          <Text class="text-foreground text-[15px] font-medium">{linking() ? S.linking : S.linkCode}</Text>
-        </View>
-        </View>
-      </If>
+      <PastePairingCode pair={pairWith} />
       <If when={linkError()}><Text testID="link-error" class="text-destructive text-[15px] leading-[21px]">{linkError()}</Text></If>
       <View role="button" testID="try-it" onPress={() => { if (!linking()) tryIt() }} class="rounded-[10px] border border-border py-3 items-center mt-3 active:bg-secondary">
         <Text class="text-foreground text-[15px] font-medium">{S.tryIt.entry}</Text>
@@ -130,6 +104,16 @@ function App() {
   })
   boot()
   const nav = createNavStack<Route>([{ name: 'sessions' }])
+  // One stable list/navigation tree serves phone and sidebar, preserving open forms on resize.
+  const sidebar = createNavStack<Route>([{ name: 'sessions' }])
+  const openSession = (session: Summary) => {
+    if (wideLayout()) {
+      const current = nav.routes().at(-1)
+      if (current?.name === 'chat' && !current.child && current.session.sessionId === session.sessionId) return
+      nav.popToRoot()
+    }
+    nav.push({ name: 'chat', session })
+  }
   // The computer's DSH Desktop settings, read once per link and shared by every Computer settings page; read again after
   // a reconnect, because DSH restarts its settings revisions when it restarts.
   const computer = createComputerStore(() => dsh(), { info: () => dsh().computer() })
@@ -149,7 +133,7 @@ function App() {
   effect(() => { if (progressAvailable() === false) tab.set('chats') })
   const openJob = (j: { sessionId: string; chatTitle: string; messageId?: string; index: number }) =>
     nav.push({ name: 'chat', session: { sessionId: j.sessionId, title: titleOf(j.sessionId, j.chatTitle), updatedAt: 0, running: false }, ...(j.index > 1 && j.messageId ? { at: j.messageId } : {}) })
-  const page = (route: Route) => route.name === 'terminals'
+  const page = (route: Route, inSidebar = false) => route.name === 'terminals'
     ? <NavPage title={S.terminals} headerClass={HEADER} class="bg-background">
         <TerminalsPage sessionId={route.session.sessionId} onOpen={(target, title) => nav.push({ name: 'terminal', session: route.session, target, title })} />
       </NavPage>
@@ -175,21 +159,28 @@ function App() {
     : route.name === 'project'
     ? <NavPage title={route.title} headerClass={HEADER} class="bg-background"><ProjectPage projectId={route.id} onOpen={openJob} /></NavPage>
     : route.name === 'sessions'
-    ? <NavPage title={S.chats} headerClass={HEADER} class="bg-background"
-        headerTitle={progressAvailable() ? <HomeTabs tab={tab} onTab={(t) => tab.set(t)} /> : undefined}
-        headerRight={<View class="flex-row items-center">
-          <IconButton name="compose" label={S.newChat} testID="new-chat" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'new_chat' }); tab.set('chats'); newChat.set(true) }} />
-          <IconButton name="more" label={S.more} testID="more" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'menu' }); if (Date.now() - menuClosed > 300) menu.set(true) }} />
-        </View>}>
+    ? <NavPage title={!wideLayout() || inSidebar ? S.chats : ''} headerClass={HEADER} class="bg-background"
+        headerTitle={inSidebar ? (progressAvailable() ? <HomeTabs tab={tab} onTab={(t) => tab.set(t)} /> : <Text class="text-foreground text-[19px] font-medium">{S.chats}</Text>) : undefined}
+        headerRight={<If when={inSidebar}><View class="flex-row items-center">
+          <IconButton name="compose" label={S.newChat} testID="new-chat" class="w-[44px] h-[44px]" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'new_chat' }); tab.set('chats'); newChat.set(true) }} />
+          <IconButton name="more" label={S.more} testID="more" class="w-[44px] h-[44px]" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'menu' }); if (Date.now() - menuClosed > 300) menu.set(true) }} />
+        </View></If>}>
+        <If when={inSidebar} else={
+          <View class="flex-1 items-center justify-center gap-3 px-6">
+            <Text class="text-foreground text-[19px] font-medium">{S.chats}</Text>
+            <View role="button" testID="wide-new-chat" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'new_chat' }); tab.set('chats'); newChat.set(true) }} class="min-h-[48px] px-5 rounded-full bg-secondary items-center justify-center active:opacity-70"><Text class="text-foreground text-[15px] font-medium">{S.newChat}</Text></View>
+          </View>
+        }>
         <View class="flex-1">
           <If when={trying()}><TryBanner /></If>
           <View class="flex-1" style={{ display: tab() === 'chats' ? 'flex' : 'none' }}>
-            <SessionsScreen onOpen={(session) => nav.push({ name: 'chat', session })} newChat={newChat} onNewChatClosed={() => newChat.set(false)} />
+            <SessionsScreen onOpen={openSession} selected={visible} newChat={newChat} onNewChatClosed={() => newChat.set(false)} />
           </View>
           <If when={tab() === 'progress'}><ProgressScreen onProject={(p) => nav.push({ name: 'project', id: p.id, title: p.title })} onOpen={openJob} /></If>
           <HeaderMenu open={menu} onClose={() => { menuClosed = Date.now(); menu.set(false) }} actions={[{ id: 'schedules', label: S.schedules, icon: 'clock' }, { id: 'settings', label: S.settings, icon: 'sliders' }]}
             onChoose={(id) => { if (id === 'schedules') nav.push({ name: 'schedules' }); else if (id === 'settings') { diagnostics.record('interaction', 'ui.action', { action: 'settings' }); nav.push({ name: 'settings' }) } }} />
         </View>
+        </If>
       </NavPage>
     : route.name === 'trajectory' ? <NavPage title={S.trajectory} headerClass={HEADER} class="bg-background"><TrajectoryPage sessionId={route.session.sessionId} /></NavPage>
     : route.name === 'details' ? <NavPage title={S.details} headerClass={HEADER} class="bg-background"><DetailsPage sessionId={route.session.sessionId} /></NavPage>
@@ -203,7 +194,7 @@ function App() {
           <IconButton name="more" label={S.more} testID="chat-more" onPress={() => { if (Date.now() - menuClosed > 300) chatMenu.set(true) }} />
         </View>}>
         <View class="flex-1">
-          <ChatScreen sessionId={route.session.sessionId} child={route.child} {...(route.at ? { at: route.at } : {})} activity={activity} where={route.session.project && route.session.cwd ? { title: route.session.project, path: route.session.cwd } : undefined} onTitle={(t) => { if (!route.child) setTitles({ [route.session.sessionId]: t }) }}
+          <ChatScreen sessionId={route.session.sessionId} isCurrent={() => nav.routes().at(-1) === route} child={route.child} {...(route.at ? { at: route.at } : {})} activity={activity} where={route.session.project && route.session.cwd ? { title: route.session.project, path: route.session.cwd } : undefined} onTitle={(t) => { if (!route.child) setTitles({ [route.session.sessionId]: t }) }}
             onOpenChild={(c) => nav.push({ name: 'chat', session: { ...route.session, sessionId: c.id, title: c.name, running: c.running }, child: { parentSessionId: route.session.sessionId, subagent: c } })} />
           <If when={notice()}><Text testID="chat-notice" class="absolute top-2 left-4 right-4 rounded-[10px] bg-popover border border-border px-3 py-2 text-foreground text-[13px] shadow-md">{notice()}</Text></If>
           <HeaderMenu open={chatMenu} onClose={() => { menuClosed = Date.now(); chatMenu.set(false) }}
@@ -243,7 +234,15 @@ function App() {
         <Each of={settings() ? [settings()!.key] : []}>{() => (
           <>
             <ProgressFeed />
-            <NavStack state={nav} class="flex-1">{(route) => page(route)}</NavStack>
+            <View class="flex-1 flex-row bg-background">
+              <View testID={wideLayout() ? 'wide-sidebar' : undefined} class={wideLayout() ? 'border-r border-border' : 'flex-1'}
+                style={{ width: wideLayout() ? sidebarWidth() : undefined, display: wideLayout() || nav.routes().length === 1 ? 'flex' : 'none' }}>
+                <NavStack state={sidebar} class="flex-1">{(route) => page(route, true)}</NavStack>
+              </View>
+              <View class="flex-1" style={{ display: wideLayout() || nav.routes().length > 1 ? 'flex' : 'none' }}>
+                <NavStack state={nav} class="flex-1">{(route) => page(route)}</NavStack>
+              </View>
+            </View>
             {/* On the sample nothing is news: the notice stays in sight, and no notification is asked for. */}
             <If when={!trying()}>
             <Attention visible={visible} open={openChat} asks={asks} news={news}

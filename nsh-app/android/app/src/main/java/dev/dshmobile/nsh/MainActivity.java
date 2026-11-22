@@ -94,7 +94,7 @@ public final class MainActivity extends Activity {
             c.setSystemBarsAppearance(dark ? 0 : light, light);
         } else {
             int flags = decor.getSystemUiVisibility();
-            int light = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            int light = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             decor.setSystemUiVisibility(dark ? flags & ~light : flags | light);
         }
     }
@@ -144,8 +144,9 @@ public final class MainActivity extends Activity {
         if (request == Files.REQUEST && files != null) files.picked(result, data);
     }
 
-    /** Android 12 and older: the app gets the back button first. */
+    /** Legacy fallback only: NshView owns API 33+ OnBackInvoked/OnBackAnimation callbacks and the unhandled back key. */
     @Override
+    @android.annotation.SuppressLint("GestureBackNavigation")
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
         if (app == null || !app.handleBack()) super.onBackPressed();

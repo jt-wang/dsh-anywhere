@@ -42,7 +42,7 @@ final class Link {
     private NshView view;
     // One tunnel per process: an activity recreated in the same process (back, then reopen) must reuse it, since a
     // second Tailcat node with the same key leaves the new bridge's connections reset.
-    private static long tunnel = -1;
+    private static volatile long tunnel = -1;
     private static Bridge bridge;
     private static final long PAIR_OP = 1; // connectmobile's cancellable-operation number; one pairing at a time
     // Where the tunnel's route goes as it changes (Dshtailcat.watchPath): the app's one source of "direct" or "relay".
@@ -146,9 +146,8 @@ final class Link {
 
     private Map<String, Object> pair(String text) throws Exception {
         Invite.Bootstrap boot = Invite.bootstrap(text.trim(), System.currentTimeMillis());
-        JSONObject link = vault.read() == null ? new JSONObject() : new JSONObject(vault.read());
-        if (!link.has("clientKey")) { link.put("clientKey", Connectmobile.newKey()); vault.write(link.toString()); }
-        String clientKey = link.getString("clientKey");
+        // A device revocation removes its transport key, so the replacement needs its own key.
+        String clientKey = Connectmobile.newKey();
         // 1. The pairing node: trade the QR's proof and this phone's public key for the computer's Link; its payload is
         // the invitation. The reply's address is the normal node's, so it replaces the payload's.
         // Bootstrap v2 (an emoji pairing): both screens show four emoji and the computer's user confirms there; the Link
@@ -173,12 +172,20 @@ final class Link {
         if (payload.has("tailcat")) payload.getJSONObject("tailcat").put("address", paired.getString("address"));
         Invite.Invitation inv = Invite.invitation(payload.toString());
         // 2. The computer itself, over pinned TLS: the one-time pairing token becomes this phone's device token.
-        int port = connect(inv, clientKey, pairedText, this::saveSynced);
-        JSONObject device = new JSONObject(http("POST", "http://127.0.0.1:" + port + "/v1/pairings", null,
-            new JSONObject().put("pairingToken", inv.pairingToken).put("deviceName", Build.MODEL).toString()));
-        link.put("invitation", inv.json).put("token", device.getString("deviceToken"));
-        if (pairedText != null) link.put("tailpocket", pairedText);
-        vault.write(link.toString());
+        Transport candidate = openTransport(inv, clientKey, pairedText);
+        try {
+            JSONObject device = new JSONObject(http("POST", "http://127.0.0.1:" + candidate.bridge().port() + "/v1/pairings", null,
+                new JSONObject().put("pairingToken", inv.pairingToken).put("deviceName", Build.MODEL).toString()));
+            JSONObject link = new JSONObject().put("clientKey", clientKey).put("invitation", inv.json)
+                .put("token", device.getString("deviceToken"));
+            if (pairedText != null) link.put("tailpocket", pairedText);
+            vault.write(link.toString());
+        } catch (Exception e) {
+            candidate.bridge().close();
+            Connectmobile.stop(candidate.handle());
+            throw e;
+        }
+        activate(candidate, this::saveSynced);
         return state();
     }
 
@@ -207,9 +214,10 @@ final class Link {
     }
 
     /** Keeps the Link Sync returned, with the routes the computer added, for when Tailcat cannot be reached. */
-    private void saveSynced(String synced) {
+    private void saveSynced(long handle, String synced) {
         work.execute(() -> {
             try {
+                if (handle != tunnel) return;
                 String saved = vault.read();
                 if (saved == null) return;
                 JSONObject link = new JSONObject(saved);
@@ -221,10 +229,15 @@ final class Link {
         });
     }
 
-    private static synchronized int connect(Invite.Invitation inv, String clientKey, String saved, java.util.function.Consumer<String> onSynced) throws Exception {
+    private static synchronized int connect(Invite.Invitation inv, String clientKey, String saved, java.util.function.BiConsumer<Long, String> onSynced) throws Exception {
         if (bridge != null && bridge.serves(inv)) return bridge.port();
-        // Pairing with another computer: the old tunnel and bridge reach the old one.
         disconnect();
+        return activate(openTransport(inv, clientKey, saved), onSynced);
+    }
+
+    private record Transport(long handle, Bridge bridge) {}
+
+    private static Transport openTransport(Invite.Invitation inv, String clientKey, String saved) throws Exception {
         // connectmobile's Link: the invitation's node and this phone's key (all a phone paired before TailPocket has),
         // or the one the last Sync stored for that same node and key, which also names the computer's opaque relay.
         JSONObject linkJson = new JSONObject().put("address", inv.address).put("port", inv.port).put("name", "").put("key", clientKey);
@@ -233,21 +246,27 @@ final class Link {
             if (s != null && inv.address.equals(s.optString("address")) && clientKey.equals(s.optString("key"))) linkJson = s;
         } catch (Exception ignored) { /* the plain Link */ }
         JSONObject normal = started(Connectmobile.connect(linkJson.toString(), ""));
-        tunnel = normal.getLong("handle");
-        Dshtailcat.watchPath(tunnel, Link::pathChanged);
+        long handle = normal.getLong("handle");
         try {
             // The TLS answer waits for the forward's dial, so 5 s more than its bound (routes the computer adds later count).
-            long h = tunnel;
-            bridge = new Bridge(inv, normal.getInt("port"), normal.getString("token"), () -> (int) Dshtailcat.dialMs(h) + 5_000);
+            return new Transport(handle, new Bridge(inv, normal.getInt("port"), normal.getString("token"),
+                () -> (int) Dshtailcat.dialMs(handle) + 5_000));
         } catch (Exception e) {
-            disconnect();
+            Connectmobile.stop(handle);
             throw e;
         }
-        long handle = tunnel;
+    }
+
+    private static synchronized int activate(Transport transport, java.util.function.BiConsumer<Long, String> onSynced) {
+        disconnect();
+        long handle = transport.handle();
+        tunnel = handle;
+        bridge = transport.bridge();
+        Dshtailcat.watchPath(handle, Link::pathChanged);
         new Thread(() -> {
             // Over Tailcat only, best effort: registers this phone's end-to-end key and fetches the computer's routes.
             String synced = Connectmobile.sync(handle, 30_000);
-            try { if (!new JSONObject(synced).has("error")) onSynced.accept(synced); } catch (Exception ignored) { /* unsynced */ }
+            try { if (!new JSONObject(synced).has("error")) onSynced.accept(handle, synced); } catch (Exception ignored) { /* unsynced */ }
         }).start();
         return bridge.port();
     }

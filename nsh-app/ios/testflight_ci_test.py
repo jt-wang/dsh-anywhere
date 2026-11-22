@@ -40,7 +40,7 @@ import os, sys, json, plistlib, pathlib, zipfile, hashlib
 name=pathlib.Path(sys.argv[0]).name; args=sys.argv[1:]
 with open(os.environ['TEST_EVENTS'],'a') as f: f.write(json.dumps([name]+args)+'\\n')
 if name=='git':
- if args[2:]==['rev-parse','HEAD']: print('7b3031fb7c9b93b0dee65f48a227bcf15d2bda38')
+ if args[2:]==['rev-parse','HEAD']: print('33512ba2268774f5a8904e1532aabe37b2f2a65f')
  else: assert args[2:5]==['apply','--reverse','--check'] and pathlib.Path(args[-1]).is_file()
 elif name=='cargo':
  assert not any(os.environ.get(k) for k in ('APPLE_TEAM_ID','IOS_DISTRIBUTION_P12_BASE64','IOS_DISTRIBUTION_P12_PASSWORD','IOS_PROVISION_PROFILE_BASE64','ASC_KEY_ID','ASC_ISSUER_ID','ASC_PRIVATE_KEY_P8'))

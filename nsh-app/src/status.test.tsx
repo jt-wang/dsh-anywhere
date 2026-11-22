@@ -1,13 +1,14 @@
 // What the bar under each header says about reaching the computer (src/status.tsx).
 import { expect, open, test } from 'nsh/test'
 
-const start = () => open('./fixtures/connection.tsx', { clock: {} })
+const fixture = './fixtures/connection/App.tsx'
+const start = () => open(fixture, { clock: {} })
 const bar = (app: Awaited<ReturnType<typeof start>>) => app.texts().find((t) => t.startsWith('Can’t reach') || t.startsWith('Connecting') || t.startsWith('No network')) ?? null
 const late = async (app: Awaited<ReturnType<typeof start>>, step: string) => { await app.clock.runFor(100); await app.press(`id:${step}`); await app.clock.runFor(3_100) }
 
 for (const platform of ['ios', 'android'] as const) {
   test(`${platform}: the bar and connection panel distinguish route kinds; a Tailcat relay is never named by its code`, async () => {
-    const app = await open('./fixtures/connection.tsx', { platform, clock: {} })
+    const app = await open(fixture, { platform, clock: {} })
     await app.press('id:chats')
     for (const [step, label] of [
       ['derp-code', 'Through a Tailcat relay'],
@@ -113,6 +114,59 @@ test('a computer that refuses this phone: no more retries, and a way to link aga
   await app.waitFor('text:retried:0 scanned:1')
 })
 
+test('link again cannot be cancelled while the camera or replacement pairing is pending', async () => {
+  const app = await open(fixture, { platform: 'android', clock: {}, host: { handlers: {
+    'link.scan': () => { throw new Error('camera unavailable') },
+    'link.pair': async () => {
+      expect(app.shows('id:reach-back')).toBe(false)
+      await app.back()
+      await app.clock.runFor(400)
+      expect(app.shows('id:pair-own')).toBe(true)
+      throw new Error('pairing declined')
+    },
+  } } })
+  await app.press('id:slow-scan')
+  await late(app, 'refused')
+  await app.press('id:relink')
+  await app.waitFor('id:reach-back')
+  await app.press('id:reach-scan')
+  expect(app.shows('id:reach-back')).toBe(false)
+  await app.back()
+  await app.clock.runFor(400)
+  expect(app.shows('id:pair-own')).toBe(true)
+  await app.clock.runFor(2_000)
+  await app.waitFor('id:reach-link-error')
+  await app.press('id:paste')
+  await app.type('id:code', 'synthetic-code')
+  await app.press('id:link-code')
+  await app.waitFor('text:pairing declined')
+  await app.press('id:reach-back')
+  expect(app.shows('id:pair-own')).toBe(false)
+})
+
+test('link again allows pasting when the camera fails, without forgetting the old link', async () => {
+  const app = await open(fixture, { clock: {}, host: { handlers: {
+    'link.scan': () => { throw new Error('camera unavailable') },
+    'link.pair': { paired: true, origin: 'http://127.0.0.1:19446', token: 'synthetic-new-token' },
+    'link.forget': null,
+    'link.path': {},
+  } } })
+  await late(app, 'no-answer')
+  await app.press('id:connection')
+  await app.clock.runFor(400)
+  await app.press('id:reach-relink')
+  await app.waitFor('id:pair-own')
+  await app.press('id:reach-scan')
+  await app.waitFor('id:reach-link-error')
+  await app.press('id:paste')
+  await app.type('id:code', ' synthetic-code ')
+  await app.press('id:link-code')
+  await app.clock.runFor(400)
+  expect(app.shows('id:reach-sheet')).toBe(false)
+  expect(app.host.calls().filter((c) => c.name === 'link.pair').map((c) => c.data)).toEqual([{ text: 'synthetic-code' }])
+  expect(app.host.calls().some((c) => c.name === 'link.forget')).toBe(false)
+})
+
 test('the chats page always shows the state, how it goes included; a chat only a problem, with the dot in its header', async () => {
   const app = await start()
   await app.clock.runFor(100)
@@ -168,11 +222,10 @@ test('a computer not answering can also be linked again from the sheet', async (
   expect(app.texts()).toContain('retried:0 scanned:0')
 })
 
-// TailPocket's lastFailure (reach.ts): three hints, each with what to do. Only refused and handshake-closed also offer
-// pairing again, as a second button; nothing scans until it is pressed.
+// A silent revocation looks like no answer. Pairing again is opt-in and never offered for a relay failure.
 for (const [step, title, why, pairAgain] of [
   ['not-running', 'DSH Anywhere isn’t running on your computer, or the computer was reset', 'Open DSH on your computer. If it was reset, link again.', true],
-  ['no-answer', 'No answer from your computer', 'Wake the computer or try another network.', false],
+  ['no-answer', 'No answer from your computer', 'Wake the computer or try another network.', true],
   ['relay-down', 'Your relay server can’t be reached', 'Check the relay server, or try again later.', false],
 ] as const) {
   test(`TailPocket's ${step}: the bar and the sheet say it, with what to do`, async () => {
