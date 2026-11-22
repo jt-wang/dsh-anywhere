@@ -35,8 +35,13 @@ final class Bridge implements Closeable {
             && invitation.serverName.equals(other.serverName) && invitation.certificate.equals(other.certificate);
     }
 
-    Bridge(Invite.Invitation invitation, int tailcatPort, String forwardToken) throws Exception {
+    /** How long one connection may wait for the computer's TLS answer, read for each connection: more than the forward's
+     * dial bound (Dshtailcat.dialMs), so the bridge never gives up on a dial TailPocket is still trying. */
+    private final java.util.function.IntSupplier handshakeMs;
+
+    Bridge(Invite.Invitation invitation, int tailcatPort, String forwardToken, java.util.function.IntSupplier handshakeMs) throws Exception {
         this.invitation = invitation;
+        this.handshakeMs = handshakeMs;
         byte[] hello = ("TP-FWD " + forwardToken + "\n").getBytes(StandardCharsets.US_ASCII);
         SSLContext tls = SSLContext.getInstance("TLS");
         tls.init(null, new TrustManager[] { invitation.trust() }, null);
@@ -60,7 +65,7 @@ final class Bridge implements Closeable {
         Socket raw = new Socket();
         try {
             raw.connect(new InetSocketAddress("127.0.0.1", tailcatPort), 20_000);
-            raw.setSoTimeout(15_000); // a dead tunnel must not hold the handshake forever
+            raw.setSoTimeout(handshakeMs.getAsInt()); // a dead tunnel must not hold the handshake forever
             raw.getOutputStream().write(hello); // the forward's line first, then TLS over the same connection
             raw.getOutputStream().flush();
             SSLSocket remote = (SSLSocket) factory.createSocket(raw, serverName, tailcatPort, true);

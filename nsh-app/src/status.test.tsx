@@ -92,7 +92,7 @@ for (const [step, title, why] of [
     await app.clock.runFor(100)
     expect(app.texts().some((t) => /^Retrying in \d+ s$/.test(t))).toBe(true)
     await app.press('id:reconnect')
-    await app.waitFor('text:retried:1 relinked:0')
+    await app.waitFor('text:retried:1 scanned:0')
     await app.press('id:connection')
     await app.clock.runFor(400)
     expect(app.texts().some((t) => t.includes(why))).toBe(true)
@@ -106,7 +106,11 @@ test('a computer that refuses this phone: no more retries, and a way to link aga
   expect(app.texts()).toContain('Not retrying')
   expect(app.texts()).not.toContain('Try again')
   await app.press('id:relink')
-  await app.waitFor('text:retried:0 relinked:1')
+  await app.waitFor('id:pair-own')
+  expect(app.texts()).toContain('Only scan the code on your own computer’s screen. This phone stays linked as it is until the new link works.')
+  expect(app.texts()).toContain('retried:0 scanned:0')
+  await app.press('id:reach-scan')
+  await app.waitFor('text:retried:0 scanned:1')
 })
 
 test('the chats page always shows the state, how it goes included; a chat only a problem, with the dot in its header', async () => {
@@ -156,5 +160,37 @@ test('a computer not answering can also be linked again from the sheet', async (
   await app.press('id:connection')
   await app.clock.runFor(400)
   await app.press('id:reach-relink')
-  await app.waitFor('text:retried:0 relinked:1')
+  await app.waitFor('id:pair-own')
+  await app.press('id:reach-back')
+  await app.clock.runFor(400)
+  expect(app.shows('id:pair-own')).toBe(false)
+  expect(app.texts()).toContain('Pairing')
+  expect(app.texts()).toContain('retried:0 scanned:0')
 })
+
+// TailPocket's lastFailure (reach.ts): three hints, each with what to do. Only refused and handshake-closed also offer
+// pairing again, as a second button; nothing scans until it is pressed.
+for (const [step, title, why, pairAgain] of [
+  ['not-running', 'DSH Anywhere isn’t running on your computer, or the computer was reset', 'Open DSH on your computer. If it was reset, link again.', true],
+  ['no-answer', 'No answer from your computer', 'Wake the computer or try another network.', false],
+  ['relay-down', 'Your relay server can’t be reached', 'Check the relay server, or try again later.', false],
+] as const) {
+  test(`TailPocket's ${step}: the bar and the sheet say it, with what to do`, async () => {
+    const app = await start()
+    await late(app, step)
+    await app.waitFor(`text:${title}`)
+    expect(app.texts()).not.toContain('Can’t reach your computer')
+    await app.press('id:connection')
+    await app.clock.runFor(400)
+    expect(app.texts().some((t) => t.includes(why))).toBe(true)
+    expect(app.shows('id:reach-retry')).toBe(true)
+    expect(app.shows('id:reach-relink')).toBe(pairAgain)
+    // Each row follows the cause: only the part that did not answer is "Not working", and nothing past it is known.
+    // With the relay down, the computer was never asked.
+    const texts = app.texts()
+    const row = (name: string) => texts[texts.indexOf(name) + 1]
+    expect([row('Relay'), row('Your computer'), row('Pairing')])
+      .toEqual(step === 'relay-down' ? ['Not working', 'Not known', 'Not known'] : ['OK', 'Not working', 'Not known'])
+    expect(app.texts()).toContain('retried:0 scanned:0')
+  })
+}

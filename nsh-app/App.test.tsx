@@ -197,26 +197,50 @@ test('a network that blocks the relay is said on the chats page', async () => {
   await app.waitFor('text:This network can’t reach the relay', { timeout: 12_000 })
 })
 
-test('a computer that refuses this phone is said, without retrying, and the phone can link again', async () => {
-  let diagnosed = 0
-  const app = await unreachable({ 'link.diagnose': () => { diagnosed++; return { relay: 'reachable', computer: 'reachable' } }, 'link.forget': null },
+test('a computer that refuses this phone is said, without retrying; linking again keeps the link until the new one works', async () => {
+  let diagnosed = 0, pairs = 0
+  const app = await unreachable({ 'link.diagnose': () => { diagnosed++; return { relay: 'reachable', computer: 'reachable' } }, 'link.forget': null,
+    'link.scan': 'dshm1:synthetic', 'link.pair': () => { if (++pairs === 1) throw new Error('link/expired'); return { ...paired, token: 'synthetic-new-token' } } },
     { 'GET http://127.0.0.1:40001/v1/capabilities': { status: 401, body: '' } })
   await app.waitFor('text:This phone is no longer linked', { timeout: 12_000 })
   expect(app.texts()).toContain('Not retrying')
   expect(diagnosed > 0).toBe(true)
   await app.press('id:relink')
-  await app.waitFor('text:Link your computer')
+  await app.waitFor('text:Only scan the code on your own computer’s screen. This phone stays linked as it is until the new link works.')
+  expect(app.host.calls().some((c) => c.name === 'link.scan' || c.name === 'link.pair')).toBe(false)
+  // A code the computer refuses: still linked as before, nothing forgotten.
+  await app.press('id:reach-scan')
+  await app.waitFor('text:This pairing code has expired. Make a new one on the computer.')
+  expect(app.texts()).toContain('Newest chat')
+  expect(app.texts()).not.toContain('Link your computer')
+  await app.press('id:relink')
+  await app.press('id:reach-scan')
+  await app.waitUntil(() => pairs === 2)
+  expect(app.host.calls().some((c) => c.name === 'link.forget')).toBe(false)
 })
 
-test('relinking does not wait for a computer that does not answer: the link screen is up while the computer is still being told', async () => {
-  let upWhileTelling = false
-  const app: any = await unreachable({ 'link.diagnose': { relay: 'reachable', computer: 'reachable' },
-    'link.forget': () => new Promise((answer) => setTimeout(() => { upWhileTelling = app.texts().includes('Link your computer'); answer(null) }, 1_000)) },
-    { 'GET http://127.0.0.1:40001/v1/capabilities': { status: 401, body: '' } })
-  await app.waitFor('text:This phone is no longer linked', { timeout: 12_000 })
-  await app.press('id:relink')
-  await app.waitFor('text:Link your computer')
-  expect(upWhileTelling).toBe(true)
+// TailPocket's lastFailure is not authenticated (SECURITY.md §6b): it only picks the words, and never unpairs, forgets or
+// starts a pairing. A computer that does not take the phone still offers pairing again, as a button.
+for (const [reason, title] of [
+  ['handshake-closed', 'DSH Anywhere isn’t running on your computer, or the computer was reset'],
+  ['refused', 'DSH Anywhere isn’t running on your computer, or the computer was reset'],
+  ['no-answer', 'No answer from your computer'],
+  ['relay-down', 'Your relay server can’t be reached'],
+] as const) {
+  test(`TailPocket's lastFailure ${reason} is said on the chats page, and the phone stays linked`, async () => {
+    const app = await unreachable({ 'link.diagnose': { relay: 'reachable', computer: 'unreachable' }, 'link.lastFailure': { reason, code: 'unreachable', route: 'relay', at: 1, dialMs: 30_000 }, 'link.forget': null })
+    await app.waitFor(`text:${title}`, { timeout: 12_000 })
+    expect(app.texts()).toContain(title)
+    expect(app.host.calls().some((c) => ['link.forget', 'link.pair', 'link.scan', 'link.reset'].includes(c.name))).toBe(false)
+    expect(app.texts()).not.toContain('Link your computer')
+  })
+}
+
+test('a shell without link.lastFailure still says what DSH saw of each part', async () => {
+  const app = await unreachable({ 'link.diagnose': { relay: 'reachable', computer: 'unreachable' } })
+  await app.waitFor('text:Your computer isn’t answering', { timeout: 12_000 })
+  // The bar came up while still connecting (a live dot); its dot now says the computer, as the sheet's does.
+  expect(app.shows('id:dot')).toBe(true)
 })
 
 // Linking again while the chats page is up (a pairing link opened from outside) replaces the connection under it. Seen on

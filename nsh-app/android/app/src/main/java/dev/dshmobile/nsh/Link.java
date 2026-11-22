@@ -3,6 +3,7 @@
 //   link.scan    → the text of a scanned QR (Google's code scanner: no camera permission for this app)
 //   link.pair    { text } → as link.state; the one-time QR (or a dshm1: link) to a paired device
 //   link.forget  → unpairs this phone on the computer (best effort) and forgets the link
+//   link.lastFailure → { reason, code, route, at, dialMs }: why the last attempt failed (TailPocket's lastFailure), a hint only
 //   link.tailcatOnly { on? } → { on }: reach the computer over Tailcat only (no relay, no local network), kept on the phone
 //   event link.emoji { emoji } → an emoji pairing (bootstrap v2) waits for the computer's user to compare and confirm
 // Pairing follows docs/TAILCAT.md: the QR opens a short-lived pairing node; TailPocket's connectmobile pairs this phone's
@@ -92,6 +93,18 @@ final class Link {
             } catch (Exception e) { out.put("error", "unreadable"); }
             reply.resolve(out);
         }).start());
+        // Why the last connection attempt failed (TailPocket's lastFailure, as Dshtailcat.failure words it) and the forward's
+        // dial bound, or {error}. Unauthenticated: only for what the app says, never to unpair or forget the link.
+        view.handle("link.lastFailure", (data, reply) -> {
+            Map<String, Object> out = new HashMap<>();
+            long handle = tunnel;
+            if (handle < 0) { out.put("error", "no-tunnel"); reply.resolve(out); return; }
+            try {
+                JSONObject o = new JSONObject(Dshtailcat.failure(handle));
+                for (java.util.Iterator<String> keys = o.keys(); keys.hasNext();) { String k = keys.next(); out.put(k, o.get(k)); }
+            } catch (Exception e) { out.put("error", "unreadable"); }
+            reply.resolve(out);
+        });
         // How the tunnel reaches the computer now: the path watch's last answer (connectmobile's Path), or {route: "unknown"}.
         // The app reads it once and then hears each change as a link.path event.
         view.handle("link.path", (data, reply) -> reply.resolve(pathOf(Dshtailcat.lastPath())));
@@ -127,6 +140,7 @@ final class Link {
         for (byte b : MessageDigest.getInstance("SHA-256").digest(link.getString("token").getBytes(StandardCharsets.UTF_8)))
             cacheId.append(String.format(java.util.Locale.ROOT, "%02x", b & 0xff));
         out.put("cacheId", cacheId.toString());
+        out.put("dialMs", Dshtailcat.dialMs(tunnel));
         return out;
     }
 
@@ -222,7 +236,9 @@ final class Link {
         tunnel = normal.getLong("handle");
         Dshtailcat.watchPath(tunnel, Link::pathChanged);
         try {
-            bridge = new Bridge(inv, normal.getInt("port"), normal.getString("token"));
+            // The TLS answer waits for the forward's dial, so 5 s more than its bound (routes the computer adds later count).
+            long h = tunnel;
+            bridge = new Bridge(inv, normal.getInt("port"), normal.getString("token"), () -> (int) Dshtailcat.dialMs(h) + 5_000);
         } catch (Exception e) {
             disconnect();
             throw e;

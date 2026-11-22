@@ -1,5 +1,5 @@
 import { expect, test } from 'nsh/test'
-import { connection, heard, interfaceRequest, network, news, reachState, routeWords, started, turnErrors } from './state.ts'
+import { connection, heard, interfaceRequest, network, news, reachState, routeWords, started, turnErrors, waitMs } from './state.ts'
 
 test('TailPocket route kinds distinguish DERP and private relays without inventing a city or showing empty parentheses', () => {
   expect(routeWords({ kind: 'derp' })).toBe('Through a Tailcat relay')
@@ -50,4 +50,11 @@ test('DSH’s news on $events: a chat starting or stopping, a turn’s error; ot
   expect(started.get('s1')).toBe('running') // the notifier's next look takes it
   heard({ type: 'emit', event: 'api-session/status', args: ['s1', false] })
   expect(started.get('s1')).toBe('finished')
+})
+
+// TailPocket gives up on a dial after max(20 s, routes × 10 s) (link.state dialMs): the app must not give up first.
+test('a socket or a call waits longer than TailPocket\'s dial, however many routes the link has', () => {
+  for (const dial of [20_000, 30_000, 60_000]) expect(waitMs(dial)).toBeGreaterThan(dial)
+  expect(waitMs(undefined)).toBeGreaterThan(20_000)
+  expect(waitMs(5_000)).toBeGreaterThan(20_000)
 })

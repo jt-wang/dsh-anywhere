@@ -6,6 +6,15 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const { load } = createRequire(new URL('../host/package.json', import.meta.url))('js-yaml');
+// @deepseek-ai/dsh-app-boot 0.2.2-rc.5, lib/index.js PROFILE_PATCH_TEMPLATE.
+const freshProfile = `# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; \`!!js\` expressions allowed).
+[]
+`;
 
 const installer = path.join(path.dirname(fileURLToPath(import.meta.url)), 'install-host.mjs');
 
@@ -21,7 +30,24 @@ function sandbox(t) {
   const base = process.platform === 'darwin' ? path.join(home, 'Library', 'Application Support', 'DSHAnywhere') : path.join(home, '.local', 'share', 'DSHAnywhere');
   const declared = () => JSON.parse(readFileSync(path.join(base, 'host', 'host.json'), 'utf8')).dshVersion;
   const profile = () => readFileSync(path.join(dshHome, 'profiles', 'desktop', 'cordis.patch.yml'), 'utf8');
-  return { run, declared, profile, base, manifest: path.join(dshHome, 'profiles', 'desktop', 'package.json') };
+  return { run, declared, profile, base, patch: path.join(dshHome, 'profiles', 'desktop', 'cordis.patch.yml'), manifest: path.join(dshHome, 'profiles', 'desktop', 'package.json') };
+}
+
+for (const [name, original] of Object.entries({ fresh: freshProfile, empty: '', comments: '# only comments\n', null: '# empty\nnull # keep this\n', document: '---\n# empty\n...\n', populated: '# existing\n- id: synthetic\n  config: {enabled: true}\n', flow: '# empty list\n[\n] # keep this\n' })) {
+  test(`activation preserves ${name} profile comments and is idempotent`, t => {
+    const { run, profile, patch } = sandbox(t);
+    writeFileSync(patch, original);
+    const first = run('--dsh-version', '0.2.2-rc.5', '--activate');
+    assert.equal(first.status, 0, first.stderr);
+    const after = profile();
+    for (const comment of original.match(/#.*$/gm) ?? []) assert.ok(after.includes(comment));
+    const entries = load(after);
+    assert.equal(entries.filter(row => row.insert?.some(entry => entry.id === 'dsh-mobile-companion')).length, 1);
+    if (name === 'populated') assert.deepEqual(entries[0], load(original)[0]);
+    const second = run('--dsh-version', '0.2.2-rc.5', '--activate');
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(profile(), after);
+  });
 }
 
 test('an explicit --dsh-version re-declares an existing installation after a DSH update', t => {

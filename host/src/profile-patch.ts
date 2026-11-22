@@ -30,14 +30,26 @@ export function decodeProfileTransport(input: string): string {
   if (bytes.length > 1048576 || bytes.toString('base64') !== encoded) throw new Error('Invalid profile transport');
   return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); // Preserve source BOM.
 }
+export function prepareProfileAppend(text: string): string {
+  validateProfilePatch(text, { rejectCompanion: true });
+  const value = load(text, { schema: patchSchema });
+  if (value != null && (!Array.isArray(value) || value.length)) return text;
+  // Empty documents have no entries to retain, but their comments remain useful.
+  return text.replace(/[^\r\n]+/g, line => {
+    const comment = line.indexOf('#');
+    const syntax = comment < 0 ? line : line.slice(0, comment);
+    return syntax.replace(/[^\s\uFEFF]+/g, '') + (comment < 0 ? '' : line.slice(comment));
+  });
+}
 if (isEntryPoint(import.meta.url)) {
   try {
-    const args = process.argv.slice(2), base64 = args.includes('--base64'), rejectCompanion = args.includes('--reject-companion');
-    if (new Set(args).size !== args.length || args.some(arg => !['--base64', '--reject-companion'].includes(arg))) throw new Error();
+    const args = process.argv.slice(2), base64 = args.includes('--base64'), rejectCompanion = args.includes('--reject-companion'), prepareAppend = args.includes('--prepare-append');
+    if (new Set(args).size !== args.length || args.some(arg => !['--base64', '--reject-companion', '--prepare-append'].includes(arg))) throw new Error();
     let text = ''; const limit = base64 ? 1398108 : 1048576;
     for await (const part of process.stdin) { text += part.toString(); if (Buffer.byteLength(text) > limit) throw new Error(); }
     if (base64) text = decodeProfileTransport(text);
-    validateProfilePatch(text, { rejectCompanion }); console.log('Additive profile YAML verified (contents not logged).');
+    if (prepareAppend) process.stdout.write(prepareProfileAppend(text));
+    else { validateProfilePatch(text, { rejectCompanion }); console.log('Additive profile YAML verified (contents not logged).'); }
   } catch (error) {
     const duplicate = error instanceof Error && error.message === 'Unmarked companion insertion found';
     console.error(duplicate ? 'Unmarked companion insertion found; review/migrate it manually.' : 'Invalid bounded YAML patch sequence (details redacted).');

@@ -14,7 +14,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 module="$root/tailcat"
 go_version="1.27.4"
 tailcat_pin="github.com/tailscale/tailcat v0.6.0"
-tailpocket_pin="github.com/jt-wang/tailpocket v0.3.1" # public tag commit 086e368148aac78dc7ad21eb18b3a98d69a0590a
+tailpocket_pin="github.com/jt-wang/tailpocket v0.3.6" # public tag commit e197f3edca01ba4d1c70a6a752a5cad9a383cb0c
 
 fail() { echo "build-tailcat: $*" >&2; exit 1; }
 
@@ -72,19 +72,41 @@ build_aar() {
   [[ -n "$sdk" && -d "$sdk" ]] || fail "ANDROID_HOME (or ANDROID_SDK_ROOT) must point to an Android SDK with platform 36"
   [[ -n "${ANDROID_NDK_HOME:-}" && -d "$ANDROID_NDK_HOME" ]] || fail "ANDROID_NDK_HOME must point to an installed Android NDK"
   command -v javac >/dev/null 2>&1 || fail "javac (JDK 17+) is required by gomobile bind"
-  local bin="$root/build/tailcat-gobin"
+  local bin="$root/build/tailcat-gobin" aar="$root/nsh-app/android/app/libs/dshtailcat.aar"
+  local ndk_prebuilt=("$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*)
+  local objdump="${ndk_prebuilt[0]}/bin/llvm-objdump"
+  command -v "$objdump" >/dev/null 2>&1 || fail "llvm-objdump is missing from the Android NDK"
   mkdir -p "$bin" "$root/nsh-app/android/app/libs"
   # gomobile and gobind must match the golang.org/x/mobile version pinned in tailcat/go.mod.
   GOBIN="$bin" GOFLAGS= go install "golang.org/x/mobile/cmd/gomobile@${mobile_version}" "golang.org/x/mobile/cmd/gobind@${mobile_version}"
   bind_copy
+  # NDK r27 does not default to 16 KB ELF segments. APK zip alignment cannot fix unaligned ELF segments.
   (cd "$bind_folder/tailcat" && PATH="$bin:$PATH" ANDROID_HOME="$sdk" "$bin/gomobile" bind \
     -target=android/arm64,android/arm,android/amd64 -androidapi 26 \
-    -javapkg dev.dshmobile.tailcat -trimpath -ldflags='-s -w' -tags ts_omit_ssh \
-    -o "$root/nsh-app/android/app/libs/dshtailcat.aar" ./mobile github.com/jt-wang/tailpocket/connectmobile) || { rm -rf "$bind_folder"; fail "gomobile bind failed"; }
+    -javapkg dev.dshmobile.tailcat -trimpath -tags ts_omit_ssh \
+    -ldflags='-s -w -extldflags "-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"' \
+    -o "$aar" ./mobile github.com/jt-wang/tailpocket/connectmobile) || { rm -rf "$bind_folder"; fail "gomobile bind failed"; }
   rm -rf "$bind_folder"
   local unpacked; unpacked="$(mktemp -d)" # the AAR is a zip: its libraries are unpacked to be read
-  unzip -q "$root/nsh-app/android/app/libs/dshtailcat.aar" 'jni/*' -d "$unpacked"
-  refuse_machine_paths "$unpacked" "$root/nsh-app/android/app/libs/dshtailcat.aar"
+  if ! unzip -q "$aar" 'jni/*' -d "$unpacked"; then
+    rm -rf "$unpacked"; rm -f "$aar"
+    fail "could not extract native libraries from the AAR"
+  fi
+  local abi library
+  for abi in arm64-v8a armeabi-v7a x86_64; do
+    library="$unpacked/jni/$abi/libgojni.so"
+    if ! "$objdump" -p "$library" | awk '
+      $1 == "LOAD" {
+        loads++
+        if ($NF !~ /^2\*\*[0-9]+$/ || substr($NF, 4) + 0 < 14) unaligned = 1
+      }
+      END { exit (!loads || unaligned) }
+    '; then
+      rm -rf "$unpacked"; rm -f "$aar"
+      fail "$abi/libgojni.so does not have 16 KB-aligned LOAD segments"
+    fi
+  done
+  refuse_machine_paths "$unpacked" "$aar"
   rm -rf "$unpacked"
   echo "aar ready: nsh-app/android/app/libs/dshtailcat.aar"
 }

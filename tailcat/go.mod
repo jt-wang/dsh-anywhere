@@ -5,7 +5,7 @@ go 1.27.1
 toolchain go1.27.4
 
 require (
-	github.com/jt-wang/tailpocket v0.3.1
+	github.com/jt-wang/tailpocket v0.3.6
 	github.com/tailscale/tailcat v0.6.0
 	golang.org/x/mobile v0.0.0-20261011034528-197770444867
 	tailscale.com v1.103.0-pre.0.20260904030409-31d8badb3bfb

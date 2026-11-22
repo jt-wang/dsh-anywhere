@@ -74,6 +74,7 @@ function LinkNotice() {
 function Connect() {
   const pasting = signal(false)
   const code = signal('')
+  const focused = signal(false)
   const link = () => { const t = code().trim(); if (t && !linking()) { Keyboard.dismiss(); pairWith(t) } }
   return (
     <View class="flex-1 bg-background px-6 pt-[env(safe-area-inset-top)] pb-[env(keyboard-inset-height)] justify-center gap-3">
@@ -88,8 +89,8 @@ function Connect() {
       }>
         <View class="gap-3">
         <Input testID="code" placeholder="dshm1:…" value={code()} onChange={(e) => code.set(e.value)} autoCapitalize="none" autoCorrect={false} submitBehavior="submit"
-          onSubmit={link}
-          class="rounded-[10px] border border-input bg-card px-3 py-3 text-foreground placeholder:text-muted-foreground font-mono text-[13px]" />
+          onSubmit={link} onFocus={() => focused.set(true)} onBlur={() => focused.set(false)}
+          class={`rounded-[10px] border ${focused() ? 'border-ring' : 'border-input'} bg-card px-3 py-3 text-foreground caret-foreground placeholder:text-muted-foreground font-mono text-[13px]`} />
         <View role="button" testID="link-code" accessibilityLabel={S.linkCode} onPress={link}
           class={`rounded-[10px] border border-border py-3 items-center ${code().trim() && !linking() ? 'active:bg-secondary' : 'opacity-50'}`}>
           <Text class="text-foreground text-[15px] font-medium">{linking() ? S.linking : S.linkCode}</Text>

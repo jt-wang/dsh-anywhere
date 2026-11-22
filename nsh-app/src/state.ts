@@ -3,7 +3,7 @@
 import { cleanup, computed, effect, host, signal, untracked } from 'nsh'
 import { Dsh, type ConnectionState, type DshError } from './dsh.ts'
 import { Pending } from './events.ts'
-import type { Check } from './reach.ts'
+import { failureOf, type Check } from './reach.ts'
 import { readable, S } from './strings.ts'
 import { tryComputer, TRY_KEY, TRY_ORIGIN } from './tryit.ts'
 import { OfflineCache } from './cache.ts'
@@ -11,7 +11,13 @@ import { oneAtATime } from './progress.ts'
 
 export interface Settings { origin: string; key: string }
 export interface LinkPath { route?: string; kind?: string; derpRegion?: number; derpCode?: string; derpHost?: string; relayHost?: string }
-type LinkState = { paired: false } | { paired: true; origin: string; token: string; cacheId?: string }
+type LinkState = { paired: false } | { paired: true; origin: string; token: string; cacheId?: string; dialMs?: number }
+/** How long TailPocket may take to reach the computer over every route of the link: max(20 s, routes × 10 s), from the
+ * shell's link.state (Dshtailcat DialMs). The app waits longer than that for a socket or a call, so a slow dial over a
+ * relay is not cut short and TailPocket's own lastFailure is in by the time the app gives up. */
+export const DIAL_MS = 20_000
+export const waitMs = (dialMs = DIAL_MS) => Math.max(DIAL_MS, dialMs) + 10_000
+let dialMs = DIAL_MS
 export const settings = signal<Settings | null>(null)
 export const offlineCache = signal<OfflineCache | undefined>(undefined)
 export const refreshLists = signal(0)
@@ -72,9 +78,9 @@ export function dsh(): Dsh {
   const s = settings(); if (!s) throw new Error('not linked')
   if (!client || client.origin !== s.origin) {
     client?.close()
-    const made: Dsh = client = new Dsh(s.origin, s.key, s.origin === TRY_ORIGIN ? tryComputer() : { onStuck: async () => {
+    const made: Dsh = client = new Dsh(s.origin, s.key, s.origin === TRY_ORIGIN ? tryComputer() : { connectMs: waitMs(dialMs), rpcMs: waitMs(dialMs), onStuck: async () => {
       const next = await host.call<LinkState>('link.reset')
-      if (next.paired && client === made) { made.origin = next.origin; settings.set({ origin: next.origin, key: next.token }) }
+      if (next.paired && client === made) { made.origin = next.origin; dialMs = next.dialMs ?? DIAL_MS; settings.set({ origin: next.origin, key: next.token }) }
     } })
     client.onState = (c) => { socketState.set(c); if (c === 'online') refreshLists.update((n) => n + 1) }
     client.onRetryAt = (at) => retryAt.set(at)
@@ -94,6 +100,7 @@ const adopt = async (state: LinkState, sample = false) => {
   pending.apply({ type: 'ready', clientId: '' }); asks.update((n) => n + 1)
   check.set(undefined); retryAt.set(undefined); linkPath.set(undefined); lastLook = 0
   if (identity && !offlineCache()) offlineCache.set(await OfflineCache.open(identity))
+  dialMs = state.paired ? state.dialMs ?? DIAL_MS : DIAL_MS
   settings.set(state.paired ? { origin: state.origin, key: state.token } : null)
   if (state.paired && !sample) seedPath()
 }
@@ -133,10 +140,14 @@ async function look() {
       const access = await askComputer()
       check.set({ access, ...(access === 'ok' ? { latencyMs: Date.now() - asked } : {}) })
     } else {
-      const d = await host.call<Check & { error?: string }>('link.diagnose')
+      // TailPocket's lastFailure only picks the words (reach.ts): nothing here unpairs, forgets or holds on it.
+      const [d, f] = await Promise.all([host.call<Check & { error?: string }>('link.diagnose'),
+        host.call<{ reason?: string }>('link.lastFailure').catch(() => undefined)])
       if (d.error) return
-      check.set({ relay: d.relay, computer: d.computer, ...(d.computer === 'reachable' ? { access: await askComputer() } : {}) })
+      const failure = failureOf(f?.reason)
+      check.set({ relay: d.relay, computer: d.computer, ...(failure ? { failure } : {}), ...(d.computer === 'reachable' ? { access: await askComputer() } : {}) })
     }
+    // Only the companion itself, over the pinned TLS, refusing this phone's key holds the client.
     if (check()?.access === 'refused') { client?.hold(); offlineCache()?.clear(); offlineCache.set(undefined) }
   } catch { /* a shell without link.diagnose: the state stays as it is */ } finally { looking = false }
 }

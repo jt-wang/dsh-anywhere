@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { validateProfilePatch, decodeProfileTransport } from '../src/profile-patch.ts';
+import { validateProfilePatch, decodeProfileTransport, prepareProfileAppend } from '../src/profile-patch.ts';
+
+test('empty YAML documents are appendable without losing comments, BOM or line endings', () => {
+  for (const text of ['', '# comments\n', '\ufeff# comment\r\n[] # inline\r\n', '---\nnull # empty\n...\n', '[ # list\n] # end\n']) {
+    const prepared = prepareProfileAppend(text);
+    validateProfilePatch(prepared + '\n- id: synthetic\n');
+    for (const comment of text.match(/#.*$/gm) ?? []) assert.ok(prepared.includes(comment));
+    if (text.startsWith('\ufeff')) assert.ok(prepared.startsWith('\ufeff'));
+  }
+  const populated = '# preserved\n- id: synthetic\n  disabled: !!js true\n';
+  assert.equal(prepareProfileAppend(populated), populated);
+  for (const text of ['{}', 'false', '- broken: [', '- id: dsh-mobile-companion']) assert.throws(() => prepareProfileAppend(text));
+});
 
 test('installer validates additive YAML sequences and rejects malformed/mapping/duplicate-key patches without evaluating tags', () => {
   const original = '\ufeff# Unicode русский\r\n- id: synthetic\r\n  disabled: !!js true\r\n';

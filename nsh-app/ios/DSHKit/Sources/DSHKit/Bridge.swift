@@ -17,7 +17,9 @@ public final class Bridge: @unchecked Sendable {
 
     private let tailcatPort: UInt16
 
-    public init(invitation: Invitation, tailcatPort: Int, forwardToken: String) throws {
+    /// `handshake` is how long one connection may wait for the computer's TLS answer, read for each connection: at least
+    /// the forward's dial bound (DshtailcatDialMs), so the bridge never gives up on a dial TailPocket is still trying.
+    public init(invitation: Invitation, tailcatPort: Int, forwardToken: String, handshake: @escaping @Sendable () -> TimeInterval = { 25 }) throws {
         self.invitation = invitation
         self.tailcatPort = UInt16(clamping: tailcatPort)
         ForwardLine.set(Data("TP-FWD \(forwardToken)\n".utf8), for: self.tailcatPort)
@@ -36,7 +38,7 @@ public final class Bridge: @unchecked Sendable {
         let remote = NWEndpoint.hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: UInt16(clamping: tailcatPort)) ?? 9)
         let tls = Bridge.parameters(invitation)
         let queue = self.queue
-        listener.newConnectionHandler = { local in Bridge.carry(local, to: NWConnection(to: remote, using: tls), queue: queue) }
+        listener.newConnectionHandler = { local in Bridge.carry(local, to: NWConnection(to: remote, using: tls), queue: queue, handshake: handshake()) }
         listener.start(queue: queue)
         guard ready.wait(timeout: .now() + 10) == .success, failure == nil, let bound = listener.port else {
             listener.cancel()
@@ -72,12 +74,12 @@ public final class Bridge: @unchecked Sendable {
         return p
     }
 
-    /// One app connection: the remote handshake first (15 s at most, so a dead tunnel cannot hold it), then bytes
+    /// One app connection: the remote handshake first (`wait` at most, so a dead tunnel cannot hold it), then bytes
     /// both ways until either side ends, which ends both.
-    private static func carry(_ local: NWConnection, to remote: NWConnection, queue: DispatchQueue) {
+    private static func carry(_ local: NWConnection, to remote: NWConnection, queue: DispatchQueue, handshake wait: TimeInterval) {
         let end = { local.cancel(); remote.cancel() }
         let handshake = DispatchWorkItem(block: end)
-        queue.asyncAfter(deadline: .now() + 15, execute: handshake)
+        queue.asyncAfter(deadline: .now() + wait, execute: handshake)
         remote.stateUpdateHandler = { state in
             switch state {
             case .ready:

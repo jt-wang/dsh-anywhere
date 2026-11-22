@@ -1,5 +1,7 @@
 // The phone's link to the owner's computer, as host functions for the app (as the Android shell's Link.java):
-//   link.state   → { paired: false } or { paired: true, origin, token } (origin = this phone's bridge to /dsh)
+//   link.state   → { paired: false } or { paired: true, origin, token, dialMs } (origin = this phone's bridge to /dsh; dialMs =
+//                  how long one connection may take, the forward's dial bound)
+//   link.lastFailure → { reason, code, route, at, dialMs }: why the last attempt failed (TailPocket's lastFailure), a hint only
 //   link.scan    → the text of a scanned QR (VisionKit's scanner, Scanner.swift)
 //   link.pair    { text } → as link.state; the one-time QR (or a dshm1: link) to a paired device
 //   link.reset   → a new tunnel and bridge, as link.state (the app found the link dead)
@@ -88,6 +90,14 @@ final class Link {
                 reply.resolve(o)
             }
         }
+        // Why the last connection attempt failed (TailPocket's lastFailure, as DshtailcatFailure words it) and the forward's
+        // dial bound, or {error}. Unauthenticated: only for what the app says, never to unpair or forget the link.
+        view.handle("link.lastFailure") { _, reply in
+            let handle = Link.tunnel
+            guard handle >= 0, let o = (try? JSONSerialization.jsonObject(with: Data(DshtailcatFailure(handle).utf8))) as? [String: Any]
+            else { reply.resolve(["error": "no-tunnel"]); return }
+            reply.resolve(o)
+        }
         // The path watch's last answer; the app reads it once and then hears each change as a link.path event.
         view.handle("link.path") { _, reply in reply.resolve(PathEvents.parse(DshtailcatLastPath())) }
         view.handle("link.scan") { [self] _, reply in
@@ -134,7 +144,7 @@ final class Link {
         let port = try Link.connect(try Invite.invitation(invitation), clientKey: clientKey, saved: link["tailpocket"] as? String,
                                     onSynced: { [weak self] in self?.saveSynced($0) })
         let cacheId = SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
-        return ["paired": true, "origin": "http://127.0.0.1:\(port)/dsh", "token": token, "cacheId": cacheId]
+        return ["paired": true, "origin": "http://127.0.0.1:\(port)/dsh", "token": token, "cacheId": cacheId, "dialMs": DshtailcatDialMs(Link.tunnel)]
     }
 
     private func pair(_ text: String) throws -> [String: Any] {
@@ -220,7 +230,10 @@ final class Link {
         tunnel = normal.handle
         DshtailcatWatchPath(normal.handle, pathEvents)
         do {
-            bridge = try Bridge(invitation: inv, tailcatPort: normal.port, forwardToken: normal.token)
+            // The TLS answer waits for the forward's dial, so 5 s more than its bound (routes the computer adds later count).
+            let handle = normal.handle
+            bridge = try Bridge(invitation: inv, tailcatPort: normal.port, forwardToken: normal.token,
+                                handshake: { TimeInterval(DshtailcatDialMs(handle)) / 1000 + 5 })
         } catch {
             disconnect()
             throw error

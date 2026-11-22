@@ -204,11 +204,10 @@ if (flags.has('--uninstall')) {
 let next;
 if (existing) next = current.replace(PATTERN, () => block);
 else {
-  let document = current.replace(/^﻿/, '');
-  const bom = current.startsWith('﻿') ? '﻿' : '';
-  if (document.trim() === '[]') document = '';
-  if (document.trim() && !/^\s*(#|-)/.test(document)) fail('Profile patch must be a YAML sequence. Convert JSON/mapping manually first.');
-  next = bom + document + (document && !document.endsWith('\n') ? '\n' : '') + block + '\n';
+  const prepared = spawnSync(process.execPath, [path.join(directory, 'dist', 'profile-patch.js'), '--base64', '--prepare-append'], { input: Buffer.from(current, 'utf8').toString('base64'), encoding: 'utf8', timeout: 15000, maxBuffer: 1048576 });
+  if (prepared.status !== 0) fail('Profile patch must be a valid additive sequence; unchanged.');
+  const document = prepared.stdout;
+  next = document + (document && !document.endsWith('\n') ? '\n' : '') + block + '\n';
 }
 const changed = write(current, next);
 const receipt = existsSync(receiptPath) ? JSON.parse(readFileSync(receiptPath, 'utf8')) : null;

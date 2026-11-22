@@ -34,7 +34,10 @@ public class BridgeTest {
     private static final String TOKEN = "synthetic-forward-token";
 
     /** A TLS echo server on loopback with the given identity behind the forward's line: the companion's end of the tunnel. */
-    private static ServerSocket companion(String certPem, String keyPem) throws Exception {
+    private static ServerSocket companion(String certPem, String keyPem) throws Exception { return companion(certPem, keyPem, 0); }
+
+    /** As above, answering TLS only `delayMs` after the forward's line, as a forward still dialing the computer does. */
+    private static ServerSocket companion(String certPem, String keyPem, long delayMs) throws Exception {
         byte[] der = Base64.getMimeDecoder().decode(keyPem.replaceAll("-----[A-Z ]+-----", ""));
         PrivateKey key = KeyFactory.getInstance("EC").generatePrivate(new PKCS8EncodedKeySpec(der));
         KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType()); ks.load(null);
@@ -47,6 +50,7 @@ public class BridgeTest {
                 StringBuilder line = new StringBuilder();
                 for (int c; (c = raw.getInputStream().read()) != '\n'; ) { if (c < 0 || line.length() > 200) return; line.append((char) c); }
                 if (!line.toString().equals("TP-FWD " + TOKEN)) return; // the forward closes it
+                Thread.sleep(delayMs);
                 SSLSocket s = (SSLSocket) tls.getSocketFactory().createSocket(raw, null, raw.getPort(), true);
                 s.setUseClientMode(false);
                 byte[] buf = new byte[64]; int n = s.getInputStream().read(buf);
@@ -73,7 +77,7 @@ public class BridgeTest {
     @Test public void theInvitedComputerAnswersThroughTheBridge() throws Exception {
         JSONObject f = fixture();
         Invite.Invitation inv = Invite.invitation(f.getJSONObject("invitation").toString());
-        try (ServerSocket server = companion(f.getJSONObject("invitation").getString("certificatePem"), f.getString("keyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort(), TOKEN)) {
+        try (ServerSocket server = companion(f.getJSONObject("invitation").getString("certificatePem"), f.getString("keyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort(), TOKEN, () -> 25_000)) {
             assertEquals("echo:ping", roundTrip(bridge.port()));
         }
     }
@@ -81,7 +85,7 @@ public class BridgeTest {
     @Test public void anotherCertificateGetsNothing() throws Exception {
         JSONObject f = fixture();
         Invite.Invitation inv = Invite.invitation(f.getJSONObject("invitation").toString());
-        try (ServerSocket server = companion(f.getString("otherCertificatePem"), f.getString("otherKeyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort(), TOKEN)) {
+        try (ServerSocket server = companion(f.getString("otherCertificatePem"), f.getString("otherKeyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort(), TOKEN, () -> 25_000)) {
             assertEquals("", roundTrip(bridge.port()));
         }
     }
@@ -90,7 +94,21 @@ public class BridgeTest {
     @Test public void aBridgeWithoutTheForwardsTokenGetsNothing() throws Exception {
         JSONObject f = fixture();
         Invite.Invitation inv = Invite.invitation(f.getJSONObject("invitation").toString());
-        try (ServerSocket server = companion(f.getJSONObject("invitation").getString("certificatePem"), f.getString("keyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort(), "another-token")) {
+        try (ServerSocket server = companion(f.getJSONObject("invitation").getString("certificatePem"), f.getString("keyPem")); Bridge bridge = new Bridge(inv, server.getLocalPort(), "another-token", () -> 25_000)) {
+            assertEquals("", roundTrip(bridge.port()));
+        }
+    }
+
+    /** The TLS answer waits for the forward's dial: the bridge waits as long as it is told (the dial bound and more),
+     * and a wait shorter than the dial ends the connection, which TailPocket would record as no answer. */
+    @Test public void theBridgeWaitsForASlowDialAsLongAsItIsTold() throws Exception {
+        JSONObject f = fixture();
+        Invite.Invitation inv = Invite.invitation(f.getJSONObject("invitation").toString());
+        String cert = f.getJSONObject("invitation").getString("certificatePem"), key = f.getString("keyPem");
+        try (ServerSocket server = companion(cert, key, 1500); Bridge bridge = new Bridge(inv, server.getLocalPort(), TOKEN, () -> 4000)) {
+            assertEquals("echo:ping", roundTrip(bridge.port()));
+        }
+        try (ServerSocket server = companion(cert, key, 1500); Bridge bridge = new Bridge(inv, server.getLocalPort(), TOKEN, () -> 300)) {
             assertEquals("", roundTrip(bridge.port()));
         }
     }
@@ -102,7 +120,7 @@ public class BridgeTest {
         Invite.Invitation again = Invite.invitation(f.getJSONObject("invitation").toString());
         Invite.Invitation elsewhere = new Invite.Invitation(inv.json, inv.serverName, inv.address + "x", inv.port, inv.pairingToken, inv.certificate);
         Invite.Invitation otherPort = new Invite.Invitation(inv.json, inv.serverName, inv.address, inv.port + 1, inv.pairingToken, inv.certificate);
-        try (Bridge bridge = new Bridge(inv, 1, TOKEN)) {
+        try (Bridge bridge = new Bridge(inv, 1, TOKEN, () -> 25_000)) {
             assertTrue(bridge.serves(again));
             assertFalse(bridge.serves(elsewhere));
             assertFalse(bridge.serves(otherPort));

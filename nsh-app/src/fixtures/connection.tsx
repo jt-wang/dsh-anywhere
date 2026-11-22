@@ -8,8 +8,8 @@ import { routeWords, type LinkPath } from '../state.ts'
 
 const connection = signal<ConnectionState>('online'), network = signal(true), active = signal(true)
 const check = signal<Check | undefined>(undefined), retryAt = signal<number | undefined>(undefined), route = signal('')
-const open = signal(false), onChats = signal(false), retried = signal(0), relinked = signal(0)
-const reach: Reach = { connection, network, active, check, retryAt, routeText: route, open, retry: () => retried.update((n) => n + 1), relink: () => relinked.update((n) => n + 1) }
+const open = signal(false), onChats = signal(false), retried = signal(0), scanned = signal(0)
+const reach: Reach = { connection, network, active, check, retryAt, routeText: route, open, retry: () => retried.update((n) => n + 1), scan: () => scanned.update((n) => n + 1) }
 const set = (label: string, f: () => void) => <View role="button" testID={label} onPress={f}><Text>{label}</Text></View>
 const failing = (c: Check) => { connection.set('offline'); check.set(c) }
 const paths: [string, LinkPath][] = [
@@ -38,13 +38,16 @@ function App() {
         {set('computer', () => failing({ relay: 'reachable', computer: 'unreachable' }))}
         {set('companion', () => failing({ relay: 'reachable', computer: 'reachable', access: 'failed' }))}
         {set('refused', () => { failing({ relay: 'reachable', computer: 'reachable', access: 'refused' }); retryAt.set(undefined) })}
+        {set('not-running', () => failing({ relay: 'reachable', computer: 'unreachable', failure: 'handshake-closed' }))}
+        {set('no-answer', () => failing({ relay: 'reachable', computer: 'unreachable', failure: 'no-answer' }))}
+        {set('relay-down', () => failing({ relay: 'reachable', computer: 'unreachable', failure: 'relay-down' }))}
         {set('slow', () => { connection.set('online'); check.set({ access: 'ok', latencyMs: 2400 }) })}
         {set('next-try', () => retryAt.set(Date.now() + 8_000))}
         {set('direct', () => route.set(routeWords({ kind: 'direct' })))}
         {paths.map(([id, path]) => set(id, () => route.set(routeWords(path))))}
         {set('chats', () => onChats.set(true))}
       </View>
-      <Text>{`retried:${retried()} relinked:${relinked()}`}</Text>
+      <Text>{`retried:${retried()} scanned:${scanned()}`}</Text>
       <ReachSheet reach={reach} />
     </View>
   )
