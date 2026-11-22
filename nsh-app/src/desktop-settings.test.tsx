@@ -74,32 +74,3 @@ test('settings schema produces nested editable paths, redacted secret rows, dict
   }
   expect(desktopSettingsStrings('de')).toEqual(desktopSettingsStrings('en'))
 })
-
-test('computer settings opens on demand, saves and displays authoritative value, and refreshes conflicts', async () => {
-  let n = namespace(), conflict = false
-  const requests: any[] = [], origin = 'http://127.0.0.1:40001/dsh'
-  const ok = (value: unknown) => ({ body: { result: { ok: true, value } } })
-  const app = await open('../App.tsx', { locale: 'en-US', host: { handlers: {
-    'link.state': { paired: true, origin, token: 'synthetic' }, 'app.state': { active: true }, 'network.state': { online: true }, 'notify.watch': null, 'notify.clear': null,
-    'notify.permission': { granted: true }, 'app.info': { version: '0.0.0', build: '0' }, 'link.path': { route: 'lan' },
-  } }, network: {
-    [`POST ${origin}/api/session/list`]: () => ok({ items: [] }),
-    'GET http://127.0.0.1:40001/v1/capabilities': () => ({ body: { computerName: 'Synthetic', upstreamVersion: '0.2.2-rc.5' } }),
-    [`POST ${origin}/api/settings/describe`]: () => ok({ writable: true, hasDocument: true, namespaces: [n] }),
-    [`POST ${origin}/api/settings/mutate`]: (request: any) => {
-      const args = JSON.parse(request.body).payload.args; requests.push(args)
-      if (conflict) return { body: { result: { ok: false, error: { code: 'settings/conflict', message: 'changed' } } } }
-      n = { ...n, revision: n.revision + 1, value: { ...(n.value as any), timeoutMs: args.ops[0].value } }; return ok(null)
-    },
-    [`POST ${origin}/api/speech/catalog`]: () => ({ status: 404 }),
-  } })
-  await app.waitFor('id:more'); await app.press('id:more'); await app.press('text:Settings')
-  expect(app.texts().includes('shell')).toBe(false)
-  await app.press('id:desktop-settings-open'); await app.waitFor('id:desktop-namespace-shell'); await app.press('id:desktop-namespace-shell')
-  await app.clear('id:desktop-value-shell-timeoutMs'); await app.type('id:desktop-value-shell-timeoutMs', '4700'); await app.press('id:desktop-save-shell-timeoutMs')
-  await app.waitFor('text:Saved and confirmed by the computer.')
-  expect(requests[0].ops).toEqual([{ op: 'set', path: ['timeoutMs'], value: 4700 }])
-  conflict = true
-  await app.clear('id:desktop-value-shell-timeoutMs'); await app.type('id:desktop-value-shell-timeoutMs', '5700'); await app.press('id:desktop-save-shell-timeoutMs')
-  await app.waitFor('text:This setting changed on the computer. Refresh, review the new value, then edit again.')
-})

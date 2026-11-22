@@ -46,8 +46,9 @@ function TranslationChoice(p: { namespace: SettingsNamespace; limits: Translatio
 }
 
 /** Mount in the settings Scroll. No text translation, key access, model call or account action. */
-export function CapabilitySettings(props: { client?: () => Dsh } = {}) {
-  const client = props.client ?? dsh, open = signal(false), busy = signal(false), message = signal(''), snapshot = signal<CapabilitySnapshot | undefined>(undefined)
+/** `auto`: inside Computer settings › Web search and fetch: read at once, no open or close button. */
+export function CapabilitySettings(props: { client?: () => Dsh; auto?: boolean } = {}) {
+  const client = props.client ?? dsh, open = signal(!!props.auto), busy = signal(false), message = signal(''), snapshot = signal<CapabilitySnapshot | undefined>(undefined)
   let alive = true, generation = 0, refreshing = false
   cleanup(() => { alive = false; generation++ })
   const load = async () => {
@@ -69,8 +70,10 @@ export function CapabilitySettings(props: { client?: () => Dsh } = {}) {
   const web = () => snapshot()?.web.status === 'ready' ? (snapshot()!.web as { status: 'ready'; value: import('./capability-settings.ts').WebCatalog }).value : undefined
   const translation = () => snapshot()?.translation.status === 'ready' ? (snapshot()!.translation as { status: 'ready'; value: TranslationLimits }).value : undefined
   return <View testID="capability-settings" class="gap-2 pt-5">
-    <Text class="px-2 text-muted-foreground text-[13px] font-medium">{words().title}</Text>
-    <Action id="capability-settings-open" label={open() ? common().refresh : words().open} disabled={busy()} press={() => { open.set(true); message.set(''); void load() }} />
+    <If when={!props.auto}>
+      <Text class="px-2 text-muted-foreground text-[13px] font-medium">{words().title}</Text>
+      <Action id="capability-settings-open" label={open() ? common().refresh : words().open} disabled={busy()} press={() => { open.set(true); message.set(''); void load() }} />
+    </If>
     <If when={open()}>
       <If when={busy()}><Text class="text-muted-foreground text-[13px]">{common().loading}</Text></If>
       <If when={message()}><Text testID="capability-settings-message" class="text-foreground text-[13px]">{message()}</Text></If>
@@ -83,7 +86,7 @@ export function CapabilitySettings(props: { client?: () => Dsh } = {}) {
       <If when={translationNs() && translation()} else={<Text testID="capability-translation-unavailable" class="text-muted-foreground text-[13px]">{words().unavailable}</Text>}>
         <Each of={translationNs() ? [translationNs()!] : []} key={ns => `${ns.ns}:${ns.revision}`} >{ns => <TranslationChoice namespace={ns()} limits={translation()!} disabled={busy() || !snapshot()?.configuration.writable} save={save} />}</Each>
       </If>
-      <Action id="capability-settings-close" label={common().close} press={() => { generation++; open.set(false); snapshot.set(undefined); refreshing = false; busy.set(false) }} />
+      <If when={!props.auto}><Action id="capability-settings-close" label={common().close} press={() => { generation++; open.set(false); snapshot.set(undefined); refreshing = false; busy.set(false) }} /></If>
     </If>
   </View>
 }

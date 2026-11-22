@@ -65,18 +65,19 @@ export function WorkspaceViewPreferences() {
 /** Mount inside Settings' existing keyboard-aware Scroll. No network work until opened.
  * Optional chats supply human-readable titles; unknown/saved sessions retain their official IDs.
  */
-export function WorkspaceSettings(props: { client?: () => Pick<Dsh, 'rpc' | 'stream'>; chats?: () => ChatSummary[]; online?: () => boolean } = {}) {
-  const open = signal(false), revision = signal(0)
+export function WorkspaceSettings(props: { client?: () => Pick<Dsh, 'rpc' | 'stream'>; chats?: () => ChatSummary[]; online?: () => boolean; auto?: boolean } = {}) {
+  const open = signal(!!props.auto), revision = signal(0)
   const model = new WorkspaceSettingsModel(props.client ?? dsh, () => revision.update(n => n + 1))
   const state = () => { revision(); return model }
   const online = props.online ?? network
   const disabled = () => state().busy || state().status !== 'ready' || !online()
   cleanup(() => model.dispose())
+  if (props.auto) void model.refresh()
   return <View testID="workspace-settings" class="gap-2 pt-5">
     <WorkspaceViewPreferences />
     <Text class="px-2 text-muted-foreground text-[13px] font-medium">{words().title}</Text>
     <Text testID="workspace-phone-view-scope" class="px-2 text-muted-foreground text-[13px]">{words().phoneView}</Text>
-    <Action id="workspace-settings-open" label={open() ? words().refresh : words().open} disabled={state().busy || state().status === 'loading' || !online()} press={() => { open.set(true); void model.refresh() }} />
+    <If when={!props.auto}><Action id="workspace-settings-open" label={open() ? words().refresh : words().open} disabled={state().busy || state().status === 'loading' || !online()} press={() => { open.set(true); void model.refresh() }} /></If>
     <If when={open()}>
       <Text testID="workspace-registry-order-scope" class="px-2 text-foreground text-[13px] font-medium">{words().registryOrder}</Text>
       <Text class="px-2 text-muted-foreground text-[13px]">{words().hint}</Text>
@@ -85,7 +86,7 @@ export function WorkspaceSettings(props: { client?: () => Pick<Dsh, 'rpc' | 'str
       <If when={state().outcome}><Text testID="workspace-outcome" class="text-foreground text-[13px]">{words()[state().outcome as 'confirmed' | 'uncertain' | 'rejected']}</Text></If>
       <If when={state().status === 'ready' && !state().registry.list().length}><Text class="text-muted-foreground text-[13px]">{words().empty}</Text></If>
       <Each of={state().registry.list()} key={w => `${w.workspaceId}:${w.title}`}>{w => <WorkspaceRow row={w()} rows={state().registry.list()} disabled={disabled()} edit={edit => { if (!disabled()) void model.edit(edit) }} chats={props.chats?.() ?? []} />}</Each>
-      <Action id="workspace-settings-close" label={words().close} disabled={state().busy} press={() => { open.set(false); model.pause() }} />
+      <If when={!props.auto}><Action id="workspace-settings-close" label={words().close} disabled={state().busy} press={() => { open.set(false); model.pause() }} /></If>
     </If>
   </View>
 }

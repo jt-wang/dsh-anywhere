@@ -1,17 +1,18 @@
 // The phone's Settings page: the computer it is linked to (its name and versions, from the companion's
 // /v1/capabilities; whether it is reached now; how: Tailcat's end-to-end encrypted tunnel, direct or through a relay),
-// Unlink, and the phone's own settings (prefs.ts): appearance, language, notifications. DSH's own settings stay on
-// the computer.
+// Unlink, and the phone's own settings (prefs.ts): appearance, language, notifications; and one row to the computer's
+// DSH Desktop settings (computer-settings.tsx).
 import { cleanup, effect, host, locale, openUrl, platform, Scroll, signal, Text, View, type JSX } from 'nsh'
 import { Switch } from 'nsh/base'
-import { appActive, connection, dsh, PRIVACY_URL, routeText, setTailcatOnly, tailcatOnly, trying, unlink } from './state.ts'
+import { appActive, connection, dsh, linkPath, PRIVACY_URL, routeText, routeWords, setTailcatOnly, tailcatOnly, trying, unlink } from './state.ts'
 import { language, S, type Language } from './strings.ts'
 import { notifyPrefs, setLanguage, setNotify, setTheme, theme, type NotifyPrefs, type Theme } from './prefs.ts'
 import { chooseAction, Icon } from './ui.tsx'
 import { progressAvailable, ProgressSetting } from './progress.tsx'
 import { CATEGORIES, diagnostics } from './diagnostics.ts'
-import { DesktopSettings } from './desktop-settings.tsx'
-import { pluginStrings } from './plugins-strings.ts'
+import { computerStrings } from './computer-settings-strings.ts'
+import { confirmDanger } from './danger.tsx'
+import { fill } from './plugins-strings.ts'
 import { APK_URL, U, UPDATE_GUIDE_URL, updateNotice, type UpdateNotice } from './updates.ts'
 
 function Group(props: { children?: JSX.Element | JSX.Element[] }) { return <View class="rounded-[14px] bg-card border border-border overflow-hidden">{props.children}</View> }
@@ -47,7 +48,23 @@ const LANGUAGES: { id: Language; name: () => string }[] = [
 ]
 const THEMES: { id: Theme; name: () => string }[] = [{ id: 'system', name: () => S.themeSystem }, { id: 'light', name: () => S.themeLight }, { id: 'dark', name: () => S.themeDark }]
 
-export function SettingsPage(props: { onDiagnostics: () => void; onPlugins?: () => void }) {
+/** Unlink and Tailcat only can cut this phone off: each says how, and asks twice (danger.tsx), as Computer settings' danger zone does. */
+const cw = () => computerStrings(language() === 'system' ? locale() : language())
+async function confirmUnlink() {
+  if (await confirmDanger({ title: cw().unlinkTitle, body: cw().unlinkBody, action: cw().unlinkAction, confirm: { word: 'DSH Anywhere' } })) unlink()
+}
+/** Tailcat only drops the same-Wi-Fi route and your relay: on one of those now, the phone may lose the computer. */
+async function chooseTailcatOnly(on: boolean) {
+  const kind = linkPath()?.kind
+  if (on && (kind === 'lan' || kind === 'relay')) {
+    tailcatOnly.set(true) // the switch shows what was asked while the sheet asks; Cancel puts it back
+    const yes = await confirmDanger({ title: cw().tcTitle, body: fill(cw().tcBody, { route: routeWords(linkPath()) }), action: cw().tcAction, confirm: { word: 'DSH Anywhere' } })
+    if (!yes) { tailcatOnly.set(false); return }
+  }
+  void setTailcatOnly(on)
+}
+
+export function SettingsPage(props: { onDiagnostics: () => void; onComputer?: () => void }) {
   const appInfo = signal<{ version: string; build: string } | undefined>(undefined)
   const appInfoFailed = signal(false)
   host.call<{ version: string; build: string }>('app.info').then((v) => appInfo.set(v), () => appInfoFailed.set(true))
@@ -84,8 +101,8 @@ export function SettingsPage(props: { onDiagnostics: () => void; onPlugins?: () 
       <Label text={S.computer} />
       <Group>
         <Info first label={S.computerName} value={computer()?.name ?? '…'} />
-        <Info label={S.connectionStatus} value={S.connectionState[state()]}>
-          <View class={`w-[8px] h-[8px] rounded-full ${state() === 'online' ? 'bg-emerald-500' : state() === 'offline' ? 'bg-destructive' : 'bg-amber-500'}`} />
+        <Info label={S.connectionStatus} value={trying() ? S.tryIt.onPhone : S.connectionState[state()]}>
+          <View class={`w-[8px] h-[8px] rounded-full ${trying() ? 'bg-muted-foreground' : state() === 'online' ? 'bg-emerald-500' : state() === 'offline' ? 'bg-destructive' : 'bg-amber-500'}`} />
         </Info>
         <View class="flex-row items-start gap-3 px-[14px] py-[11px] border-t border-border">
           <Text class="text-foreground text-[15px]">{S.connection}</Text>
@@ -100,7 +117,7 @@ export function SettingsPage(props: { onDiagnostics: () => void; onPlugins?: () 
               <Text class="text-foreground text-[15px]">{S.tailcatOnly}</Text>
               <Text class="text-muted-foreground text-[13px] leading-[18px]">{S.tailcatOnlyHint}</Text>
             </View>
-            <Switch testID="tailcat-only" accessibilityLabel={S.tailcatOnly} checked={tailcatOnly()} onChange={(e) => { setTailcatOnly(e.checked) }}
+            <Switch testID="tailcat-only" accessibilityLabel={S.tailcatOnly} checked={tailcatOnly()} onChange={(e) => { void chooseTailcatOnly(e.checked) }}
               class="w-[46px] h-[28px]" trackClass="w-full h-full rounded-full bg-input checked:bg-primary justify-center px-[3px] transition-colors duration-150"
               thumbClass="w-[22px] h-[22px] rounded-full bg-background shadow-sm checked:translate-x-[18px] transition-transform duration-150" />
           </View>
@@ -110,7 +127,7 @@ export function SettingsPage(props: { onDiagnostics: () => void; onPlugins?: () 
       </Group>
       <If when={trying()} else={
         <>
-          <View role="button" testID="settings-unlink" onPress={() => unlink()} class="mt-3 rounded-[14px] bg-card border border-border px-[14px] py-[11px] items-center active:bg-secondary">
+          <View role="button" testID="settings-unlink" onPress={() => void confirmUnlink()} class="mt-3 rounded-[14px] bg-card border border-border px-[14px] py-[11px] items-center active:bg-secondary">
             <Text class="text-destructive text-[15px] font-medium">{S.unlink}</Text>
           </View>
           <Text class="px-2 pt-[6px] text-muted-foreground text-[13px] leading-[18px]">{S.unlinkHint}</Text>
@@ -166,13 +183,14 @@ export function SettingsPage(props: { onDiagnostics: () => void; onPlugins?: () 
         <ProgressSetting />
       </If>
 
-      <If when={!trying() && props.onPlugins}>
-        <View role="button" testID="settings-plugins" onPress={() => props.onPlugins?.()} class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center gap-3 active:bg-secondary">
-          <Text class="flex-1 text-foreground text-[15px]">{pluginStrings(language() === 'system' ? locale() : language()).row}</Text>
+      {/* DSH Desktop's own settings, one row that opens them in its groups (computer-settings.tsx). */}
+      <If when={!trying() && props.onComputer}>
+        <View role="button" testID="settings-computer" accessibilityLabel={cw().title} onPress={() => props.onComputer?.()} class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center gap-3 active:bg-secondary">
+          <Text class="flex-1 text-foreground text-[15px]">{cw().title}</Text>
+          <Text class="text-muted-foreground text-[15px]">{cw().rowValue}</Text>
           <Icon name="chevronRight" size={18} class="tint-muted-foreground" />
         </View>
       </If>
-      <If when={!trying()}><DesktopSettings /></If>
       <View role="button" testID="settings-diagnostics" onPress={props.onDiagnostics} class="mt-5 rounded-[14px] bg-card border border-border px-[14px] py-[11px] flex-row items-center gap-3 active:bg-secondary">
         <Text class="flex-1 text-foreground text-[15px]">{S.diagnostics.title}</Text>
         <Text testID="settings-diagnostics-state" class="text-muted-foreground text-[15px]">{diagnostics.prefs().enabled && CATEGORIES.some(c => diagnostics.prefs().categories[c]) ? S.diagnostics.statusOn : S.diagnostics.statusOff}</Text>

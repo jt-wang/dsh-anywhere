@@ -73,8 +73,9 @@ export class Dsh {
 
   /** The computer as the companion describes it (host/src/server.ts GET /v1/capabilities): its name (`computerName`,
    * else the companion's configured `hostName`), the companion's and DSH's versions, and whether the companion has the
-   * Progress page's calls (`capabilities.progress`; an older companion leaves it out). */
-  async computer(): Promise<{ name: string; companionVersion: string; release: string; dshVersion: string; progress: boolean }> {
+   * Progress page's calls (`capabilities.progress`; an older companion leaves it out), and whether this phone may change the
+   * computer (`capabilities.control`: false for a phone that may only read chats; an older companion leaves it out). */
+  async computer(): Promise<{ name: string; companionVersion: string; release: string; dshVersion: string; progress: boolean; control?: boolean }> {
     const finish = diagnostics.request('capabilities')
     let outcome = 'network_error', status: number | undefined, bytes: number | undefined
     try {
@@ -90,7 +91,7 @@ export class Dsh {
       const text = (x: unknown) => (typeof x === 'string' ? x : '')
       const caps = v.capabilities && typeof v.capabilities === 'object' ? v.capabilities as Record<string, unknown> : {}
       outcome = 'ok'
-      return { name: text(v.computerName) || text(v.hostName), companionVersion: text(v.hostVersion), release: text(v.release), dshVersion: text(v.upstreamVersion), progress: caps.progress === true }
+      return { name: text(v.computerName) || text(v.hostName), companionVersion: text(v.hostVersion), release: text(v.release), dshVersion: text(v.upstreamVersion), progress: caps.progress === true, ...(typeof caps.control === 'boolean' ? { control: caps.control } : {}) }
     } catch (e) { outcome = diagnosticOutcome(e); throw e } finally { finish(outcome, status, bytes) }
   }
 

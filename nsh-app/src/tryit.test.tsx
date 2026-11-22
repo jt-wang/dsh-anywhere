@@ -25,6 +25,19 @@ test('the pairing screen offers Try it, and it lists sample chats without pairin
   stayedOnThePhone(app)
 })
 
+test('the sample says where it is, never that a computer is connected: on the chats page, in a chat and in Settings', async () => {
+  const app = await trying()
+  await app.waitFor('text:Pick a name for the release')
+  expect(app.texts().includes('Connected')).toBe(false)
+  expect(app.shows('id:connection')).toBe(true)
+  expect(app.texts().includes('Sample data on this phone')).toBe(true)
+  await app.press('text:Fix the failing login test')
+  await app.waitFor('id:composer')
+  expect(app.shows('id:connection-dot')).toBe(false)
+  expect(app.texts().includes('Connected')).toBe(false)
+  stayedOnThePhone(app)
+})
+
 test('the sample notice is the first thing seen: no attention banner covers it, and no notification is asked for', async () => {
   const app = await trying()
   await app.waitFor('text:Pick a name for the release')
@@ -149,6 +162,7 @@ test('Settings says it is a sample and how to leave; leaving goes back to pairin
   await app.press('text:Settings')
   await app.waitFor('text:Sample computer')
   expect(app.shows('id:settings-unlink')).toBe(false)
+  expect(app.texts().includes('Connected')).toBe(false)
   await app.press('id:try-exit')
   await app.waitFor('id:scan')
   expect(app.shows('id:try-banner')).toBe(false)

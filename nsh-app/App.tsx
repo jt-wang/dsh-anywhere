@@ -1,7 +1,7 @@
 // DSH on the phone: the same chats as DSH Desktop, read and driven through DSH's own protocol.
 import { effect, host, Keyboard, locale, mount, openUrl, safeAreaInsets, signal, Text, untracked, View } from 'nsh'
 import { createNavStack, Input, NavPage, NavStack } from 'nsh/base'
-import { asks, backgroundWatch, boot, dsh, linkError, linking, loaded, network, news, pairEmoji, pairWith, pending, PRIVACY_URL, refreshLists, scan, settings, started, trying, tryIt, turnErrors, unlink } from './src/state.ts'
+import { asks, backgroundWatch, boot, connection, dsh, linkError, linking, loaded, network, news, pairEmoji, pairWith, pending, PRIVACY_URL, refreshLists, scan, settings, started, trying, tryIt, turnErrors, unlink } from './src/state.ts'
 import { Attention } from './src/notify.tsx'
 import { summaries } from './src/workspaces.ts'
 import { SessionsScreen, type Summary } from './src/sessions.tsx'
@@ -14,8 +14,10 @@ import { loadPrefs } from './src/prefs.ts'
 import { chatAction, forkChat, RenameSheet } from './src/manage.tsx'
 import { isPinned, setTitles, titleOf } from './src/chat-store.ts'
 import { language, readable, S } from './src/strings.ts'
-import { PluginsPage } from './src/plugins.tsx'
-import { pluginStrings } from './src/plugins-strings.ts'
+import { ComputerPage, ComputerSettingsPage, pageTitle, type ComputerPageId } from './src/computer-settings.tsx'
+import { createComputerStore } from './src/computer-settings.ts'
+import { computerStrings } from './src/computer-settings-strings.ts'
+import { DangerSheetHost } from './src/danger.tsx'
 import { ActionSheetHost, HeaderMenu, IconButton } from './src/ui.tsx'
 import { SelectTextHost } from './src/copy.tsx'
 import { TrajectoryPage } from './src/trajectory.tsx'
@@ -32,7 +34,7 @@ import './assets/fonts/Geist-Medium.ttf'
 import './assets/fonts/Geist-SemiBold.ttf'
 import './assets/fonts/GeistMono-Regular.ttf'
 
-type Route = { name: 'sessions' } | { name: 'project'; id: string; title: string } | { name: 'schedules' } | { name: 'settings' } | { name: 'diagnostics' } | { name: 'plugins' } | { name: 'chat'; session: Summary; child?: ChildOf; at?: string } | { name: 'trajectory'; session: Summary } | { name: 'details'; session: Summary }
+type Route = { name: 'sessions' } | { name: 'project'; id: string; title: string } | { name: 'schedules' } | { name: 'settings' } | { name: 'diagnostics' } | { name: 'computer' } | { name: 'computer-page'; id: ComputerPageId } | { name: 'chat'; session: Summary; child?: ChildOf; at?: string } | { name: 'trajectory'; session: Summary } | { name: 'details'; session: Summary }
   | { name: 'files'; session: Summary; path: string; file?: FileEntry } // a folder ('' the workspace root) or, with `file`, one file
   | { name: 'terminals'; session: Summary } | { name: 'terminal'; session: Summary; target: TerminalTarget; title?: string }
 const HEADER = 'bg-background text-foreground tint-foreground'
@@ -127,6 +129,11 @@ function App() {
   })
   boot()
   const nav = createNavStack<Route>([{ name: 'sessions' }])
+  // The computer's DSH Desktop settings, read once per link and shared by every Computer settings page; read again after
+  // a reconnect, because DSH restarts its settings revisions when it restarts.
+  const computer = createComputerStore(() => dsh(), { info: () => dsh().computer() })
+  let wasOnline = false
+  effect(() => { const on = connection() === 'online'; if (on && !wasOnline) untracked(() => computer.reconnected()); wasOnline = on })
   const newChat = signal(false)
   const menu = signal(false)
   const chatMenu = signal(false)
@@ -157,9 +164,11 @@ function App() {
     : route.name === 'schedules'
     ? <NavPage title={S.schedules} headerClass={HEADER} class="bg-background"><SchedulesScreen /></NavPage>
     : route.name === 'settings'
-    ? <NavPage title={S.settings} headerClass={HEADER} class="bg-background"><SettingsPage onDiagnostics={() => nav.push({ name: 'diagnostics' })} onPlugins={() => nav.push({ name: 'plugins' })} /></NavPage>
-    : route.name === 'plugins'
-    ? <NavPage title={pluginStrings(language() === 'system' ? locale() : language()).title} headerClass={HEADER} class="bg-background"><PluginsPage /></NavPage>
+    ? <NavPage title={S.settings} headerClass={HEADER} class="bg-background"><SettingsPage onDiagnostics={() => nav.push({ name: 'diagnostics' })} onComputer={() => nav.push({ name: 'computer' })} /></NavPage>
+    : route.name === 'computer'
+    ? <NavPage title={computerStrings(language() === 'system' ? locale() : language()).title} headerClass={HEADER} class="bg-background"><ComputerSettingsPage store={computer} onOpen={(id) => nav.push({ name: 'computer-page', id })} /></NavPage>
+    : route.name === 'computer-page'
+    ? <NavPage title={pageTitle(route.id)} headerClass={HEADER} class="bg-background"><ComputerPage id={route.id} store={computer} /></NavPage>
     : route.name === 'diagnostics'
     ? <NavPage title={S.diagnostics.title} headerClass={HEADER} class="bg-background"><DiagnosticsSettings /></NavPage>
     : route.name === 'project'
@@ -225,7 +234,7 @@ function App() {
   effect(() => { const v = visible(); if (shown && shown !== v) markSeen(shown); if (v) markSeen(v); shown = v })
   // A new link may be another computer: back to its chats.
   let lastLink: string | undefined
-  effect(() => { const key = settings()?.key; if (lastLink && key !== lastLink) { nav.popToRoot() }; lastLink = key })
+  effect(() => { const key = settings()?.key; if (lastLink && key !== lastLink) { nav.popToRoot(); untracked(() => computer.reset()) }; lastLink = key })
   return (
     <If when={loaded()}>
       <If when={settings()} else={<Connect />}>
@@ -242,6 +251,7 @@ function App() {
             <LinkNotice />
             <ReachSheet />
             <ActionSheetHost />
+            <DangerSheetHost />
             <SelectTextHost />
           </>
         )}</Each>

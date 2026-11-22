@@ -57,14 +57,14 @@ const renamed = `window.__ModuleLoader__.load({\n\tid: ${JSON.stringify(NAME)},`
 // DSH's own experimental plugins), and the app's icon. A language without a file reads English.
 const TITLE = 'DSH Anywhere';
 const META = {
-  en: 'Use DSH Desktop on this computer from your phone: chats, agents and approvals, over Tailcat.',
-  zh: '在手机上使用这台电脑上的 DSH Desktop：对话、智能体和审批，通过 Tailcat 连接。',
-  'zh-hant': '在手機上使用這台電腦上的 DSH Desktop：對話、代理程式與審核，透過 Tailcat 連線。',
-  ja: 'このコンピュータの DSH Desktop をスマートフォンから使えます。チャット、エージェント、承認を Tailcat 経由で。',
-  ko: '휴대폰에서 이 컴퓨터의 DSH Desktop을 사용하세요. 채팅, 에이전트, 승인을 Tailcat으로 연결합니다.',
-  es: 'Usa DSH Desktop de este ordenador desde el teléfono: chats, agentes y aprobaciones, a través de Tailcat.',
-  fr: 'Utilisez DSH Desktop de cet ordinateur depuis votre téléphone : conversations, agents et validations, via Tailcat.',
-  ru: 'Пользуйтесь DSH Desktop на этом компьютере с телефона: чаты, агенты и подтверждения через Tailcat.',
+  en: 'Use DSH Desktop on this computer from your phone: chats, agents and approvals, over Tailcat. While it is off, no phone can connect; turn it on here to reconnect them.',
+  zh: '在手机上使用这台电脑上的 DSH Desktop：对话、智能体和审批，通过 Tailcat 连接。关闭期间手机都连不上，在这里打开即可让手机重新连接。',
+  'zh-hant': '在手機上使用這台電腦上的 DSH Desktop：對話、代理程式與審核，透過 Tailcat 連線。關閉期間手機都連不上，在這裡打開即可讓手機重新連線。',
+  ja: 'このコンピュータの DSH Desktop をスマートフォンから使えます。チャット、エージェント、承認を Tailcat 経由で。オフの間はスマートフォンから接続できません。ここでオンにすると再接続します。',
+  ko: '휴대폰에서 이 컴퓨터의 DSH Desktop을 사용하세요. 채팅, 에이전트, 승인을 Tailcat으로 연결합니다. 꺼져 있는 동안에는 휴대폰을 연결할 수 없으며, 여기서 켜면 다시 연결됩니다.',
+  es: 'Usa DSH Desktop de este ordenador desde el teléfono: chats, agentes y aprobaciones, a través de Tailcat. Mientras está desactivado ningún teléfono puede conectarse; actívalo aquí para reconectarlos.',
+  fr: 'Utilisez DSH Desktop de cet ordinateur depuis votre téléphone : conversations, agents et validations, via Tailcat. Tant qu’il est désactivé, aucun téléphone ne peut se connecter ; activez-le ici pour les reconnecter.',
+  ru: 'Пользуйтесь DSH Desktop на этом компьютере с телефона: чаты, агенты и подтверждения через Tailcat. Пока он выключен, телефоны не могут подключиться; включите его здесь, чтобы они переподключились.',
 };
 for (const language of Object.keys(META)) META[language] = { title: TITLE, description: META[language] };
 const icon = readFileSync(path.join(root, 'nsh-app', 'assets', 'brand', 'icon.svg'));

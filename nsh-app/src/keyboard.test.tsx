@@ -17,12 +17,13 @@ const typing = async () => {
   return app
 }
 
+// No connection dot here: the sample says where its chats are instead (status.tsx), and the reach sheet is the same
+// BottomSheet as the ones below.
 for (const [entry, opens] of [
   ['attach', 'action-sheet'],
   ['controls-open', 'controls'],
   ['model', 'model-sheet'],
   ['voice-start', 'voice-sheet-sample'],
-  ['connection-dot', 'reach-sheet'],
   ['chat-more', 'header-menu'],
 ] as const) {
   test(`with the keyboard up, ${entry} puts it away before ${opens} opens`, async () => {

@@ -63,6 +63,12 @@ export function phoneChange(path: string, body: Buffer): PhoneChange | undefined
   return summary ? { method, target: summary(argsOf(body)) } : undefined;
 }
 
+/** The companion's own bundle, as DSH's plugin manager names it. */
+export const SELF_BUNDLE = '@jt-wang/dsh-anywhere';
+/** A call that turns the companion off, removes it or replaces it: every phone loses its link while it runs. */
+export const touchesSelf = (method: string, args: Record<string, any>) => args.name === SELF_BUNDLE
+  && ((method === 'pluginManager/setBundleEnabled' && args.enabled === false) || method === 'pluginManager/removeBundle' || method === 'pluginManager/updateBundle');
+
 type Call = (method: string, args: Record<string, unknown>) => Promise<unknown>;
 interface ConfigurableProvider { provider?: unknown; displayName?: unknown; settingsNs?: unknown; settingsPath?: unknown }
 /** DSH's own key name for a provider (the phone's provider-settings.ts deriveProviderKey). */
@@ -189,6 +195,13 @@ export function createDshRelay(options: DshRelayOptions): DshRelay {
         const path = url.pathname + (url.search === '?' ? '' : url.search);
         const body = Buffer.concat(chunks);
         const change = req.method === 'POST' && changed ? phoneChange(url.pathname, body) : undefined;
+        // Turning off, removing or updating the companion itself stops this process before DSH answers: keep the
+        // change first, so DSH Desktop's page can say which phone did it once DSH Anywhere runs again.
+        if (change && touchesSelf(change.method, argsOf(body))) {
+          changed!({ ...change, label: { title: 'DSH Anywhere' } });
+          session().then(value => forward(req, res, body, path, true, value), () => { res.writeHead(502); res.end(); });
+          return;
+        }
         const done = change && ((ok: boolean) => {
           if (!ok) return;
           labelOf(change.method, argsOf(body), call).catch(() => undefined)

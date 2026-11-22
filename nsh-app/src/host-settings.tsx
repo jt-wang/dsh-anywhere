@@ -41,9 +41,11 @@ function NoticeFrame(props: { notice: () => AccountNotice | undefined; active: (
 }
 
 /** Mount inside the existing settings ScrollView. No native shell or shared settings edits required. */
-export function HostSettings(props: { client?: () => AccountClient; clientVersion?: string; active?: () => boolean; online?: () => boolean } = {}) {
+/** `section`: one page of Computer settings (Agent presets, Computer use, Account, Built-in plugins), read at once. */
+export function HostSettings(props: { client?: () => AccountClient; clientVersion?: string; active?: () => boolean; online?: () => boolean; section?: 'presets' | 'cua' | 'account' | 'inventory' } = {}) {
   const client = props.client ?? dsh
-  const open = signal(false), busy = signal(false), message = signal('')
+  const want = (s: NonNullable<typeof props.section>) => !props.section || props.section === s
+  const open = signal(!!props.section), busy = signal(false), message = signal('')
   const presets = signal<ReadResult<PresetSettings> | undefined>(undefined), composition = signal<PresetDocument | undefined>(undefined)
   const system = signal<ReadResult<ComputerAccess> | undefined>(undefined), apps = signal<ReadResult<Applications> | undefined>(undefined), ptc = signal<ReadResult<PtcConfiguration> | undefined>(undefined)
   const snapshot = signal<HostAccountSnapshot>({ generation: 0 }), inventory = signal<ReadResult<Inventory> | undefined>(undefined)
@@ -54,14 +56,14 @@ export function HostSettings(props: { client?: () => AccountClient; clientVersio
   let alive = true
   const lifecycle = new HostAccount(client, async () => accountIdentity(props.clientVersion ?? (await host.call<{ version: string }>('app.info')).version, activeLocale()), s => { if (alive) snapshot.set(s) })
   effect(() => {
-    const enabled = open() && foreground() && (props.client ? true : network())
+    const enabled = open() && want('account') && foreground() && (props.client ? true : network())
     if (enabled) { client(); activeLocale() }
     untracked(() => { if (enabled) lifecycle.start(); else lifecycle.stop() })
     cleanup(() => lifecycle.stop())
   })
   let wasOnline: boolean | undefined
   effect(() => {
-    const connected = online(), enabled = open() && foreground()
+    const connected = online(), enabled = open() && want('account') && foreground()
     untracked(() => {
       if (enabled && !connected) lifecycle.disconnected()
       else if (enabled && connected && wasOnline === false) void lifecycle.refresh()
@@ -81,8 +83,8 @@ export function HostSettings(props: { client?: () => AccountClient; clientVersio
     presets.set(undefined); system.set(undefined); apps.set(undefined); ptc.set(undefined); inventory.set(undefined)
     try {
       await Promise.all([
-        readPresetSettings(client()).then(v => { if (alive) presets.set({ kind: 'ready', value: v }) }, () => { if (alive) presets.set({ kind: 'failed' }) }),
-        readCua(), lifecycle.refresh(), readHostDomain<Inventory>(client(), 'pluginInventory/list').then(v => { if (alive) inventory.set(v) }),
+        want('presets') && readPresetSettings(client()).then(v => { if (alive) presets.set({ kind: 'ready', value: v }) }, () => { if (alive) presets.set({ kind: 'failed' }) }),
+        want('cua') && readCua(), want('account') && lifecycle.refresh(), want('inventory') && readHostDomain<Inventory>(client(), 'pluginInventory/list').then(v => { if (alive) inventory.set(v) }),
       ])
     } finally { if (alive) busy.set(false) }
   }
@@ -115,26 +117,29 @@ export function HostSettings(props: { client?: () => AccountClient; clientVersio
   const readNotice = (id: string) => void run(() => lifecycle.readNotice(id))
   const noticeAction = (n: AccountNotice, dismiss: boolean) => void run(() => lifecycle.noticeAction(n.id, dismiss), true)
   const permission = (p: SystemPermission) => <View class="gap-2 py-2"><Text class="text-foreground text-[14px]">{words()[p]} · {bool((value(system()) as Extract<ComputerAccess, { platform: 'darwin' }>)[p])}</Text><View class="flex-row flex-wrap gap-2"><Action id={`host-request-${p}`} label={words().request} disabled={busy()} press={() => ask(`${words()[p]} · ${words().request}`, { method: 'requestPermission', permission: p })} /><Action id={`host-settings-${p}`} label={words().settings} disabled={busy()} press={() => ask(`${words()[p]} · ${words().settings}`, { method: 'openSettings', permission: p })} /></View></View>
+  if (props.section) void load()
   return <View testID="host-settings" class="gap-3 pt-5">
-    <Text class="text-muted-foreground text-[13px] font-medium">{words().title}</Text>
-    <Action id="host-settings-read" label={words().refresh} disabled={busy()} press={() => void load()} />
+    <If when={!props.section}>
+      <Text class="text-muted-foreground text-[13px] font-medium">{words().title}</Text>
+      <Action id="host-settings-read" label={words().refresh} disabled={busy()} press={() => void load()} />
+    </If>
     <If when={busy()}><Text class="text-muted-foreground text-[13px]">{words().loading}</Text></If>
     <If when={message()}><Text testID="host-settings-message" class="text-destructive text-[13px]">{message()}</Text></If>
     <If when={pending()}><View testID="host-confirmation" class="border border-border rounded-[14px] p-[14px] gap-3"><Text class="text-foreground text-[15px]">{pending()?.label}</Text><Text class="text-muted-foreground text-[13px]">{words().computer}</Text><Action id="host-confirm" label={words().confirm} disabled={busy()} press={confirm} /><Action id="host-cancel" label={words().cancel} press={() => pending.set(undefined)} /></View></If>
     <If when={open()}>
-      <View testID="host-presets" class="rounded-[14px] bg-card border border-border p-[14px] gap-2"><Text class="text-foreground text-[15px] font-medium">{words().presets}</Text><State result={presets()} />
+      <If when={want('presets')}><View testID="host-presets" class="rounded-[14px] bg-card border border-border p-[14px] gap-2"><Text class="text-foreground text-[15px] font-medium">{words().presets}</Text><State result={presets()} />
         <If when={value(presets())?.presets.length === 0}><Text class="text-muted-foreground">{words().empty}</Text></If>
         {(value(presets())?.presets ?? []).map(p => <View class="border-t border-border py-2 gap-2"><Text class="text-foreground text-[14px]">{p.name || p.id}{p.isDefault ? ` · ${words().current}` : ''}</Text><Text class="text-muted-foreground text-[13px]">{p.id}{p.description ? ` · ${p.description}` : ''}</Text><If when={p.broken}><Text class="text-destructive text-[13px]">{p.broken}</Text></If><View class="flex-row flex-wrap gap-2"><Action id={`host-composition-${p.id}`} label={words().composition} disabled={busy()} press={() => void run(async () => { composition.set(undefined); const doc = await readPresetComposition(client(), p.id); if (alive) composition.set(doc) })} /><Action id={`host-default-${p.id}`} label={words().makeDefault} disabled={busy() || !value(presets())?.writable || !!p.broken || p.isDefault} press={() => choose(p.id)} /></View></View>)}
         <If when={composition()}><View testID="host-composition"><Text class="text-foreground text-[14px]">{composition()?.name || composition()?.agentPreset}</Text><Text class="text-muted-foreground text-[12px] font-mono">{composition()?.content}</Text></View></If>
       </View>
-      <View testID="host-cua" class="rounded-[14px] bg-card border border-border p-[14px] gap-2"><Text class="text-foreground text-[15px] font-medium">{words().cua}</Text><Text class="text-muted-foreground text-[13px]">{words().computer}</Text><State result={system()} />
+      </If><If when={want('cua')}><View testID="host-cua" class="rounded-[14px] bg-card border border-border p-[14px] gap-2"><Text class="text-foreground text-[15px] font-medium">{words().cua}</Text><Text class="text-muted-foreground text-[13px]">{words().computer}</Text><State result={system()} />
         <If when={value(system())?.platform === 'darwin'}>{permission('accessibility')}{permission('screenRecording')}</If>
         <If when={value(system())?.platform === 'win32'}><Text testID="host-windows-status" class="text-muted-foreground text-[13px]">{words().sessionLocked}: {bool((value(system()) as Extract<ComputerAccess, { platform: 'win32' }>)?.sessionLocked ?? null)} · {words().captureAvailable}: {bool(!!(value(system()) as Extract<ComputerAccess, { platform: 'win32' }>)?.captureAvailable)} · {words().elevated}: {bool(!!(value(system()) as Extract<ComputerAccess, { platform: 'win32' }>)?.elevated)}</Text></If>
         <State result={ptc()} /><If when={value(ptc())}><Text class="text-foreground text-[14px]">{words().persistent}: {bool(!!value(ptc())?.persistent)}</Text><If when={value(ptc())?.writable && !value(ptc())?.persistent}><Action id="host-enable-ptc" label={words().enable} disabled={busy()} press={() => ask(words().enable, { method: 'enablePersistentPtc' })} /></If></If>
         <State result={apps()} />
         {[{ key: 'allowedApps' as const, label: words().allowed, method: 'revoke' as const }, { key: 'blockedApps' as const, label: words().blocked, method: 'retryApproval' as const }].map(group => <View class="gap-2"><Text class="text-foreground text-[14px]">{group.label}</Text><If when={value(apps())?.[group.key].length === 0}><Text class="text-muted-foreground text-[13px]">{words().empty}</Text></If>{(value(apps())?.[group.key] ?? []).map(a => <View class="border-t border-border py-2 gap-1"><Text class="text-foreground text-[14px]">{a.name}</Text><Text class="text-muted-foreground text-[12px]">{a.executablePath || a.id}</Text><Action id={`host-${group.method}-${a.id}`} label={group.method === 'revoke' ? words().revoke : words().retry} disabled={busy()} press={() => ask(`${a.name} · ${group.method === 'revoke' ? words().revoke : words().retry}`, { method: group.method, id: a.id })} /></View>)}</View>)}
       </View>
-      <View testID="host-account" class="rounded-[14px] bg-card border border-border p-[14px] gap-2"><Text class="text-foreground text-[15px] font-medium">{words().account}</Text><Text class="text-muted-foreground text-[13px]">{words().callback}</Text><State result={account()} /><If when={value(account())}><Text class="text-foreground text-[14px]">{value(account())?.status === 'signed-out' ? words().signedOut : words().stored}</Text><If when={value(account())?.attempt}><Text class="text-muted-foreground text-[13px]">{value(account())?.attempt?.phase} · {value(account())?.attempt?.errorCode ?? ''}</Text></If></If>
+      </If><If when={want('account')}><View testID="host-account" class="rounded-[14px] bg-card border border-border p-[14px] gap-2"><Text class="text-foreground text-[15px] font-medium">{words().account}</Text><Text class="text-muted-foreground text-[13px]">{words().callback}</Text><State result={account()} /><If when={value(account())}><Text class="text-foreground text-[14px]">{value(account())?.status === 'signed-out' ? words().signedOut : words().stored}</Text><If when={value(account())?.attempt}><Text class="text-muted-foreground text-[13px]">{value(account())?.attempt?.phase} · {value(account())?.attempt?.errorCode ?? ''}</Text></If></If>
         <If when={identityMissing()}><Text class="text-muted-foreground text-[13px]">{words().identity}</Text></If>
         <If when={snapshot().uncertain}><Text class="text-destructive text-[13px]">{words().uncertain}</Text></If>
         <If when={snapshot().canSignOut}><Action id="host-signout" label={words().signOut} disabled={busy()} press={() => void run(async () => { const ticket = await lifecycle.prepareSignOut(); if (alive) signOut.set(ticket) })} /></If>
@@ -144,7 +149,7 @@ export function HostSettings(props: { client?: () => AccountClient; clientVersio
         <Text class="text-foreground text-[14px]">{words().notices}</Text><State result={notices()} /><If when={value(notices())?.notifications.filter(n => noticeVisible(n)).length === 0}><Text class="text-muted-foreground text-[13px]">{words().empty}</Text></If>{(value(notices())?.notifications.filter(n => noticeVisible(n)) ?? []).map((n, i) => <Action id={`host-notice-${n.id}`} label={`${words().content} ${i + 1}`} disabled={busy()} press={() => readNotice(n.id)} />)}
         <If when={notice()}><NoticeFrame notice={notice} active={() => foreground() && online()} shown={id => void lifecycle.presented(id, snapshot().generation)}><Text class="text-foreground text-[14px]">{notice()?.title}</Text><Text class="text-muted-foreground text-[13px]">{notice()?.body}</Text>{(notice()?.actions ?? []).map(a => <Action id={`host-notice-action-${a.target.type}`} label={a.label} disabled={busy()} press={() => { const n = notice(); if (n) noticeAction(n, a.target.type === 'dismiss') }} />)}</NoticeFrame></If>
       </View>
-      <View testID="host-plugins" class="rounded-[14px] bg-card border border-border p-[14px] gap-2"><Text class="text-foreground text-[15px] font-medium">{words().plugins}</Text><Text class="text-muted-foreground text-[13px]">{words().clientSync}</Text><State result={inventory()} /><If when={value(inventory())?.entries.length === 0}><Text class="text-muted-foreground text-[13px]">{words().empty}</Text></If>{(value(inventory())?.entries ?? []).map(row => <InventoryEntry row={row} />)}{(value(inventory())?.agentPresets ?? []).map(p => <View class="gap-1"><Text class="text-foreground text-[14px]">{p.name || p.id}{p.isDefault ? ` · ${words().current}` : ''}</Text><If when={p.broken}><Text class="text-destructive text-[13px]">{p.broken}</Text></If>{p.rows.map(row => <InventoryEntry row={row} />)}</View>)}</View>
+      </If><If when={want('inventory')}><View testID="host-plugins" class="rounded-[14px] bg-card border border-border p-[14px] gap-2"><Text class="text-foreground text-[15px] font-medium">{words().plugins}</Text><Text class="text-muted-foreground text-[13px]">{words().clientSync}</Text><State result={inventory()} /><If when={value(inventory())?.entries.length === 0}><Text class="text-muted-foreground text-[13px]">{words().empty}</Text></If>{(value(inventory())?.entries ?? []).map(row => <InventoryEntry row={row} />)}{(value(inventory())?.agentPresets ?? []).map(p => <View class="gap-1"><Text class="text-foreground text-[14px]">{p.name || p.id}{p.isDefault ? ` · ${words().current}` : ''}</Text><If when={p.broken}><Text class="text-destructive text-[13px]">{p.broken}</Text></If>{p.rows.map(row => <InventoryEntry row={row} />)}</View>)}</View></If>
     </If>
   </View>
 }

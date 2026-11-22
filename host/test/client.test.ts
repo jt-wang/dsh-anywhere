@@ -81,3 +81,16 @@ test('the phone changes card names plugins, providers and settings as DSH Deskto
   ]);
   assert.ok(lines.every(l => !/@|dsh-|_API_KEY|\.|agent-preset|selectedDefault|reasoningEffort/.test(l)), 'no package, key or setting id shows');
 });
+
+// A phone that turned DSH Anywhere off cut every phone off; this page could not say so while it was off. Once DSH
+// Anywhere runs again it names the phone, only when that change is the newest one.
+test('the page names the phone that turned DSH Anywhere off or removed it, once it runs again', async () => {
+  const { selfOffNotice } = await load();
+  const at = Date.UTC(2026, 10, 22, 3, 4);
+  assert.match(selfOffNotice([{ method: 'pluginManager/setBundleEnabled', target: '@jt-wang/dsh-anywhere off', deviceName: 'Pixel 9', at }]) ?? '', /^Pixel 9 turned off DSH Anywhere .*It is on again now/);
+  assert.match(selfOffNotice([{ method: 'pluginManager/removeBundle', target: '@jt-wang/dsh-anywhere', deviceName: 'iPhone', at }]) ?? '', /^iPhone uninstalled DSH Anywhere/);
+  assert.equal(selfOffNotice([{ method: 'pluginManager/setBundleEnabled', target: '@jt-wang/dsh-anywhere on', deviceName: 'iPhone', at }]), undefined);
+  assert.equal(selfOffNotice([{ method: 'pluginManager/setBundleEnabled', target: '@deepseek-ai/dsh-cua-bundle off', deviceName: 'iPhone', at }]), undefined);
+  assert.equal(selfOffNotice([{ method: 'settings/mutate', target: 'ui-theme preference', at }, { method: 'pluginManager/removeBundle', target: '@jt-wang/dsh-anywhere', at }]), undefined, 'only the newest change');
+  assert.equal(selfOffNotice([]), undefined);
+});

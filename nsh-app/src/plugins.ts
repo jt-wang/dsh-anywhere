@@ -9,6 +9,9 @@ import { pluginStrings } from './plugins-strings.ts'
 /** Voice input: DSH's speech API and the SenseVoice model behind it come with this bundle. */
 export const VOICE_BUNDLE = '@deepseek-ai/dsh-experimental-voice-input-bundle'
 /** DSH Desktop's "Extensions" group, in its order. */
+/** DSH Anywhere's own bundle: it carries every phone's link, so it is never an ordinary row with a switch here; Computer
+ * settings' danger zone turns it off, updates or removes it, after two confirmations. */
+export const SELF = '@jt-wang/dsh-anywhere'
 export const EXTENSIONS = [VOICE_BUNDLE, '@deepseek-ai/dsh-experimental-plugin-market-bundle', '@deepseek-ai/dsh-experimental-auto-review']
 
 type Localized = string | Record<string, string>
@@ -25,6 +28,8 @@ export interface Bundle {
   installed: boolean
   optional: boolean
   removable: boolean
+  /** How DSH can update it: from its registry, or from a pinned Git commit (dsh-plugin-manager types.ts BundleInfo.update). */
+  update?: 'registry' | 'git'
   readOnlyReason?: 'management-required' | 'unaddressable'
   error?: { code: string; diagnostic?: string }
 }
@@ -65,7 +70,7 @@ export const descriptionOf = (b: Bundle, lang: string) => exact(b.meta?.descript
 
 /** The bundles DSH Desktop lists, in its groups: its extensions first, then the others it shows. */
 export function listed(bundles: Bundle[]): { extensions: Bundle[]; more: Bundle[] } {
-  const shown = bundles.filter((b) => b.listedByDefault || b.enabled || b.installed)
+  const shown = bundles.filter((b) => b.name !== SELF && (b.listedByDefault || b.enabled || b.installed))
   const extensions = EXTENSIONS.map((n) => shown.find((b) => b.name === n)).filter((b): b is Bundle => !!b)
   const more = shown.filter((b) => !EXTENSIONS.includes(b.name)).sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name))
   return { extensions, more }

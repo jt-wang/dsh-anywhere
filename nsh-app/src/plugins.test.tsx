@@ -2,7 +2,8 @@
 import { expect, open, test, type App } from 'nsh/test'
 
 const start = (params: Record<string, unknown> = {}, locale = 'en-US') => open('./fixtures/plugins/App.tsx', { locale, host: { params, handlers: { 'fixture.rpc': null } } })
-const writes = (app: App) => app.host.posts().filter(p => p.name === 'fixture.rpc').map(p => (p.data as { name: string }).name).filter(n => n !== 'pluginManager/listBundles')
+// What the page asked the computer to change: its reads (the list, versions, settings) are not changes.
+const writes = (app: App) => app.host.posts().filter(p => p.name === 'fixture.rpc').map(p => (p.data as { name: string }).name).filter(n => n.startsWith('pluginManager/') && !/\/list/.test(n))
 
 test('lists the plugins in DSH Desktop\'s groups, by their own names, with what each is', async () => {
   const app = await start()

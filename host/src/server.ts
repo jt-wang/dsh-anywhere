@@ -91,6 +91,12 @@ class RateLimiter {
   }
 }
 const AUTH_FAILURES_PER_PEER = 30;
+/** The DSH calls a phone that may only read can make through the relay: reads of the computer's settings, plugins,
+ * providers and presets (DSH 0.2.2-rc.5). None changes the computer; none returns a secret (settings/describe and
+ * credentials/describe are redacted by DSH). The account, chats and every stream stay owner-only. */
+const READ_ONLY_CALLS = new Set(['settings/describe', 'credentials/describe', 'permissionPresets/catalog', 'pluginManager/listBundles', 'pluginInventory/list',
+  'llm/listConfigurableProviders', 'llm/listProviders', 'agentPresets/list', 'agentPresets/read', 'web/listProviders', 'cotTranslation/limits',
+  'cuaAccess/systemStatus', 'cuaAccess/applications', 'cuaAccess/ptcConfiguration', 'speech/catalog']);
 /** Upstream may store by display name on Windows: no ADS, device names or silently trimmed suffixes. */
 export function portableUploadName(name: string): string {
   let safe = name.replace(/[<>:"|?*]/g, '_').replace(/[. ]+$/, '');
@@ -569,6 +575,8 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
     catch (error) { stop(); throw error; }
   }
 
+  /** Whether a device may change the computer: read and run every workspace (capabilities.control on the phone). */
+  const controls = (device: AuthorizedDevice) => device.grants.readWorkspaceIds.includes('*') && device.grants.executeWorkspaceIds.includes('*');
   /** DSH's API is owner access: only a device granted every workspace may use the relay. */
   function ownerRelay(device: AuthorizedDevice): DshRelay {
     const { readWorkspaceIds, executeWorkspaceIds } = device.grants;
@@ -634,6 +642,15 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
       const url = new URL(req.url.slice(4), 'http://localhost'); takeCredential(req, url, false);
       const device = authorized(req);
       if (url.pathname.startsWith('/companion/')) { await companionCall(device, req, res, url, signal); return; }
+      // A phone that may read every workspace but run none (`pair --read all` without --execute) may still read the
+      // computer's settings and plugin list, never change them: only these DSH calls, and no WebSocket (upgrade below).
+      if (!controls(device)) {
+        if (!device.grants.readWorkspaceIds.includes('*') || req.method !== 'POST' || !READ_ONLY_CALLS.has(url.pathname.slice('/api/'.length))) throw new HostError('forbidden');
+        const relay = options.dsh?.();
+        if (!relay) throw new HostError('unavailable');
+        if (!relay.serve(req, res, url)) throw new HostError('not_found');
+        return;
+      }
       ownerRelay(device);
       // Changes of the computer's settings and plugins are kept with the phone's name, for the computer's Settings page.
       if (!options.dsh?.()?.serve(req, res, url, change => state.recordPhoneChange(device, change.method, change.target, change.label))) throw new HostError('not_found');
@@ -703,7 +720,7 @@ export async function createHostServer(options: HostServerOptions): Promise<Mobi
       sendJson(res, 200, { items: workspaces.filter(workspace => allowsWorkspace(current.grants.readWorkspaceIds, workspace.id)).map(workspace => ({ id: workspace.id, name: workspace.name, canExecute: allowsWorkspace(current.grants.executeWorkspaceIds, workspace.id) })) }); return;
     }
     if (req.method === 'GET' && url.pathname === '/v1/capabilities') {
-      sendJson(res, 200, { protocolVersion: 1, hostVersion: HOST_VERSION, release: RELEASE_VERSION, hostName: config.hostName, computerName: await (naming ??= computerName()), upstreamVersion: adapter.upstreamVersion, capabilities: { sessions: true, textPrompt: true, cancel: true, liveSnapshots: true, questionSkip: false, fileDownload: false, ...(adapter.phoneCapabilities?.() ?? { attachments: false, questions: false, steer: false, queue: false, rename: false, models: false }), approvals: false, push: false, notifications: !!notifications, ...(options.progress?.() ? { progress: true } : {}) }, notificationCapabilities: { version: 1, coverage: notifications?.coverage ?? 'degraded', feed: !!notifications, unifiedPush: false, retentionMs: 604800000 } }); return;
+      sendJson(res, 200, { protocolVersion: 1, hostVersion: HOST_VERSION, release: RELEASE_VERSION, hostName: config.hostName, computerName: await (naming ??= computerName()), upstreamVersion: adapter.upstreamVersion, capabilities: { sessions: true, textPrompt: true, cancel: true, liveSnapshots: true, questionSkip: false, fileDownload: false, ...(adapter.phoneCapabilities?.() ?? { attachments: false, questions: false, steer: false, queue: false, rename: false, models: false }), approvals: false, push: false, notifications: !!notifications, ...(options.progress?.() ? { progress: true } : {}), control: controls(freshDevice(device.deviceId)) }, notificationCapabilities: { version: 1, coverage: notifications?.coverage ?? 'degraded', feed: !!notifications, unifiedPush: false, retentionMs: 604800000 } }); return;
     }
     if (req.method === 'GET' && url.pathname === '/v1/models') {
       if (!adapter.models) throw new HostError('unavailable');

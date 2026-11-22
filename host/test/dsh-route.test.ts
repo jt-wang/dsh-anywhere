@@ -89,6 +89,42 @@ test('a change DSH made is kept with the phone\'s name and DSH\'s own names for 
   assert.ok(kept.every(c => Number.isFinite(c.at) && c.deviceId.length > 0))
 });
 
+// A phone paired to read every workspace but run none sees the computer's settings and plugins (Computer settings on
+// the phone shows them without controls); it changes nothing, opens no socket, and a phone limited to some workspaces
+// sees none of it.
+test('a phone that may only read reads the computer\'s settings and plugins, and changes nothing', async t => {
+  const { dsh, base, pair, owner } = await setup(t);
+  dsh.answers.set('settings/describe', () => ({ writable: true, hasDocument: true, namespaces: [] }));
+  dsh.answers.set('pluginManager/listBundles', () => []);
+  const call = (method: string, token: string) => fetch(`${base}/dsh/api/${method}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ type: 'client-request', rpcId: 'r', method, payload: { args: {} } }) });
+  const reader = pair({ readWorkspaceIds: ['*'], executeWorkspaceIds: [] }), some = pair({ readWorkspaceIds: ['alpha'], executeWorkspaceIds: ['alpha'] });
+  assert.equal((await call('settings/describe', reader)).status, 200);
+  assert.equal((await call('pluginManager/listBundles', reader)).status, 200);
+  for (const method of ['settings/mutate', 'pluginManager/setBundleEnabled', 'pluginManager/removeBundle', 'credentials/set', 'session/list']) assert.equal((await call(method, reader)).status, 403, method);
+  assert.equal((await call('settings/describe', some)).status, 403);
+  const forwarded = dsh.seen.filter(x => x.path.startsWith('/api/')).map(x => x.path);
+  assert.deepEqual(forwarded, ['/api/settings/describe', '/api/pluginManager/listBundles']);
+  const socket = new WebSocket(`${base.replace('http', 'ws')}/dsh/api/remote.mux?dshm_key=${reader}`);
+  const refused = await new Promise<number>(resolve => { socket.once('unexpected-response', (_r, res) => resolve(res.statusCode ?? 0)); socket.once('open', () => resolve(101)); socket.once('error', () => resolve(0)); });
+  assert.equal(refused, 403, 'no socket for a phone that may only read');
+  const control = async (token: string) => ((await (await fetch(`${base}/v1/capabilities`, { headers: { authorization: `Bearer ${token}` } })).json()) as { capabilities: { control: boolean } }).capabilities.control;
+  assert.equal(await control(reader), false);
+  assert.equal(await control(owner), true);
+});
+
+// Turning DSH Anywhere off (or removing or updating it) stops the companion while DSH acts, so the change is kept before
+// DSH answers: DSH Desktop's page names the phone once DSH Anywhere runs again.
+test('a phone turning DSH Anywhere itself off is kept before DSH answers, even when no answer comes back', async t => {
+  const { dsh, host, base, owner } = await setup(t);
+  dsh.answers.set('pluginManager/setBundleEnabled', () => { throw new Error('operation-error'); });
+  const res = await fetch(`${base}/dsh/api/pluginManager/setBundleEnabled`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${owner}` }, body: JSON.stringify({ type: 'client-request', rpcId: 'r', method: 'pluginManager/setBundleEnabled', payload: { args: { name: '@jt-wang/dsh-anywhere', enabled: false } } }) });
+  assert.equal(res.status, 200);
+  const kept = host.state.listPhoneChanges();
+  assert.deepEqual(kept.map(({ deviceName, method, target, label }) => ({ deviceName, method, target, label })), [
+    { deviceName: 'Synthetic phone', method: 'pluginManager/setBundleEnabled', target: '@jt-wang/dsh-anywhere off', label: { title: 'DSH Anywhere' } },
+  ]);
+});
+
 test('an expired DSH session is renewed once and the request still succeeds', async t => {
   const { dsh, post, owner } = await setup(t);
   assert.equal((await post('/api/session/list', owner)).status, 200);

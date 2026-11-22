@@ -25,7 +25,7 @@ DSH 会加载这个插件。插件第一次启动时，在 `~/Library/Applicatio
 
 ## 更新
 
-DSH Desktop 自己会更新：有新版本时，侧边栏「插件」里的 `@jt-wang/dsh-anywhere` 会标出来，点更新即可。一分钟内 `companion.log` 最后一行还不是 `running <新版本号>` 的话，退出并重新打开 DSH Desktop。已配对的手机不用重新配对。
+DSH Desktop 自己会更新：有新版本时，侧边栏「插件」里的 `@jt-wang/dsh-anywhere` 会标出来，点更新即可，不用重启。如果是在终端里用 `dsh plugin --profile desktop add @jt-wang/dsh-anywhere@latest` 更新的，要退出并重新打开 DSH Desktop，否则它还在用旧版本。更新后 `companion.log` 最后一行是 `running <新版本号>`。已配对的手机不用重新配对。
 
 用 GitHub 下载装过 DSH Anywhere 0.1.10 或更早版本的，那个包名叫 `dsh-anywhere`，DSH 没法更新它，需要手动改装一次（见
 [AGENT-INSTALL.md 第 7 节](../AGENT-INSTALL.md#7-switch-from-the-github-download)）：先确认装的 `dsh-anywhere` 是 DSH Anywhere

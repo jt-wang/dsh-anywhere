@@ -1,8 +1,8 @@
 {
   "name": "DSH",
   "id": "io.jingtao.dshanywhere",
-  "version": "0.1.16",
-  "build": 17,
+  "version": "0.1.17",
+  "build": 18,
   "appearance": "system",
   "theme": {
     "cssVars": {
@@ -26,7 +26,7 @@
         "muted-foreground": "#6C6B65",
         "accent": "#EFEEEA",
         "accent-foreground": "#26251E",
-        "destructive": "#CF2D56",
+        "destructive": "#FF3B30",
         "border": "#E5E4DF",
         "input": "#DCDBD6",
         "ring": "#26251E",
@@ -48,7 +48,7 @@
         "muted-foreground": "#8E8D88",
         "accent": "#27251F",
         "accent-foreground": "#EDECEC",
-        "destructive": "#CF2D56",
+        "destructive": "#FF453A",
         "border": "#2B2923",
         "input": "#36342E",
         "ring": "#EDECEC",

@@ -5,13 +5,13 @@
 import { cleanup, effect, signal, Text, View } from 'nsh'
 import type { ConnectionState } from './dsh.ts'
 import { causeOf, type Cause, type Check } from './reach.ts'
-import { appActive, check as lastCheck, connection as reachState, network as phoneNetwork, reconnect, retryAt as nextTry, routeText as route, unlink } from './state.ts'
+import { appActive, check as lastCheck, connection as reachState, network as phoneNetwork, reconnect, retryAt as nextTry, routeText as route, trying, unlink } from './state.ts'
 import { S } from './strings.ts'
 import { BottomSheet, Grabber, LiveDot, sheetBottom } from './ui.tsx'
 
-export interface Reach { connection: () => ConnectionState; network: () => boolean; active: () => boolean; check: () => Check | undefined; retryAt: () => number | undefined; routeText: () => string; open: { (): boolean; set(v: boolean): void }; retry: () => void; relink: () => void }
+export interface Reach { connection: () => ConnectionState; network: () => boolean; active: () => boolean; check: () => Check | undefined; retryAt: () => number | undefined; routeText: () => string; open: { (): boolean; set(v: boolean): void }; retry: () => void; relink: () => void; /** Try it: sample data on this phone, no computer to reach. */ sample?: () => boolean }
 const open = signal(false)
-const live: Reach = { connection: reachState, network: phoneNetwork, active: appActive, check: lastCheck, retryAt: nextTry, routeText: route, open, retry: reconnect, relink: unlink }
+const live: Reach = { connection: reachState, network: phoneNetwork, active: appActive, check: lastCheck, retryAt: nextTry, routeText: route, open, retry: reconnect, relink: unlink, sample: trying }
 
 const dotClass: Record<Cause, string> = { connected: 'bg-emerald-500', slow: 'bg-amber-500', trying: 'bg-amber-500', 'no-network': 'bg-destructive', blocked: 'bg-destructive', computer: 'bg-destructive', companion: 'bg-destructive', refused: 'bg-destructive' }
 
@@ -71,7 +71,17 @@ export function ConnectionBar(props: { reach?: Reach; always?: boolean }) {
   const quiet = () => cause() === 'connected'
   const line = () => [titleOf(cause(), r), cause() === 'connected' ? r.routeText() : ''].filter(Boolean).join(' · ')
   const sub = () => retryText(r, cause(), now)
+  // The sample reaches no computer: the bar says what the banner says, with no dot that means a connection.
+  const sample = () => (
+    <If when={props.always}>
+      <View testID="connection" accessibilityLabel={S.tryIt.onPhone} class="mx-4 mt-1 mb-2 flex-row items-center gap-2 px-3 min-h-[36px] py-[5px]">
+        <View class="w-[8px] h-[8px] rounded-full bg-muted-foreground" />
+        <Text class="flex-1 text-muted-foreground text-[13px] leading-[18px]">{S.tryIt.onPhone}</Text>
+      </View>
+    </If>
+  )
   return (
+    <If when={!r.sample?.()} else={sample()}>
     <If when={!quiet() || props.always}>
       <View role="button" testID="connection" accessibilityLabel={`${S.reach.title}: ${line()}`} onPress={() => r.open.set(true)}
         class={`mx-4 mt-1 mb-2 flex-row items-center gap-2 rounded-[10px] px-3 min-h-[36px] py-[5px] active:opacity-70 ${quiet() ? '' : 'bg-secondary'}`}>
@@ -88,6 +98,7 @@ export function ConnectionBar(props: { reach?: Reach; always?: boolean }) {
         </If>
       </View>
     </If>
+    </If>
   )
 }
 
@@ -96,10 +107,12 @@ export function ConnectionDot(props: { reach?: Reach }) {
   const r = props.reach ?? live
   const cause = shownCause(r)
   return (
+    <If when={!r.sample?.()}>
     <View role="button" testID="connection-dot" accessibilityLabel={`${S.reach.title}: ${titleOf(cause(), r)}`} onPress={() => r.open.set(true)} hitSlop={6}
       class="w-[24px] h-[36px] items-center justify-center active:opacity-60">
       <Dot cause={cause()} />
     </View>
+    </If>
   )
 }
 

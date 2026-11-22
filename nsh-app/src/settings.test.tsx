@@ -114,9 +114,19 @@ test('with notifications off for the app, Settings says so and opens the phone\'
   expect(app.host.calls().some((c) => c.name === 'notify.settings')).toBe(true)
 })
 
-test('Unlink in Settings forgets the computer', async () => {
+test('Unlink says what it costs and needs both steps; Cancel keeps the link', async () => {
   const app = await settings(true)
   await app.press('id:settings-unlink')
+  await app.waitFor('id:danger-sheet')
+  expect(app.texts()).toContain('This phone forgets the computer and stops showing its chats. Other phones stay connected. To use this phone again, pair it again on the computer.')
+  // The word is not typed yet: the red button does not take a press.
+  expect(app.enabled('id:danger-confirm')).toBe(false)
+  expect(app.host.calls().some((c) => c.name === 'link.forget')).toBe(false)
+  await app.press('id:danger-cancel'); await app.wait(300)
+  expect(app.host.calls().some((c) => c.name === 'link.forget')).toBe(false)
+  await app.press('id:settings-unlink')
+  await app.type('id:danger-word', 'dsh anywhere')
+  await app.press('id:danger-confirm')
   await app.waitFor('text:Link your computer')
   expect(app.host.calls().some((c) => c.name === 'link.forget')).toBe(true)
 })

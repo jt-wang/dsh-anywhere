@@ -141,6 +141,17 @@ function Change({ change }) {
 }
 
 /** Active phones first, newest pairing first; revoked ones folded under their own heading, newest revocation first. */
+/** When the newest change a phone made turned DSH Anywhere off or removed it, which phone did it and that phones
+ * reconnect now. This page could not show it while DSH Anywhere was off, so it says it once DSH Anywhere runs again
+ * (host dsh-relay.ts keeps such a change before DSH acts on it). */
+export function selfOffNotice(changes) {
+  const last = changes?.[0];
+  if (!last || !String(last.target ?? '').startsWith(PACKAGE)) return undefined;
+  const off = last.method === 'pluginManager/setBundleEnabled' && / off$/.test(last.target);
+  if (!off && last.method !== 'pluginManager/removeBundle') return undefined;
+  return t(off ? 'changes.selfOff' : 'changes.selfRemove', { device: last.deviceName || t('devices.phone'), time: when(last.at) });
+}
+
 export function sortDevices(devices) {
   const active = devices.filter(device => device.revokedAt === null).sort((a, b) => b.createdAt - a.createdAt);
   const revoked = devices.filter(device => device.revokedAt !== null).sort((a, b) => b.revokedAt - a.revokedAt);
@@ -261,8 +272,10 @@ function Section({ embedded = false } = {}) {
       h('button', { type: 'button', style: { ...button, marginTop: 8 }, onClick: refresh }, t('error.retry'))));
   if (status === undefined) return h('div', { style: section, 'data-state': 'loading' }, header, h('div', { style: label }, t('status.loading')));
 
+  const selfOff = selfOffNotice(changes);
   return h('div', { style: section, 'data-state': active.length ? 'paired' : 'unpaired' },
     header,
+    selfOff ? h('div', { style: card, role: 'status', 'data-section': 'self-off' }, selfOff) : null,
     h(Pairing, { onChanged: refresh }),
     h('div', { style: card },
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingBottom: 4 } },

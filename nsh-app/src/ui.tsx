@@ -36,8 +36,14 @@ import clock from '../assets/icons/clock.svg'
 import info from '../assets/icons/info.svg'
 import route from '../assets/icons/route.svg'
 import mic from '../assets/icons/mic.svg'
+import globe from '../assets/icons/globe.svg'
+import layers from '../assets/icons/layers.svg'
+import monitor from '../assets/icons/monitor.svg'
+import puzzle from '../assets/icons/puzzle.svg'
+import repeat from '../assets/icons/repeat.svg'
+import user from '../assets/icons/user.svg'
 
-export const icons = { archive, arrowUp, at, bot, check, chevronDown, chevronRight, clock, compose, copy, file, folder, fork, image, info, listChecks, message, mic, more, pencil, pin, plus, restore, route, search, sliders, terminal, textSelect, unlink, x }
+export const icons = { archive, arrowUp, at, bot, check, chevronDown, chevronRight, clock, compose, copy, file, folder, fork, globe, image, info, layers, listChecks, message, mic, monitor, more, pencil, pin, plus, puzzle, repeat, restore, route, search, sliders, terminal, textSelect, unlink, user, x }
 export type IconName = keyof typeof icons
 
 /** The sizes icons come in: each draws a 1.5 pt line (scripts/icon-strokes.mjs). */

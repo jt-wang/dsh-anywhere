@@ -92,9 +92,9 @@ on and awake, with DSH Desktop open, for the phone to reach it.
 
 DSH Desktop updates the plugin itself: **Plugins** in its sidebar marks `@jt-wang/dsh-anywhere` when a newer version
 is out, and its Update button installs it (DSH's own plugin manager, which puts the old version back if the new one
-fails). From a terminal, `dsh plugin --profile desktop add @jt-wang/dsh-anywhere@latest` does the same. Then check that
-`companion.log` ends with `running <new version>`; if it does not within a minute, ask the person to quit and reopen
-DSH Desktop. Paired phones stay paired. The phone app says when it and the computer come from different releases, and
+fails), with no restart. From a terminal, `dsh plugin --profile desktop add @jt-wang/dsh-anywhere@latest` installs the
+new version too, but a running DSH Desktop keeps the old one until it restarts: ask the person to quit and reopen DSH
+Desktop. Either way, check that `companion.log` ends with `running <new version>`. Paired phones stay paired. The phone app says when it and the computer come from different releases, and
 which one to update.
 
 ## 6. Remove

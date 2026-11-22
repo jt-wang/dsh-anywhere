@@ -27,19 +27,3 @@ export function desktopSettingsStrings(locale: string): Words {
   const values = translations[key]
   return values ? Object.fromEntries(Object.keys(EN).map((k, i) => [k, values[i]])) as Words : EN
 }
-
-export function desktopSettingsScope(locale: string) {
-  const l = locale.replace(/_/g, '-').toLowerCase()
-  const key = l.startsWith('zh') ? /hant|tw|hk|mo/.test(l) ? 'zh-Hant' : 'zh' : l.split('-')[0]
-  const copy: Record<string, string[]> = {
-    en: ['Keyboard shortcuts and update channel: can only be set on the computer.', 'Advanced live settings'],
-    zh: ['快捷键、更新渠道：只能在电脑上设置。', '高级实时设置'],
-    'zh-Hant': ['快捷鍵、更新管道：只能在電腦上設定。', '進階即時設定'],
-    es: ['Atajos de teclado y canal de actualización: solo se configuran en el ordenador.', 'Ajustes avanzados en vivo'],
-    fr: ['Raccourcis clavier et canal de mise à jour : réglables uniquement sur l’ordinateur.', 'Réglages avancés en direct'],
-    ko: ['키보드 단축키와 업데이트 채널은 컴퓨터에서만 설정할 수 있습니다.', '고급 실시간 설정'],
-    ja: ['キーボードショートカットと更新チャネルはコンピュータでのみ設定できます。', '高度なライブ設定'],
-    ru: ['Сочетания клавиш и канал обновлений настраиваются только на компьютере.', 'Расширенные текущие настройки'],
-  }
-  return copy[key] ?? copy.en
-}

@@ -116,6 +116,7 @@ test('changing pairing at the same origin clears old history and drafts, and unl
   expect(app.shows('text:History-s1-v1')).toBe(false)
   await app.waitUntil(() => !JSON.stringify(app.storage()).includes('Private draft for A'))
   await app.press('id:more'); await app.press('id:menu-settings'); await app.press('id:settings-unlink')
+  await app.type('id:danger-word', 'DSH Anywhere'); await app.press('id:danger-confirm')
   await app.waitFor('text:Link your computer')
   await app.waitUntil(() => !Object.keys(app.storage()).includes('offline-v1'))
   await app.wait(600) // an old page's delayed save must not recreate the deleted key

@@ -146,9 +146,10 @@ function AddProvider(p: { namespace: SettingsNamespace; taken: string[]; client:
   </View>
 }
 
-/** Native settings surface. Mount alongside DesktopSettings; no session picker changes. */
-export function ProviderSettings(props: { client?: () => Dsh } = {}) {
-  const client = props.client ?? dsh, open = signal(false), adding = signal(false), busy = signal(false), message = signal(''), snapshot = signal<ProviderSnapshot | undefined>(undefined)
+/** Computer settings › Models (computer-settings.tsx); no session picker changes. */
+/** `auto`: the Models page of Computer settings: read at once, no open or close button (the page's title names it). */
+export function ProviderSettings(props: { client?: () => Dsh; auto?: boolean } = {}) {
+  const client = props.client ?? dsh, open = signal(!!props.auto), adding = signal(false), busy = signal(false), message = signal(''), snapshot = signal<ProviderSnapshot | undefined>(undefined)
   let alive = true, generation = 0
   cleanup(() => { alive = false; generation++ })
   const load = async () => {
@@ -162,8 +163,10 @@ export function ProviderSettings(props: { client?: () => Dsh } = {}) {
   effect(() => { if (open() && connection() === 'online' && appActive()) void load() })
   const custom = () => snapshot()?.configuration.namespaces.find(ns => snapshot()?.rows.some(row => row.settingsNs === ns.ns && row.settingsPath[0] === 'providers') && providerChoices(ns, ['providers', '\u0000probe', 'api']).length > 0 && providerSchema(ns, ['providers', '\u0000probe', 'models']))
   return <View testID="provider-settings" class="gap-2 pt-5">
-    <Text class="px-2 text-muted-foreground text-[13px] font-medium">{w().title}</Text>
-    <Action id="provider-settings-open" label={open() ? common().refresh : w().open} disabled={busy()} press={() => { open.set(true); void load() }} />
+    <If when={!props.auto}>
+      <Text class="px-2 text-muted-foreground text-[13px] font-medium">{w().title}</Text>
+      <Action id="provider-settings-open" label={open() ? common().refresh : w().open} disabled={busy()} press={() => { open.set(true); void load() }} />
+    </If>
     <If when={open()}>
       <Text class="text-muted-foreground text-[13px]">{w().hint}</Text>
       <If when={busy()}><Text class="text-muted-foreground text-[13px]">{common().loading}</Text></If>
@@ -172,7 +175,7 @@ export function ProviderSettings(props: { client?: () => Dsh } = {}) {
       <Each of={snapshot()?.rows ?? []} key={row => `${row.provider}:${row.namespace?.revision}:${row.credential?.configured}:${row.credential?.masked ?? ''}`}>{row => <ProviderCard row={row()} client={client} writable={snapshot()?.configuration.writable === true && !busy()} refresh={load} />}</Each>
       <If when={custom() && !adding()}><Action id="provider-add" label={w().add} disabled={busy() || !snapshot()?.configuration.writable} press={() => adding.set(true)} /></If>
       <If when={adding() && custom()}><AddProvider namespace={custom()!} taken={snapshot()?.rows.map(r => r.provider) ?? []} client={client} writable={snapshot()?.configuration.writable === true && !busy()} done={async () => { adding.set(false); await load() }} /><Action id="provider-add-cancel" label={w().cancel} press={() => adding.set(false)} /></If>
-      <Action id="provider-settings-close" label={common().close} press={() => { generation++; adding.set(false); open.set(false); snapshot.set(undefined) }} />
+      <If when={!props.auto}><Action id="provider-settings-close" label={common().close} press={() => { generation++; adding.set(false); open.set(false); snapshot.set(undefined) }} /></If>
     </If>
   </View>
 }

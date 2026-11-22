@@ -32,8 +32,9 @@ Then open **Settings → DSH Anywhere → Pair a phone** in DSH. Remove it with 
 ## Update
 
 DSH Desktop updates it: **Plugins** in the sidebar marks `@jt-wang/dsh-anywhere` when a new version is out, and its
-Update button installs it. If `companion.log` does not end with `running <new version>` within a minute,
-quit and reopen DSH Desktop. Paired phones stay paired.
+Update button installs it with no restart. After an update from a terminal (`dsh plugin --profile desktop add
+@jt-wang/dsh-anywhere@latest`), quit and reopen DSH Desktop: until then it keeps the old version. Either way,
+`companion.log` then ends with `running <new version>`. Paired phones stay paired.
 
 Installed DSH Anywhere 0.1.10 or earlier from the GitHub download? That package is named `dsh-anywhere` and DSH cannot
 update it. Switch once, as in [AGENT-INSTALL.md § 7](../AGENT-INSTALL.md#7-switch-from-the-github-download): check that
