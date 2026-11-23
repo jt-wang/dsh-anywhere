@@ -89,6 +89,11 @@ final class ShellController: UIViewController {
             reply.resolve(["version": version, "build": build, "os": UIDevice.current.systemVersion,
                            "deviceClass": UIDevice.current.userInterfaceIdiom == .pad ? "tablet" : "phone"])
         }
+        // The phone's 12- or 24-hour clock from its settings: the times of day the app shows follow it (src/clock.ts).
+        app.handle("app.clock") { _, reply in
+            let format = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .autoupdatingCurrent) ?? ""
+            reply.resolve(["hourCycle": format.contains("a") ? "h12" : "h23"])
+        }
         diagnostics = Diagnostics(host: self)
         diagnostics.attach(app)
         modules = Modules(host: self)

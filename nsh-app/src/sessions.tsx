@@ -224,6 +224,10 @@ function ChatRow(props: { chat: () => Summary; snippet: () => string | undefined
     onPanResponderTerminate: () => { swiping = false; close() },
   })
   const swipes = () => actions() > 0
+  // One state for the row: a chat whose agent waits on a question or an approval reads only "Waiting for you", not
+  // also Working with a live dot.
+  const waiting = () => (asks(), pending.sessionsWaiting().includes(props.chat().sessionId))
+  const working = () => props.chat().running && !waiting()
   return (
     <View class="mx-3 rounded-[10px] overflow-hidden" onLayout={(e) => { width = e.bounds.size.width }}>
       <If when={swipes()}>
@@ -240,15 +244,15 @@ function ChatRow(props: { chat: () => Summary; snippet: () => string | undefined
         {...(swipes() ? { panActivation: { activeOffsetX: 12, failOffsetY: 10 }, ...responder.panHandlers } : {})}
         style={{ translate: [x, 0] }} class={`px-[10px] py-2 min-h-[57px] justify-center rounded-[10px] ${props.selected?.() ? 'bg-secondary' : 'bg-background'} active:bg-secondary transition-colors duration-150`}>
       <View class="flex-row items-center gap-2">
-        <If when={props.chat().running}><LiveDot /></If>
+        <If when={working()}><LiveDot /></If>
         <If when={props.pinned()}><View testID="row-pinned" accessibilityLabel={S.pinned}><Icon name="pin" size={14} class="tint-muted-foreground" /></View></If>
         <Text class="flex-1 text-foreground text-[15px] leading-[21px] font-medium line-clamp-1">{props.chat().title}</Text>
-        <If when={(asks(), pending.sessionsWaiting().includes(props.chat().sessionId))} else={<Text class="text-muted-foreground text-[11px] tabular-nums">{props.chat().updatedAt ? ago(props.chat().updatedAt) : ''}</Text>}>
+        <If when={waiting()} else={<Text class="text-muted-foreground text-[11px] tabular-nums">{props.chat().updatedAt ? ago(props.chat().updatedAt) : ''}</Text>}>
           <Text class="text-muted-foreground text-[12px] font-medium">{S.waiting}</Text>
         </If>
       </View>
       <If when={props.snippet()}><Text class="mt-[2px] text-muted-foreground text-[12px] leading-[18px] line-clamp-2">{props.snippet()}</Text></If>
-      <If when={!props.snippet() && (props.chat().running || props.chat().project || props.chat().cwd)}><Text class="mt-[2px] text-muted-foreground text-[12px] leading-[18px] line-clamp-1">{props.chat().running ? S.working : (props.chat().project || props.chat().cwd?.split(/[\\/]/).filter(Boolean).at(-1) || '')}</Text></If>
+      <If when={!props.snippet() && (working() || props.chat().project || props.chat().cwd)}><Text class="mt-[2px] text-muted-foreground text-[12px] leading-[18px] line-clamp-1">{working() ? S.working : (props.chat().project || props.chat().cwd?.split(/[\\/]/).filter(Boolean).at(-1) || '')}</Text></If>
       </View>
     </View>
   )

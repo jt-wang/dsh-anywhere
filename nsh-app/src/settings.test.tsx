@@ -109,7 +109,7 @@ test('Android 13+: the in-app language and the per-app language in the phone\'s 
 
 test('with notifications off for the app, Settings says so and opens the phone\'s settings', async () => {
   const app = await settings(false)
-  await app.waitFor('text:Notifications for DSH are off in the phone’s settings.')
+  await app.waitFor('text:Notifications for DSH Anywhere are off in the phone’s settings.')
   await app.press('id:notify-open-settings')
   expect(app.host.calls().some((c) => c.name === 'notify.settings')).toBe(true)
 })

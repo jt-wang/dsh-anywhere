@@ -189,5 +189,5 @@ export const ZH_HANT: Strings = {
   appearance: '外觀', themeSystem: '跟隨系統', themeLight: '淺色', themeDark: '深色', language: '語言', languageSystem: '跟隨系統',
   notifications: '通知', notifyAnswers: '回答完成或已停止', notifyDecisions: '代理需要你做決定', notifyBanners: '在 App 內顯示橫幅',
   notifyBackground: '在背景持續關注', notifyBackgroundHint: '代理工作時，常駐通知讓手機保持監聽。',
-  notifyDenied: '手機設定中已關閉 DSH 的通知。', notifyAllow: '開啟通知', openSystemSettings: '開啟手機設定',
+  notifyDenied: '手機設定中已關閉 DSH Anywhere 的通知。', notifyAllow: '開啟通知', openSystemSettings: '開啟手機設定',
 }

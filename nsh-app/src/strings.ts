@@ -214,7 +214,7 @@ const EN = {
   appearance: 'Appearance', themeSystem: 'System', themeLight: 'Light', themeDark: 'Dark', language: 'Language', languageSystem: 'Follow system',
   notifications: 'Notifications', notifyAnswers: 'Answer ready or stopped', notifyDecisions: 'Agent needs your decision', notifyBanners: 'Banners while in the app',
   notifyBackground: 'Keep watching in the background', notifyBackgroundHint: 'While an agent works, an ongoing notification keeps the phone listening.',
-  notifyDenied: 'Notifications for DSH are off in the phone’s settings.', notifyAllow: 'Turn on notifications', openSystemSettings: 'Open phone settings',
+  notifyDenied: 'Notifications for DSH Anywhere are off in the phone’s settings.', notifyAllow: 'Turn on notifications', openSystemSettings: 'Open phone settings',
 }
 export type Strings = typeof EN
 
@@ -396,7 +396,7 @@ const RU: Strings = {
   appearance: 'Оформление', themeSystem: 'Как в системе', themeLight: 'Светлое', themeDark: 'Тёмное', language: 'Язык', languageSystem: 'Как в системе',
   notifications: 'Уведомления', notifyAnswers: 'Ответ готов или остановлен', notifyDecisions: 'Агенту нужно ваше решение', notifyBanners: 'Баннеры в приложении',
   notifyBackground: 'Следить в фоне', notifyBackgroundHint: 'Пока агент работает, постоянное уведомление не даёт телефону перестать слушать.',
-  notifyDenied: 'Уведомления DSH выключены в настройках телефона.', notifyAllow: 'Включить уведомления', openSystemSettings: 'Открыть настройки телефона',
+  notifyDenied: 'Уведомления DSH Anywhere выключены в настройках телефона.', notifyAllow: 'Включить уведомления', openSystemSettings: 'Открыть настройки телефона',
 }
 
 /** The strings for a BCP 47 tag; Russian for a language the app does not have. Taiwan, Hong Kong and Macau write Traditional Chinese, whichever way the tag says it. */

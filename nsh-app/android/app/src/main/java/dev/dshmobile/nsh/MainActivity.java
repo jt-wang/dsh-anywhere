@@ -48,6 +48,9 @@ public final class MainActivity extends Activity {
             android.os.LocaleList now = locales.getApplicationLocales();
             reply.resolve(java.util.Map.of("supported", true, "tag", now.isEmpty() ? "" : now.get(0).toLanguageTag()));
         }));
+        // The phone's 12- or 24-hour clock from its settings: the times of day the app shows follow it (src/clock.ts).
+        app.handle("app.clock", (data, reply) ->
+            reply.resolve(java.util.Map.of("hourCycle", android.text.format.DateFormat.is24HourFormat(this) ? "h23" : "h12")));
         diagnostics = new Diagnostics(this);
         diagnostics.attach(app);
         new Modules(this).attach(app); // generated interfaces (`ui.open`)

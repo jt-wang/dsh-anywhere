@@ -84,6 +84,7 @@
       "network.state",
       "app.state",
       "app.info",
+      "app.clock",
       "app.language",
       "diagnostics.preferences.read",
       "diagnostics.preferences.write",

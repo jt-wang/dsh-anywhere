@@ -67,7 +67,7 @@ async function chooseTailcatOnly(on: boolean) {
 export function SettingsPage(props: { onDiagnostics: () => void; onComputer?: () => void }) {
   const appInfo = signal<{ version: string; build: string } | undefined>(undefined)
   const appInfoFailed = signal(false)
-  host.call<{ version: string; build: string }>('app.info').then((v) => appInfo.set(v), () => appInfoFailed.set(true))
+  host.call<{ version: string; build: string }>('app.info').then((v) => (v?.version ? appInfo.set(v) : appInfoFailed.set(true)), () => appInfoFailed.set(true))
   const computer = signal<{ name: string; companionVersion: string; release: string; dshVersion: string } | undefined>(undefined)
   const granted = signal<boolean | undefined>(undefined)
   const load = () => dsh().computer().then((c) => computer.set(c), () => {})

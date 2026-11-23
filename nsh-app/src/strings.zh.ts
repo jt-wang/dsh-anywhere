@@ -190,5 +190,5 @@ export const ZH: Strings = {
   appearance: '外观', themeSystem: '跟随系统', themeLight: '浅色', themeDark: '深色', language: '语言', languageSystem: '跟随系统',
   notifications: '通知', notifyAnswers: '回答完成或已停止', notifyDecisions: '智能体需要你做决定', notifyBanners: '在应用内显示横幅',
   notifyBackground: '在后台持续关注', notifyBackgroundHint: '智能体工作时，常驻通知让手机保持监听。',
-  notifyDenied: '手机设置中已关闭 DSH 的通知。', notifyAllow: '开启通知', openSystemSettings: '打开手机设置',
+  notifyDenied: '手机设置中已关闭 DSH Anywhere 的通知。', notifyAllow: '开启通知', openSystemSettings: '打开手机设置',
 }

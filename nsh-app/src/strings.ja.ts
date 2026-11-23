@@ -186,5 +186,5 @@ export const JA: Strings = {
   appearance: '外観', themeSystem: 'システム', themeLight: 'ライト', themeDark: 'ダーク', language: '言語', languageSystem: 'システムに合わせる',
   notifications: '通知', notifyAnswers: '回答の完了または停止', notifyDecisions: 'エージェントが判断を求めたとき', notifyBanners: 'アプリ使用中のバナー',
   notifyBackground: 'バックグラウンドで監視を続ける', notifyBackgroundHint: 'エージェントの作業中は、常駐通知によりスマートフォンが待ち受けを続けます。',
-  notifyDenied: 'DSH の通知はスマートフォンの設定でオフになっています。', notifyAllow: '通知をオンにする', openSystemSettings: 'スマートフォンの設定を開く',
+  notifyDenied: 'DSH Anywhere の通知はスマートフォンの設定でオフになっています。', notifyAllow: '通知をオンにする', openSystemSettings: 'スマートフォンの設定を開く',
 }

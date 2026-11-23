@@ -192,5 +192,5 @@ export const FR: Strings = {
   appearance: 'Apparence', themeSystem: 'Système', themeLight: 'Clair', themeDark: 'Sombre', language: 'Langue', languageSystem: 'Selon le système',
   notifications: 'Notifications', notifyAnswers: 'Réponse prête ou arrêt', notifyDecisions: 'L’agent attend votre décision', notifyBanners: 'Bannières dans l’app',
   notifyBackground: 'Continuer à surveiller en arrière-plan', notifyBackgroundHint: 'Pendant qu’un agent travaille, une notification permanente garde le téléphone à l’écoute.',
-  notifyDenied: 'Les notifications de DSH sont désactivées dans les réglages du téléphone.', notifyAllow: 'Activer les notifications', openSystemSettings: 'Ouvrir les réglages du téléphone',
+  notifyDenied: 'Les notifications de DSH Anywhere sont désactivées dans les réglages du téléphone.', notifyAllow: 'Activer les notifications', openSystemSettings: 'Ouvrir les réglages du téléphone',
 }

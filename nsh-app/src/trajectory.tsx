@@ -2,6 +2,7 @@
 // how long it took and when it started. The page follows the chat with its own Fold (session/follow, without the
 // assistant's text stream), so it stays live while the chat runs. Tool arguments and output never reach it.
 import { cleanup, computed, effect, List, signal, Text, View, type ListRef } from 'nsh'
+import { clockOptions } from './clock.ts'
 import { Fold, keepUnchanged, toolLabel, type Call, type Turn } from './fold.ts'
 import { duration } from './jobs.ts'
 import { dsh } from './state.ts'
@@ -30,7 +31,7 @@ export function TrajectoryPage(props: { sessionId: string }) {
   return <TrajectoryView turns={turns} loaded={loaded} error={error} retry={follow} />
 }
 
-const clock = (at: number) => new Date(at).toLocaleTimeString(S.ago.date, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const clock = (at: number) => new Date(at).toLocaleTimeString(S.ago.date, { hour: 'numeric', minute: '2-digit', second: '2-digit', ...clockOptions() })
 /** "Completed, 4s"; a running call has no length yet. */
 const meta = (c: Call) => (c.endedAt === undefined ? S.callStatus[c.status] : S.jobLine(S.callStatus[c.status], duration(c.endedAt - c.at)))
 

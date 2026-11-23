@@ -84,7 +84,7 @@ function QuestionCard(props: { request: Extract<Request, { kind: 'question' }>; 
             })}
           </View>
           <Input testID={`custom-${q.id}`} placeholder={q.options.length ? S.otherAnswer : S.yourAnswer} value={picks()[q.id]?.custom ?? ''} onChange={(e) => picks.update((p) => ({ ...p, [q.id]: { ...p[q.id], custom: e.value } }))}
-            style={buttonStyle} class="bg-secondary px-3 py-[8px] text-foreground placeholder:text-muted-foreground text-[15px]" />
+            style={buttonStyle} class="bg-secondary border border-transparent focus:border-ring px-3 py-[8px] text-foreground caret-foreground placeholder:text-muted-foreground text-[15px]" />
         </View>
       ))}
       <View class="flex-row gap-2">

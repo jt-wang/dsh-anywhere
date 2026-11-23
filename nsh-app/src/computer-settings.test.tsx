@@ -51,7 +51,8 @@ test('General: a switch, a choice and a number each write DSH\'s exact path with
   await app.waitUntil(() => writes(dsh).length === 2)
   expect(writes(dsh)[1]!.args).toEqual({ ns: 'ui-theme', ops: [{ op: 'set', path: ['preference'], value: 'dark' }], expectedRevision: 1 })
   await app.waitUntil(() => dsh.calls.filter(c => c.method === 'settings/describe').length >= 3)
-  expect(app.texts().filter(t => t === 'Dark').length).toBe(1)
+  // The choice's menu may still be closing; once it has, the page shows the one answer.
+  await app.waitUntil(() => app.texts().filter(t => t === 'Dark').length === 1)
   // A conflict (changed in DSH Desktop meanwhile) reads the computer again and says so; it is not retried.
   dsh.conflictNext()
   await app.press('id:field-busyEnter')

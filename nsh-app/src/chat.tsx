@@ -328,7 +328,7 @@ export function ChatScreen(props: { sessionId: string; onTitle: (t: string) => v
         {(r) => <RowView sessionId={props.sessionId} item={r} line={line} live={() => running() && r().id === lastProcess()} open={() => open().has(r().id)} toggle={() => toggle(r().id)}
           animateWork={() => workActive() && r().id === workRow()}
           thinkingOpen={() => !foldedThinking().has(r().id)} toggleThinking={() => toggleThinking(r().id)}
-          continuation={{ visible: () => failedEnding() !== undefined && r().id === `failure:${failedEnding()}`, state: continuationState, blocked: continuationBlocked, send: continueGeneration, refresh: refreshContinuation }}
+          continuation={{ visible: () => !trying() && failedEnding() !== undefined && r().id === `failure:${failedEnding()}`, state: continuationState, blocked: continuationBlocked, send: continueGeneration, refresh: refreshContinuation }}
           onHeight={(h) => measure(r().id, h)} busy={running} retry={(o) => deliver(o)} discard={drop} ends={() => ends().has(r().id)} fresh={fresh} />}
       </List>
       <If when={readingThink()}>

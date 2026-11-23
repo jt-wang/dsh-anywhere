@@ -1,6 +1,7 @@
 // The link to the owner's computer lives in the native shell (Link.java: Tailcat, pinned TLS, the device token in the
 // Android Keystore). The app only learns the bridge origin and the token to send.
 import { cleanup, computed, effect, host, signal, untracked } from 'nsh'
+import { readClock } from './clock.ts'
 import { Dsh, type ConnectionState, type DshError } from './dsh.ts'
 import { Pending } from './events.ts'
 import { failureOf, type Check } from './reach.ts'
@@ -196,7 +197,8 @@ export async function boot() {
   // Back on screen: try the computer now. A connection that died while the app was away would otherwise wait for the
   // next retry, up to 15 seconds later.
   const onScreen = (v: unknown) => (v as { active?: boolean } | undefined)?.active !== false
-  try { host.on('app.state', (data) => { appActive.set(onScreen(data)); if (appActive()) reconnect(); else offlineCache()?.flush() }) } catch {}
+  try { host.on('app.state', (data) => { appActive.set(onScreen(data)); if (appActive()) { reconnect(); readClock() } else offlineCache()?.flush() }) } catch {}
+  readClock()
   host.call('app.state').then((v) => appActive.set(onScreen(v)), () => {})
   try { host.on('pair', (data) => { const text = (data as { text?: string } | undefined)?.text; if (text) pairWith(text) }) } catch {}
   try { host.on('link.emoji', (data) => { const e = (data as { emoji?: unknown } | undefined)?.emoji; pairEmoji.set(Array.isArray(e) ? e.filter((x): x is string => typeof x === 'string') : []) }) } catch {}

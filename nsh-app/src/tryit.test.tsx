@@ -22,6 +22,9 @@ test('the pairing screen offers Try it, and it lists sample chats without pairin
   expect(app.texts().includes('Delete the old build folder')).toBe(true)
   expect(app.texts().includes('Pick a name for the release')).toBe(true)
   expect(app.shows('id:scan')).toBe(false)
+  // The two sample chats that wait on the person read only Waiting for you, never Working beside it.
+  await app.waitFor('id:session-try-name >> text:Waiting for you')
+  expect(app.texts().includes('Working')).toBe(false)
   stayedOnThePhone(app)
 })
 
@@ -142,6 +145,9 @@ test('Stop ends a running sample turn as stopped, not crashed or failed', async 
   await app.press('id:stop')
   await app.waitFor('text:Task stopped')
   expect(app.shows('id:stop')).toBe(false)
+  // A sample has no computer to continue on: no continuation check and no Check again under the stopped turn.
+  await new Promise((done) => setTimeout(done, 500))
+  expect(app.texts().some((text) => /[Cc]ontinuation|Check again/.test(text))).toBe(false)
   expect(app.texts().some((text) => /crashed|This turn failed|INTERRUPTED|STOPPED/.test(text))).toBe(false)
   stayedOnThePhone(app)
 })

@@ -174,8 +174,10 @@ export function ReachSheet(props: { reach?: Reach }) {
           <Text testID="pair-own" class="text-foreground text-[15px] leading-[21px]">{S.pairAgainOwn}</Text>
           <Text class="mt-1 text-muted-foreground text-[13px] leading-[18px]">{S.linkHow}</Text>
           <View role="button" testID="reach-scan" onPress={scanCode} class="mt-3 rounded-[12px] h-[44px] justify-center items-center bg-primary active:opacity-80"><Text class="text-primary-foreground text-[15px] font-medium">{linking() ? S.linking : S.scan}</Text></View>
-          <PairEmoji />
-          <PastePairingCode scanning={scanning()} pair={async (text) => { if (await pairWith(text)) close() }} />
+          <View class="mt-3 gap-3">
+            <PairEmoji />
+            <PastePairingCode scanning={scanning()} pair={async (text) => { if (await pairWith(text)) close() }} />
+          </View>
           <If when={linkError()}><Text testID="reach-link-error" class="text-destructive text-[15px] leading-[21px]">{linkError()}</Text></If>
           <If when={!pairingBusy()}>
             <View role="button" testID="reach-back" onPress={() => { if (!pairingBusy()) pairing.set(false) }} class="mt-1 h-[40px] justify-center items-center active:opacity-60"><Text class="text-muted-foreground text-[14px]">{S.cancel}</Text></View>

@@ -22,7 +22,8 @@
       "network.state",
       "app.state",
       "notify.*",
-      "app.info"
+      "app.info",
+      "app.clock"
     ],
     "picker": true,
     "webview": {

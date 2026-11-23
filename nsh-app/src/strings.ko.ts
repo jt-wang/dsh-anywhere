@@ -188,5 +188,5 @@ export const KO: Strings = {
   appearance: '화면 모드', themeSystem: '시스템 설정', themeLight: '라이트', themeDark: '다크', language: '언어', languageSystem: '시스템 설정',
   notifications: '알림', notifyAnswers: '답변 완료 또는 중지', notifyDecisions: '에이전트의 결정 요청', notifyBanners: '앱 사용 중 배너',
   notifyBackground: '백그라운드에서 계속 확인', notifyBackgroundHint: '에이전트가 작업하는 동안 지속 알림으로 휴대폰이 계속 수신합니다.',
-  notifyDenied: '휴대폰 설정에서 DSH 알림이 꺼져 있습니다.', notifyAllow: '알림 켜기', openSystemSettings: '휴대폰 설정 열기',
+  notifyDenied: '휴대폰 설정에서 DSH Anywhere 알림이 꺼져 있습니다.', notifyAllow: '알림 켜기', openSystemSettings: '휴대폰 설정 열기',
 }

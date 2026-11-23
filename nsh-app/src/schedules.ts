@@ -6,6 +6,7 @@
 // 0.2.2 (dsh-schedule 0.2.2-rc.1 types): a row has a target (one Session, a Session made at the first
 // delivery, or a new Session each time) and is active, paused or ended; RRULE timing is new; history takes the task id
 // alone; schedule/delete is gone (HTTP 404 on rc.1) and a delete is schedule/edit with action 'delete'.
+import { clockOptions, timeOfDay } from './clock.ts'
 import { S, type Strings } from './strings.ts'
 
 export type ScheduleUnit = 'day' | 'hour' | 'minute' | 'second'
@@ -60,8 +61,6 @@ export function tasksOf(value: unknown): Task[] {
 }
 
 const UNITS: [ScheduleUnit, number][] = [['day', 86_400], ['hour', 3_600], ['minute', 60], ['second', 1]]
-/** "09:00:00.000" reads "09:00"; seconds stay when they are not zero. */
-const clock = (time: string) => time.replace(/\.\d+$/, '').replace(/:00$/, '')
 
 /** How often a task runs, in the rule's own zone, which is left out when it is the phone's (`zone`). */
 export function frequency(task: Task, strings: Strings = S, zone?: string): string {
@@ -70,8 +69,8 @@ export function frequency(task: Task, strings: Strings = S, zone?: string): stri
     const [unit, size] = UNITS.find(([, size]) => task.everySeconds! % size === 0) ?? UNITS[3]!
     return strings.scheduleEvery(task.everySeconds / size, unit)
   }
-  if (task.kind === 'daily') return zoned(strings.scheduleDaily(clock(task.time ?? '')))
-  if (task.kind === 'weekly') return zoned(strings.scheduleWeekly((task.weekdays ?? []).map((d) => strings.weekdays[d - 1] ?? String(d)).join(strings.listSep), clock(task.time ?? '')))
+  if (task.kind === 'daily') return zoned(strings.scheduleDaily(timeOfDay(task.time ?? '', strings.ago.date)))
+  if (task.kind === 'weekly') return zoned(strings.scheduleWeekly((task.weekdays ?? []).map((d) => strings.weekdays[d - 1] ?? String(d)).join(strings.listSep), timeOfDay(task.time ?? '', strings.ago.date)))
   if (task.kind === 'cron') return zoned(strings.scheduleCron(task.expression ?? ''))
   // "DTSTART;TZID=…:…\nRRULE:FREQ=…": the rule line is what it does; its start is the next run.
   if (task.kind === 'rrule') return strings.scheduleRRule(/(?:^|\n)RRULE:([^\n]*)/.exec(task.rrule ?? '')?.[1] ?? task.rrule ?? '')
@@ -81,7 +80,7 @@ export function frequency(task: Task, strings: Strings = S, zone?: string): stri
 /** A moment as a month, day and time on the phone's clock (the rule's own zone is in its frequency). */
 export function formatAt(iso: string, strings: Strings = S): string {
   const at = new Date(iso)
-  return Number.isNaN(at.getTime()) ? iso : at.toLocaleString(strings.ago.date, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return Number.isNaN(at.getTime()) ? iso : at.toLocaleString(strings.ago.date, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', ...clockOptions() })
 }
 
 /** When an active task runs next: soon in minutes or hours, later as a date; undefined for a paused or ended one. */

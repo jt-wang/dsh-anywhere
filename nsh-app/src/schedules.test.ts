@@ -3,6 +3,7 @@
 // DSH 0.2.2 (rc.1 types) gives each task a target instead of a Session, pauses tasks, adds RRULE timing,
 // pages history by task id alone and deletes through schedule/edit; schedule/delete is gone (HTTP 404 on rc.1).
 import { expect, test } from 'nsh/test'
+import { hourCycle } from './clock.ts'
 import { deleteCall, deleted, frequency, historyCall, historyOf, lastSent, nextRun, tasksOf } from './schedules.ts'
 import { stringsFor } from './strings.ts'
 
@@ -37,13 +38,30 @@ test('frequency reads as Desktop words it: the largest whole unit, the rule\'s o
   expect(f({ everySeconds: 90 })).toBe('Every 90 seconds')
   expect(f({ kind: 'at' })).toBe('Once')
   expect(f({ kind: 'after', afterSeconds: 600 })).toBe('Once')
-  expect(f({ kind: 'daily', time: '09:00:00.000', timeZone: 'Europe/Moscow' })).toBe('Daily at 09:00 (Europe/Moscow)')
-  expect(f({ kind: 'daily', time: '09:30:15.000', timeZone: 'Europe/Moscow' }, 'Europe/Moscow')).toBe('Daily at 09:30:15')
-  expect(f({ kind: 'weekly', time: '18:00:00.000', timeZone: 'UTC', weekdays: [1, 3, 5] })).toBe('Weekly on Mon, Wed, Fri at 18:00 (UTC)')
+  expect(f({ kind: 'daily', time: '09:00:00.000', timeZone: 'Europe/Moscow' })).toBe('Daily at 9:00 AM (Europe/Moscow)')
+  expect(f({ kind: 'daily', time: '09:30:15.000', timeZone: 'Europe/Moscow' }, 'Europe/Moscow')).toBe('Daily at 9:30:15 AM')
+  expect(f({ kind: 'weekly', time: '18:00:00.000', timeZone: 'UTC', weekdays: [1, 3, 5] })).toBe('Weekly on Mon, Wed, Fri at 6:00 PM (UTC)')
   expect(f({ kind: 'cron', expression: '*/15 9-17 * * 1-5', timeZone: 'UTC' }, 'UTC')).toBe('Cron */15 9-17 * * 1-5')
   expect(frequency(tasksOf([task('a', { everySeconds: 300 })])[0]!, ru)).toBe('Раз в 5 минут')
   expect(frequency(tasksOf([task('a', { everySeconds: 60 })])[0]!, ru)).toBe('Раз в минуту')
   expect(frequency(tasksOf([task('a', { kind: 'weekly', time: '18:00:00.000', timeZone: 'UTC', weekdays: [2, 7] })])[0]!, ru, 'UTC')).toBe('По вт, вс в 18:00')
+})
+
+test("a task's time of day follows the phone's 12- or 24-hour clock in its language, whatever form DSH wrote it in", () => {
+  const daily = (time: string, strings = en) => frequency(tasksOf([task('a', { kind: 'daily', time, timeZone: 'UTC' })])[0]!, strings, 'UTC')
+  try {
+    hourCycle.set('h23')
+    expect(daily('09:00:00.000')).toBe('Daily at 09:00')
+    expect(daily('09:00')).toBe('Daily at 09:00')
+    expect(daily('18:05:00.000')).toBe('Daily at 18:05')
+    hourCycle.set('h12')
+    expect(daily('09:00')).toBe('Daily at 9:00 AM')
+    expect(daily('18:05:00.000')).toBe('Daily at 6:05 PM')
+    expect(daily('18:00:00.000', ru)).toBe('Каждый день в 6:00 PM')
+    hourCycle.set(undefined)
+    expect(daily('18:00:00.000', ru)).toBe('Каждый день в 18:00')
+    expect(daily('soon')).toBe('Daily at soon')
+  } finally { hourCycle.set(undefined) }
 })
 
 test('the next run: due now, soon in minutes or hours, and none once a task is inactive', () => {

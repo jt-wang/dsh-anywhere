@@ -57,6 +57,8 @@ test('sidebar replacement preserves draft attachments and failed outbox messages
 test('a list rename retains its edited input across phone and sidebar layouts', async () => {
   const { app: a } = await app(() => ok({}))
   await a.longPress('text:Nightly backup check'); await a.press('id:action-rename'); await a.waitFor('id:rename')
+  // The sheet fills in the title when it has opened; under load that can come after the field appears.
+  for (let t = 0; t < 50 && a.value('id:rename') !== 'Nightly backup check'; t++) await a.wait(100)
   await a.clear('id:rename'); await a.type('id:rename', 'Unfinished rename')
   await a.setViewport(1120, 800)
   expect(a.value('id:rename')).toBe('Unfinished rename'); expect(a.count('id:sessions')).toBe(1)

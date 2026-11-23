@@ -1,8 +1,8 @@
 {
   "name": "DSH",
   "id": "io.jingtao.dshanywhere",
-  "version": "0.1.20",
-  "build": 21,
+  "version": "0.1.21",
+  "build": 22,
   "appearance": "system",
   "theme": {
     "cssVars": {
@@ -89,6 +89,7 @@
       "network.state",
       "app.state",
       "app.info",
+      "app.clock",
       "app.language",
       "diagnostics.preferences.read",
       "diagnostics.preferences.write",
