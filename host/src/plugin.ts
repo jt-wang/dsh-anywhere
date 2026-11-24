@@ -62,10 +62,24 @@ export interface CompanionContext {
   /** Cordis 4.0.4 active lookup bypasses inject and returns fresh tracing proxies. */
   get?<K extends 'workspaceRegistry' | 'sessions' | 'agents' | 'sessionPersistence' | 'fileUploads' | 'attachments' | 'userQuestions' | 'llm' | 'profileContext'>(name: K): ({ workspaceRegistry: DshWorkspaceRegistry; sessions: NonNullable<CompanionContext['sessions']>; agents: NonNullable<CompanionContext['agents']>; sessionPersistence: NonNullable<CompanionContext['sessionPersistence']>; fileUploads: NonNullable<CompanionContext['fileUploads']>; attachments: NonNullable<CompanionContext['attachments']>; userQuestions: QuestionServices; llm: NonNullable<CompanionContext['llm']>; profileContext: ProfileFacts })[K] | undefined;
   on(name: string, listener: (...args: any[]) => any, options?: { global: boolean; prepend?: boolean }): () => unknown;
+  emit?(subject: HostWebServer, name: 'webserver/entry-url', baseUrl: string, entries: { url: string }[]): void;
   /** Optional dynamic injection: the admin UI exists only when a Host Connection provides /api. */
   inject?(names: string[], callback: (ctx: CompanionContext & { connection?: HostConnection; webServer?: HostWebServer; tools?: { register(tool: unknown): () => unknown }; progress?: ProgressService }) => (() => unknown) | undefined): unknown;
   /** Mounts a child plugin; it is unloaded with the companion. */
   plugin?(plugin: typeof progressPlugin, config: ProgressPluginConfig): { dispose(): unknown };
+}
+export function hostLoginUrl(ctx: Pick<CompanionContext, 'emit'>, connection: HostConnection, web: HostWebServer, origin: string): string | undefined {
+  if (connection.authenticatedUrl) return connection.authenticatedUrl(origin);
+  const entries: { url: string }[] = [];
+  ctx.emit?.(web, 'webserver/entry-url', origin, entries);
+  for (const entry of entries) {
+    try {
+      const url = new URL(entry.url);
+      if (url.origin === origin && url.pathname === '/' && !url.username && !url.password
+          && url.searchParams.getAll('token').length === 1 && url.searchParams.get('token')) return url.href;
+    } catch { /* Not a launch URL. */ }
+  }
+  return undefined;
 }
 export const name = 'dsh-anywhere';
 export const version = HOST_VERSION;
@@ -206,9 +220,12 @@ export async function apply(ctx: CompanionContext, input: Config | BundleConfig 
     // DSH's own protocol for the owner's phone: the relay signs in exactly as the Desktop host does.
     ctx.inject?.(['connection', 'webServer'], webCtx => {
       const connection = webCtx.connection, web = webCtx.webServer;
-      if (!connection?.authenticatedUrl || !web) return undefined;
+      if (!connection || !web || (!connection.authenticatedUrl && (config.dshVersion !== '0.2.3-alpha.2' || !webCtx.emit))) return undefined;
       const origin = () => `${web.protocol}//127.0.0.1:${String(web.port)}`;
-      const relay = createDshRelay({ upstream: () => ({ origin: origin(), loginUrl: connection.authenticatedUrl!(origin()) }), ...(ui ? { ui } : {}) });
+      const relay = createDshRelay({ upstream: () => {
+        const baseUrl = origin();
+        return { origin: baseUrl, get loginUrl() { return hostLoginUrl(webCtx, connection, web, baseUrl); } };
+      }, ...(ui ? { ui } : {}) });
       dshRelay = relay;
       return async () => { dshRelay = undefined; await relay.close(); };
     });

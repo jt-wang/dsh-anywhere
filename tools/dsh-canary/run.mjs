@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { installIsolation, sanitizeEnvironment } from './isolation.mjs';
 import { assertOwnedPath, parseArgs } from './safety.mjs';
-import { composeRuntime, officialLoader } from './composition.mjs';
+import { checksAlphaNativeRelay, composeRuntime, officialLoader, usesGatewayComposition } from './composition.mjs';
 import { controllerChecks, coldChecks, adapterChecks } from './checks.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -60,7 +60,7 @@ try {
       receipt.remountedCalls = 0;
       return;
     }
-    if (!options.controllerOnly && /^0\.2\.2(?:-|$)/.test(runtime.version)) {
+    if (!options.controllerOnly && usesGatewayComposition(runtime.version)) {
       assert.ok(process.execArgv.includes('--expose-internals'), 'Settings profile checks require node --expose-internals to keep Loader cache inside the isolated run');
       mark('settings-credentials-speech-real-profile-gateway');
       const { settingsChecks } = await import('./settings-checks.mjs');
@@ -69,10 +69,10 @@ try {
     if (!options.controllerOnly) {
       const { featureChecks, featureChecksSupported } = await import('./feature-checks.mjs');
       if (featureChecksSupported(runtime.version)) {
-        mark('rc5-official-tasks-names-continuation-speech-contracts');
+        mark('official-tasks-names-continuation-speech-contracts');
         receipt.phases.push(await featureChecks({ runtimeRoot, directories }));
       } else {
-        receipt.phases.push({ phase: 'rc5-official-feature-contracts', checks: [], skipped: `Version ${runtime.version} requires feature-contract compatibility review; inspected 0.2.2-rc.5 only` });
+        receipt.phases.push({ phase: 'official-feature-contracts', checks: [], skipped: `Version ${runtime.version} requires feature-contract compatibility review` });
       }
     }
     mark('controller-create-prompt-follow-reconnect-cancel');
@@ -132,7 +132,7 @@ try {
   assert.equal(isolation.networkAttempts, 0);
   assert.equal(isolation.subprocessAttempts, 0);
   assert.equal(isolation.outsideWrites, 0);
-  assert.equal(isolation.listeners, options.serve || options.registryCheck ? 1 : 0);
+  assert.equal(isolation.listeners, options.registryCheck && checksAlphaNativeRelay(receipt.version) ? 2 : options.serve || options.registryCheck ? 1 : 0);
   receipt.success = true;
 } catch (error) {
   receipt.failure = { phase: stage, name: error?.name ?? 'Error', message: error?.message ?? 'Unknown canary failure', stack: error?.stack };

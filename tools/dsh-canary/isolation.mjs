@@ -22,7 +22,9 @@ export function installIsolation(runRoot, options) {
     stats[kind]++;
     throw new Error(`Canary prohibited ${kind}`);
   };
-  const ownsLoopback = (host, port) => options.registryCheck && host === '127.0.0.1' && Number(port) === options.port && ![3080, 3081, 19445].includes(Number(port)) && stats.activeListeners > 0;
+  const reservedPorts = [3080, 3081, 19445];
+  const activePorts = new Set();
+  const ownsLoopback = (host, port) => options.registryCheck && host === '127.0.0.1' && activePorts.has(Number(port)) && !reservedPorts.includes(Number(port));
   const socketConnect = net.Socket.prototype.connect;
   const netConnect = net.createConnection;
   const httpRequest = http.request;
@@ -41,8 +43,14 @@ export function installIsolation(runRoot, options) {
   };
   tls.connect = deny('networkAttempts');
   http.request = function (url, ...args) {
-    const target = url instanceof URL ? url : typeof url === 'string' ? new URL(url) : undefined;
-    if (target?.protocol === 'http:' && ownsLoopback(target.hostname, target.port)) return Reflect.apply(httpRequest, this, [url, ...args]);
+    const asUrl = url instanceof URL || typeof url === 'string';
+    const target = asUrl ? new URL(url) : url;
+    const overrides = asUrl && typeof args[0] === 'object' ? args[0] : {};
+    if (!target?.socketPath && !overrides.socketPath
+        && (overrides.protocol ?? target?.protocol ?? 'http:') === 'http:'
+        && ownsLoopback(overrides.hostname ?? overrides.host ?? target?.hostname ?? target?.host, overrides.port ?? target?.port)) {
+      return Reflect.apply(httpRequest, this, [url, ...args]);
+    }
     return deny('networkAttempts')();
   };
   http.get = https.request = https.get = http2.connect = deny('networkAttempts');
@@ -62,14 +70,23 @@ export function installIsolation(runRoot, options) {
   for (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) childProcess[name] = deny('subprocessAttempts');
 
   const listen = net.Server.prototype.listen;
+  let ephemeralListener;
   net.Server.prototype.listen = function (...args) {
     const first = args[0];
     const port = typeof first === 'object' ? first.port : first;
     const host = typeof first === 'object' ? first.host : args[1];
-    if (!(options.serve || options.registryCheck) || port !== options.port || host !== '127.0.0.1' || [3080, 3081, 19445].includes(port)) return deny('networkAttempts')();
+    const ephemeral = port === 0 && options.registryCheck && !ephemeralListener;
+    if (!(options.serve || options.registryCheck) || (!ephemeral && port !== options.port) || host !== '127.0.0.1' || reservedPorts.includes(port)) return deny('networkAttempts')();
+    if (ephemeral) ephemeralListener = this;
     this.once('listening', () => {
+      const bound = this.address().port;
+      activePorts.add(bound);
       stats.activeListeners++;
-      this.once('close', () => { stats.activeListeners--; });
+      this.once('close', () => {
+        activePorts.delete(bound);
+        if (ephemeralListener === this) ephemeralListener = undefined;
+        stats.activeListeners--;
+      });
     });
     stats.listeners++;
     return Reflect.apply(listen, this, args);

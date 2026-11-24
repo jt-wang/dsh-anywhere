@@ -38,6 +38,20 @@ test('continuation outbox never writes on refresh; unconfirmed manual retries re
   expect(c.view.requestId).toBe(undefined)
 })
 
+test('continuation admits the exact inspected alpha without enabling writes on unverified alphas', async () => {
+  for (const [dshVersion, status] of [['0.2.3-alpha.2', 'queued'], ['0.2.3-alpha.3', 'unknown']]) {
+    const calls: string[] = []
+    const client: ContinuationClient = { computer: async () => ({ dshVersion }), rpc: async <T,>(method: string): Promise<T> => {
+      calls.push(method)
+      return (method === 'session/projections' ? projection() : method === 'session/state' ? state : { accepted: true }) as T
+    } }
+    const c = new Continuation(client, 's', () => {})
+    await c.send(5, () => true)
+    expect(c.view.status).toBe(status)
+    expect(calls).toEqual(status === 'queued' ? ['session/projections', 'session/state', 'session/prompt'] : [])
+  }
+})
+
 test('stale capability read, disposal and double taps cannot write; a queued acknowledgement is not completion', async () => {
   let release = () => {}, writes = 0
   const client: ContinuationClient = { computer: async () => { await new Promise<void>((r) => { release = r }); return { dshVersion: '0.2.2-rc.5' } }, rpc: async <T,>(method: string): Promise<T> => {

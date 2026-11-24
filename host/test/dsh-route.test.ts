@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { WebSocket } from 'ws';
 import { createDshRelay } from '../src/dsh-relay.ts';
+import { hostLoginUrl } from '../src/plugin.ts';
 import { startHostServer } from '../src/server.ts';
 import type { HostAdapter, HostConfiguration } from '../src/types.ts';
 import { fakeDsh, TOKEN } from './helpers/fake-dsh.ts';
@@ -16,6 +17,22 @@ import { fakeDsh, TOKEN } from './helpers/fake-dsh.ts';
 const adapter = { upstreamVersion: 'synthetic', async listSessions() { return []; }, async listPresets() { return []; } } as unknown as HostAdapter;
 const waitFor = async (probe: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!probe()) { if (Date.now() > end) throw new Error('timed out'); await new Promise(r => setTimeout(r, 20)); } };
 const ENVELOPE = { type: 'client-request', rpcId: 'r', method: 'session/list', payload: { args: { _request: {} } } };
+
+test('relay launch URL prefers legacy auth, otherwise uses the WebServer-scoped alpha token event', () => {
+  const origin = 'http://127.0.0.1:12345';
+  const web = { protocol: 'http:', port: 12345 };
+  const expected = `${origin}/?token=synthetic`;
+  const ctx = { emit(subject: typeof web, name: string, baseUrl: string, entries: { url: string }[]) {
+    assert.deepEqual([subject, name, baseUrl], [web, 'webserver/entry-url', origin]);
+    entries.push(...['not a URL', 'http://127.0.0.1:12346/?token=synthetic', `${origin}/other?token=synthetic`,
+      `${origin}/?token=synthetic&token=second`, `${origin}/?token=`, expected].map(url => ({ url })));
+  } };
+  assert.equal(hostLoginUrl(ctx, {}, web, origin), expected);
+  assert.equal(hostLoginUrl({}, {}, web, origin), undefined);
+  assert.equal(hostLoginUrl({ emit: () => assert.fail('legacy must not emit') }, { authenticatedUrl: base => {
+    assert.equal(base, origin); return expected;
+  } }, web, origin), expected);
+});
 
 async function setup(t: TestContext) {
   const dsh = await fakeDsh(t);

@@ -59,7 +59,7 @@ export const opens = (child: Subagent) => child.mode !== 'external'
  * Re-read this connection's version; never probe through a mutation or reuse another computer's selection. */
 async function userControls(client: Dsh): Promise<boolean> {
   const { dshVersion: version } = await client.computer()
-  if (/^0\.2\.2-rc\.[2-5]$/.test(version)) return true
+  if (version === '0.2.3-alpha.2' || /^0\.2\.2-rc\.[2-5]$/.test(version)) return true
   if (version === '0.2.0-rc.2' || version === '0.2.2-rc.1' || /^0\.2\.1(?:-(?:alpha|beta|rc)\.(?:0|[1-9][0-9]*))?$/.test(version)) return false
   throw new DshError('client/subagent-controls-unverified', 'Subagent controls are unavailable for this DSH version. Update DSH Anywhere.')
 }

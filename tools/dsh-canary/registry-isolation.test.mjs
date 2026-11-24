@@ -40,9 +40,28 @@ test('registry-check loopback exception excludes live ports and expires on liste
     req.end();
   });
   assert.equal(response, 'synthetic owned listener');
+  const upstream = http.createServer((_req, res) => res.end('synthetic relay upstream'));
+  upstream.listen(0, '127.0.0.1');
+  await once(upstream, 'listening');
+  const upstreamPort = upstream.address().port;
+  assert.equal(stats.activeListeners, 2);
+  assert.throws(() => net.createServer().listen(0, '127.0.0.1'), /prohibited networkAttempts/);
+  assert.throws(() => http.request(url, { port: 3080 }), /prohibited networkAttempts/);
+  const upstreamResponse = await new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: upstreamPort, agent: false }, res => {
+      let text = '';
+      res.on('data', chunk => { text += chunk; });
+      res.once('end', () => resolve(text));
+    });
+    req.once('error', reject);
+    req.end();
+  });
+  assert.equal(upstreamResponse, 'synthetic relay upstream');
+  await new Promise(resolve => upstream.close(resolve));
+  assert.throws(() => http.request({ host: '127.0.0.1', port: upstreamPort }), /prohibited networkAttempts/);
   await new Promise(resolve => host.close(resolve));
   assert.equal(stats.activeListeners, 0);
-  assert.equal(stats.listeners, 1);
+  assert.equal(stats.listeners, 2);
   assert.throws(() => http.request(url), /prohibited networkAttempts/, 'Closing the owned listener removes dial permission');
   assert.equal(stats.outsideWrites, 0);
   assert.equal(stats.subprocessAttempts, 0);

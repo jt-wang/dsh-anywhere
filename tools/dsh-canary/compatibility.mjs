@@ -15,6 +15,7 @@ const settingsDomains = ['dsh-agent-default-model', 'dsh-permission-presets', 'd
 const monitored = ['dsh-api-session-controller', 'dsh-commands', 'dsh-llm', 'dsh-session', 'dsh-subagent', 'dsh-agent-team', 'dsh-experimental-agent-team', 'dsh-user-questions', 'dsh-user-approval', 'dsh-schedule', 'dsh-tools', 'dsh-tool-ask-user', ...settingsPackages, ...settingsDomains];
 const teamPackages = ['dsh-agent-team', 'dsh-experimental-agent-team'];
 const exactVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/;
+const alphaReviewPair = { baseline: '0.2.2-rc.5', candidate: '0.2.3-alpha.2' };
 const keyOf = node => node.name && (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) ? node.name.text : undefined;
 function property(node, key) {
   assert.ok(node && ts.isObjectLiteralExpression(node), `Expected literal descriptor object for ${key}`);
@@ -285,18 +286,22 @@ async function jsonFetch(url, github = false, body) {
   assert.ok(response.ok, `Metadata request failed (${response.status}): ${new URL(url).pathname}`);
   return response.json();
 }
-export function channelMetadata(packument, baseline, requested) {
+export function channelMetadata(packument, defaultBaseline, requested) {
+  const channels = ['latest', 'next', 'alpha'];
+  assert.ok(channels.includes(requested) || exactVersion.test(requested), 'Request must be latest, next, alpha or an exact version');
+  const distTags = packument['dist-tags'];
+  const selected = distTags[requested] ?? requested;
+  const baseline = selected === alphaReviewPair.candidate ? alphaReviewPair.baseline : defaultBaseline;
   assert.ok(exactVersion.test(baseline), 'Baseline must be an exact inspected version');
-  assert.ok(requested === 'latest' || requested === 'next' || exactVersion.test(requested), 'Request must be latest, next or an exact version');
-  const selected = packument['dist-tags'][requested] ?? requested;
+  const taggedVersions = channels.filter(tag => tag !== 'alpha' || Object.hasOwn(distTags, tag)).map(tag => distTags[tag]);
   const versions = {};
-  for (const version of new Set([baseline, selected, packument['dist-tags'].latest, packument['dist-tags'].next])) {
+  for (const version of new Set([baseline, selected, ...taggedVersions])) {
     const meta = packument.versions[version];
     assert.ok(meta && exactVersion.test(version), `Missing official release metadata: ${version}`);
     assert.ok(meta.dist?.integrity && meta.dist?.tarball?.startsWith('https://registry.npmjs.org/'), 'Missing official integrity/tarball');
     versions[version] = { version, publishedAt: packument.time?.[version], integrity: meta.dist.integrity, tarball: meta.dist.tarball, gitHead: meta.gitHead, engines: meta.engines, dependencies: meta.dependencies };
   }
-  return { schemaVersion: 1, baseline, requested, selected, releaseKey: hash(`${selected}:${versions[selected].integrity}`), distTags: packument['dist-tags'], versions };
+  return { schemaVersion: 1, baseline, requested, selected, releaseKey: hash(`${selected}:${versions[selected].integrity}`), distTags, versions };
 }
 async function main() {
   const [mode, ...args] = process.argv.slice(2);

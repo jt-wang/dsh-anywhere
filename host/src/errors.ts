@@ -1,3 +1,5 @@
+import { SUPPORTED_DSH_VERSIONS } from './compatibility.ts';
+
 export const ERROR_DEFINITIONS = {
   unauthorized: { status: 401, message: 'Device authorization or pairing offer is invalid.', retryable: false },
   forbidden: { status: 403, message: 'This operation is not permitted.', retryable: false },
@@ -11,7 +13,7 @@ export const ERROR_DEFINITIONS = {
   unavailable: { status: 503, message: 'The host is temporarily unavailable.', retryable: true },
   internal_error: { status: 500, message: 'The host could not complete this request.', retryable: false },
   invalid_config: { status: 500, message: 'Local host configuration is invalid.', retryable: false },
-  unsupported_dsh_version: { status: 500, message: 'Supported DSH versions: 0.2.0-rc.2, every 0.2.1 release or pre-release, and every 0.2.2 release candidate or release. Check dsh --version before declaring dshVersion.', retryable: false },
+  unsupported_dsh_version: { status: 500, message: `Supported DSH versions: ${SUPPORTED_DSH_VERSIONS}. Check dsh --version before declaring dshVersion.`, retryable: false },
   openssl_required: { status: 500, message: 'OpenSSL 3 is required for X.509 generation. Install a trusted copy or supply --openssl <absolute executable>.', retryable: false },
   unsafe_private_path: { status: 500, message: 'Use an owner-only local directory outside Git, with no redirected ancestors. Existing weak ACLs are not repaired.', retryable: false },
   invitation_output_exists: { status: 409, message: 'That invitation file already exists. Delete the old one-use file or choose a new name; no pairing window was opened.', retryable: false },

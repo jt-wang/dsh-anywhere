@@ -9,8 +9,9 @@ export interface PresetDocument { agentPreset: string; content: string; name?: s
 export interface PresetSettings { presets: Preset[]; writable: boolean; revision?: number }
 export type SystemPermission = 'accessibility' | 'screenRecording'
 interface PermissionProcess { pid: number; name?: string; path?: string }
+type WindowsAccess = { sessionLocked: boolean | null; captureAvailable: boolean; elevated: boolean; helper: Omit<PermissionProcess, 'pid'> & { pid?: number } }
 export type ComputerAccess = { platform: 'darwin'; accessibility: boolean; screenRecording: boolean; helper: PermissionProcess; parent: PermissionProcess; launchApplication?: { name: string; path: string } }
-  | { platform: 'win32'; sessionLocked: boolean | null; captureAvailable: boolean; elevated: boolean; helper: PermissionProcess }
+  | ({ platform: 'win32' } & WindowsAccess)
 export interface ApplicationGrant { id: string; name: string; executablePath?: string }
 export interface Applications { allowedApps: ApplicationGrant[]; blockedApps: ApplicationGrant[]; persistentAvailable: boolean }
 export interface PtcConfiguration { persistent: boolean; writable: boolean }
@@ -48,8 +49,11 @@ export async function readHostDomain<T>(client: HostSettingsClient, method: stri
 
 /** rc.1's untagged status is not an rc.5 Darwin observation. Never infer permission actions. */
 export async function readComputerStatus(client: HostSettingsClient): Promise<ReadResult<ComputerAccess>> {
-  const result = await readHostDomain<ComputerAccess>(client, 'cuaAccess/systemStatus')
-  return result.kind === 'ready' && !['darwin', 'win32'].includes(result.value?.platform) ? { kind: 'unavailable' } : result
+  const result = await readHostDomain<ComputerAccess | ({ platform: 'windows' } & WindowsAccess)>(client, 'cuaAccess/systemStatus')
+  if (result.kind !== 'ready') return result
+  const status = result.value
+  if (status?.platform === 'windows') return { kind: 'ready', value: { ...status, platform: 'win32' } }
+  return status?.platform === 'darwin' || status?.platform === 'win32' ? { kind: 'ready', value: status } : { kind: 'unavailable' }
 }
 
 export async function readPresetSettings(client: HostSettingsClient): Promise<PresetSettings> {

@@ -1,5 +1,5 @@
 // DSH's own web-client protocol (POST /api/<method>, WebSocket /api/remote.mux) relayed for the owner's phone.
-// The relay signs in exactly as DSH's Desktop host does (connection.authenticatedUrl → GET /?token= → host-bound
+// The relay signs in exactly as DSH's Desktop host does (launch URL → GET /?token= → host-bound
 // session cookie) and forwards only /api, plus the generated modules (/ui) the phone downloads. Its front door is
 // the companion's own server under /dsh (what Tailcat reaches; device-token auth, owner devices only: server.ts).
 import { createReadStream } from 'node:fs';
@@ -9,7 +9,7 @@ import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { UiModules } from './ui-modules.ts';
 
-export interface DshUpstream { origin: string; loginUrl: string }
+export interface DshUpstream { origin: string; loginUrl: string | undefined }
 export interface DshRelay {
   /** Answers a request whose URL is already stripped of any prefix and credential; false when it is not relayed.
    * `changed` hears each change of the computer's settings or plugins the request asks for (`phoneChange`). */
@@ -107,7 +107,9 @@ export function createDshRelay(options: DshRelayOptions): DshRelay {
   /** GET the launch URL without following its redirect and keep the session cookie it sets. */
   function signIn(): Promise<string> {
     signingIn ??= new Promise<string>((resolve, reject) => {
-      const req = httpRequest(options.upstream().loginUrl, { method: 'GET' }, res => {
+      const loginUrl = options.upstream().loginUrl;
+      if (!loginUrl) { reject(new Error('dsh sign-in is unavailable')); return; }
+      const req = httpRequest(loginUrl, { method: 'GET' }, res => {
         res.resume();
         const set = res.headers['set-cookie']?.[0];
         if (!set) { reject(new Error(`dsh sign-in returned ${res.statusCode} without a session cookie`)); return; }

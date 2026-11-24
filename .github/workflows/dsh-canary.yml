@@ -1,7 +1,7 @@
 name: DSH canary
 
 # DSH publishes pre-releases often, and the companion accepts every 0.2.1 version and the 0.2.2 release candidates
-# and release (host/src/compatibility.ts). Each day this runs the real DSH SessionController from npm's `latest` and `next`
+# and release (host/src/compatibility.ts). Each day this runs the real DSH SessionController from npm's `latest`, `next` and `alpha`
 # against the built companion adapter, so the release that breaks it is found the day it ships, not by a user.
 # Static drift against an explicitly inspected baseline also requires review, never an automatic upgrade.
 # A failure turns the run red; it opens no issue and publishes/releases nothing.
@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'An exact @deepseek-ai/dsh version to test instead of latest and next'
+        description: 'An exact @deepseek-ai/dsh version to test instead of latest, next and alpha'
         required: false
 
 permissions:
@@ -38,10 +38,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tag: ${{ fromJSON(inputs.version && format('[{0}]', toJSON(inputs.version)) || '["latest","next"]') }}
+        tag: ${{ fromJSON(inputs.version && format('[{0}]', toJSON(inputs.version)) || '["latest","next","alpha"]') }}
     env:
       # Evidence baseline, not an application dependency/version change. Advance only after inspection + semantic runs.
       DSH_BASELINE: 0.2.2-rc.1
+      DSH_ALPHA_REVIEW: tools/dsh-canary/reviewed-0.2.3-alpha.2.json
       DSH_TARGET: ${{ matrix.tag }}
     steps:
       - name: Check out source
@@ -87,13 +88,17 @@ jobs:
       - name: Stage the inspected comparison baseline (no install scripts)
         id: baseline
         run: |
+          baseline=$(node -p "JSON.parse(require('fs').readFileSync(process.env.DSH_REPORT + '/channels.json', 'utf8')).baseline")
+          review=tools/dsh-canary/reviewed-rc5.json
+          if [[ "$baseline" != "$DSH_BASELINE" ]]; then review="$DSH_ALPHA_REVIEW"; fi
           runtime="$HOME/Documents/DeepSeekHarness/cache/dsh-baseline/runtime"
           mkdir -p "$runtime" && cd "$runtime"
           echo '{"private":true}' > package.json
           # rc.1's main package omits CUA; inspect its separately published contract too, without activating it.
-          npm install --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund --save-exact "@deepseek-ai/dsh@$DSH_BASELINE" "@deepseek-ai/dsh-cua@$DSH_BASELINE"
+          npm install --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund --save-exact "@deepseek-ai/dsh@$baseline" "@deepseek-ai/dsh-cua@$baseline"
           cp package-lock.json "$DSH_REPORT/baseline-package-lock.json"
           echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          echo "review=$review" >> "$GITHUB_OUTPUT"
       - name: Compare actual official contracts and report mobile review candidates
         id: contracts
         # Keep live semantic gates running even when static drift requires review. Enforce the outcome at the end.
@@ -101,7 +106,8 @@ jobs:
         env:
           BASELINE_ROOT: ${{ steps.baseline.outputs.runtime }}
           CANDIDATE_ROOT: ${{ steps.stage.outputs.runtime }}
-        run: node tools/dsh-canary/compatibility.mjs compare --baseline-root "$BASELINE_ROOT" --runtime-root "$CANDIDATE_ROOT" --review-baseline tools/dsh-canary/reviewed-rc5.json --output-dir "$DSH_REPORT"
+          DSH_REVIEW: ${{ steps.baseline.outputs.review }}
+        run: node tools/dsh-canary/compatibility.mjs compare --baseline-root "$BASELINE_ROOT" --runtime-root "$CANDIDATE_ROOT" --review-baseline "$DSH_REVIEW" --output-dir "$DSH_REPORT"
       - name: The companion accepts this version
         env:
           DSH_VERSION: ${{ steps.stage.outputs.version }}
@@ -136,7 +142,7 @@ jobs:
           if-no-files-found: warn
           path: |
             ${{ runner.temp }}/dsh-compatibility/
-            ~/Documents/DeepSeekHarness/cache/dsh-mobile/canary/run-*/receipt.json
+            ~/Documents/DeepSeekHarness/cache/dsh-anywhere/canary/run-*/receipt.json
       - name: Require explicit review of upstream contract drift
         if: always() && steps.contracts.outcome != 'success'
         run: |

@@ -58,6 +58,15 @@ test('host settings untagged and unknown-platform ready CUA responses are unavai
   }
 })
 
+test('host settings reads the alpha Windows CUA status without a helper PID', async () => {
+  const status = { platform: 'windows', sessionLocked: null, captureAvailable: false, elevated: true, helper: { name: 'Synthetic helper' } }
+  const client = { async rpc(method: string, args: unknown) {
+    expect([method, args]).toEqual(['cuaAccess/systemStatus', {}])
+    return status
+  } } as HostSettingsClient
+  expect(await readComputerStatus(client)).toEqual({ kind: 'ready', value: { ...status, platform: 'win32' } })
+})
+
 test('host settings eight dictionaries, Traditional regions and English fallback', () => {
   const en = hostSettingsStrings('en')
   for (const tag of ['zh-CN', 'zh-TW', 'en', 'es', 'fr', 'ko', 'ja', 'ru']) {

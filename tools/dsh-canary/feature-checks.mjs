@@ -1,20 +1,22 @@
 import assert from 'node:assert/strict';
 import { mkdir, readFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { composeRuntime, officialLoader } from './composition.mjs';
 import { opening } from './checks.mjs';
 
-// Inspected npm rc.5 contracts: dsh-agent-team state v7/task v2,
+// Inspected npm 0.2.2-rc.5 and 0.2.3-alpha.2 contracts: dsh-agent-team state v7/task v2,
 // dsh-subagent catalog v3, SessionController continuation and experimental speech.
 // See .dev/team-board-rc5.md and .dev/dsh-official-alignment.md for release/roadmap evidence.
 // Later releases must be reviewed before extending this exact-version gate.
-export const featureChecksSupported = version => version === '0.2.2-rc.5';
+export const featureChecksSupported = version => ['0.2.2-rc.5', '0.2.3-alpha.2'].includes(version);
 
 /** Independent real runtime: neither plugins nor counted calls leak into controllerChecks. */
 export async function featureChecks({ runtimeRoot, directories }) {
   const loader = officialLoader(runtimeRoot);
-  assert.ok(featureChecksSupported(await loader.version()), 'Feature contracts require inspected rc.5');
+  const version = await loader.version();
+  assert.ok(featureChecksSupported(version), `Feature contracts have not been inspected on DSH ${version}`);
   const root = path.join(directories.home, 'feature-contract');
   const owned = Object.fromEntries(['home', 'workspace', 'temp', 'sessions', 'storages'].map(key => [key, path.join(root, key)]));
   for (const directory of Object.values(owned)) await mkdir(directory, { recursive: true });
@@ -46,18 +48,28 @@ export async function featureChecks({ runtimeRoot, directories }) {
     const { ctx, deterministic } = runtime;
     const originalStream = deterministic.stream;
     const attempts = new Map();
+    const checkChildControls = version === '0.2.3-alpha.2';
+    const followUpStarted = Promise.withResolvers();
+    let followUpInterrupted = false;
     deterministic.stream = async function* (options) {
       assert.equal(options.provider, 'dsh-anywhere-canary');
       assert.equal(options.model, 'deterministic-text-v1');
       assert.equal(options.tools?.length ?? 0, 0);
       options.signal?.throwIfAborted();
       const text = options.messages.flatMap(message => message.role === 'user' ? message.content.filter(block => block.type === 'text').map(block => block.text) : [])
-        .find(value => /^(?:FEATURE_SYNTHETIC_CHILD|CONTINUATION_SYNTHETIC_[A-Z_]+)$/.test(value));
+        .findLast(value => /^(?:FEATURE_SYNTHETIC_CHILD|CONTINUATION_SYNTHETIC_[A-Z_]+)$/.test(value) || (checkChildControls && value === 'FEATURE_SYNTHETIC_CHILD_FOLLOW_UP'));
       assert.ok(text, 'Only exact synthetic feature prompts admitted');
       const attempt = (attempts.get(options.sessionId) ?? 0) + 1;
       attempts.set(options.sessionId, attempt);
       this.calls++; this.active++;
       try {
+        if (text === 'FEATURE_SYNTHETIC_CHILD_FOLLOW_UP') {
+          assert.ok(options.signal);
+          followUpStarted.resolve({ sessionId: options.sessionId, signal: options.signal });
+          try { await delay(5000, undefined, { signal: options.signal }); }
+          finally { followUpInterrupted = options.signal.aborted; }
+          return;
+        }
         if (text.startsWith('CONTINUATION_') && attempt === 1) {
           yield { type: 'finish', reason: { kind: 'error', failure: { code: text.slice('CONTINUATION_SYNTHETIC_'.length), message: 'Synthetic deterministic provider failure' } } };
           return;
@@ -108,6 +120,21 @@ export async function featureChecks({ runtimeRoot, directories }) {
         assert.deepEqual((await opening(ctx.sessionController, leadId)).projections.values.subagentCatalog, catalog);
         checks.push('real-named-spawn-v3-follow-discovery-equals-official-catalog-opening');
       } finally { abort.abort(); await follow.return(); }
+
+      if (checkChildControls) {
+        const receipt = await invoke('subagents', 'prompt', { request: {
+          requestId: 'synthetic-feature-child-follow-up', childSessionId: childId, delivery: 'queue',
+          content: [{ type: 'text', text: 'FEATURE_SYNTHETIC_CHILD_FOLLOW_UP' }],
+        } });
+        assert.ok(typeof receipt.messageId === 'string' && receipt.messageId.length > 0, 'Gateway accepted the phone follow-up');
+        const started = await followUpStarted.promise;
+        assert.equal(started.sessionId, childId);
+        assert.equal(started.signal.aborted, false);
+        assert.deepEqual(await invoke('subagents', 'interruptByUser', { childSessionId: childId }), { accepted: true });
+        await ctx.agents.get(childId)?.whenIdle();
+        assert.equal(followUpInterrupted, true, 'Gateway interrupt cancelled the active follow-up turn before the provider wait expired');
+        checks.push('alpha-gateway-child-follow-up-admitted-and-interrupt-cancels-active-turn');
+      }
 
       const task = (id, status, extra = {}) => ({ id, revision: 1, subject: `Synthetic ${id}`, description: `Synthetic description ${id}`, status, blockedBy: [], writeScopes: [], ...extra });
       const append = task => lead.session.append('team/task', { version: 2, teamId: leadId, task });
@@ -182,7 +209,7 @@ export async function featureChecks({ runtimeRoot, directories }) {
         continuations.push({ code, request, retrySeq: retries[0].event.seq });
         checks.push(`${code}:continuation-projection-empty-queue-requestId-durable-retry-and-dedup`);
       }
-      assert.equal(deterministic.calls, 15, 'One named child, six failure/success pairs, two nonretryable failures');
+      assert.equal(deterministic.calls, checkChildControls ? 16 : 15, 'Named child (plus alpha follow-up), six failure/success pairs, two nonretryable failures');
     } finally { deterministic.stream = originalStream; }
 
     await speechChecks();
@@ -205,7 +232,7 @@ export async function featureChecks({ runtimeRoot, directories }) {
     }
     assert.equal(runtime.deterministic.calls, 0, 'Cold durable retry-id dedup cannot invoke the provider');
     checks.push('cold-runtime-retry-receipts-retain-requestId-and-dedup-with-zero-model-calls');
-    return { phase: 'rc5-official-feature-contracts', checks, deterministicCalls: deterministic.calls, coldCalls: runtime.deterministic.calls, speech: 'deterministic-provider-contract-only; not real ASR or native microphone acceptance' };
+    return { phase: 'official-feature-contracts', checks, deterministicCalls: deterministic.calls, coldCalls: runtime.deterministic.calls, speech: 'deterministic-provider-contract-only; not real ASR or native microphone acceptance' };
   } finally { await runtime?.dispose(); }
 
   async function speechChecks() {

@@ -20,13 +20,22 @@ test('0.2.2 alphas and betas are refused: none was run, and alpha.2 left resumed
   }
 });
 
+test('DSH 0.2.3-alpha.2 and the 0.2.3 alpha, beta, rc, and final channels are accepted', () => {
+  for (const version of ['0.2.3-alpha.0', '0.2.3-alpha.2', '0.2.3-beta.1', '0.2.3-rc.1', '0.2.3']) {
+    assert.equal(isCompatibleDshVersion(version), true, version);
+  }
+  for (const version of ['0.2.3-alpha.02', '0.2.3-alpha.2.1', '0.2.3-nightly.1', '0.2.4-alpha.2', '0.2.4']) {
+    assert.equal(isCompatibleDshVersion(version), false, version);
+  }
+});
+
 test('0.2.0-rc.2 stays accepted; other lines and anything that is not a plain version are refused', () => {
   assert.equal(isCompatibleDshVersion('0.2.0-rc.2'), true);
-  for (const version of ['0.2.0-rc.3', '0.2.0', '0.2.3-rc.1', '0.2.3', '0.3.0', '1.0.0', '0.2.10', '0.2.1-rc', '0.2.1-rc.4 ', ' 0.2.1', 'v0.2.1', '0.2.1-rc.4+build', '0.2.1-nightly.1', '^0.2.1', '>=0.2.1', '0.2.1-rc.01', '']) {
+  for (const version of ['0.2.0-rc.3', '0.2.0', '0.3.0', '1.0.0', '0.2.10', '0.2.1-rc', '0.2.1-rc.4 ', ' 0.2.1', 'v0.2.1', '0.2.1-rc.4+build', '0.2.1-nightly.1', '^0.2.1', '>=0.2.1', '0.2.1-rc.01', '']) {
     assert.equal(isCompatibleDshVersion(version), false, JSON.stringify(version));
   }
 });
 
 test('the supported versions read the same in errors and the installer', () => {
-  assert.equal(SUPPORTED_DSH_VERSIONS, '0.2.0-rc.2, every 0.2.1 release or pre-release, and every 0.2.2 release candidate or release');
+  assert.equal(SUPPORTED_DSH_VERSIONS, '0.2.0-rc.2, every 0.2.1 or 0.2.3 release or pre-release, and every 0.2.2 release candidate or release');
 });

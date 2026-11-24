@@ -119,6 +119,11 @@ export async function coldChecks(runtime, sessionId) {
   assert.ok(row);
   assert.equal(row.agentAvailable, false);
   const snapshot = await opening(ctx.sessionController, sessionId);
+  if (['0.2.2-rc.5', '0.2.3-alpha.2'].includes(runtime.version)) {
+    const metadata = snapshot.projections?.values.sessionListMetadata;
+    assert.equal(metadata?.blank, false);
+    assert.ok(Number.isSafeInteger(metadata.lastPromptAt) && metadata.lastPromptAt > 0);
+  }
   const page = await ctx.sessionController.page({ address: { kind: 'session', sessionId }, throughSeq: snapshot.cursor, maxMessages: 100 }, signal());
   assert.ok(page.records.length > 0);
   assert.ok(await ctx.sessionController.projections({ sessionId }, signal()));
@@ -143,6 +148,9 @@ export async function adapterChecks(runtime, module, workspace, coldSessionId) {
     assert.ok(listed.some(session => session.id === coldSessionId && session.workspaceId === workspace.id));
     const cold = await adapter.snapshot(coldSessionId, signal());
     assert.ok(cold.messages.some(message => message.text === ANSWERS.live));
+    if (['0.2.2-rc.5', '0.2.3-alpha.2'].includes(runtime.version)) {
+      assert.equal(cold.session.blank, false);
+    }
     const coldAbort = new AbortController();
     const coldWatch = adapter.watch(coldSessionId, coldAbort.signal)[Symbol.asyncIterator]();
     await coldWatch.next(); coldAbort.abort(); await coldWatch.return();

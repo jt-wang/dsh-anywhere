@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { line022 } from './composition.mjs';
+import { usesGatewayComposition } from './composition.mjs';
 import { opening } from './checks.mjs';
 
 const TODOS = [{ content: 'Synthetic canary to-do', status: 'in_progress' }, { content: 'Second synthetic to-do', status: 'pending' }];
@@ -30,7 +30,7 @@ export async function todoChecks(runtime, loader, sessionId, phase) {
     const row = (await ctx.sessionController.list({}, signal())).items.find(item => item.sessionId === sessionId);
     assert.ok(row, 'session listed');
     const rowHasTodos = row.projections !== undefined && 'todos' in row.projections.values;
-    if (phase === 'live') assert.equal(rowHasTodos, !line022(version), line022(version) ? '0.2.2 list rows leave todos out' : '0.2.1 list rows carry todos');
+    if (phase === 'live') assert.equal(rowHasTodos, !usesGatewayComposition(version), `Expected todos list-row visibility for DSH ${version}`);
     if (phase === 'live' && rowHasTodos) assert.deepEqual(row.projections.values.todos, TODOS);
     const projected = await ctx.sessionController.projections({ sessionId }, signal());
     assert.deepEqual(projected?.values?.todos, TODOS, 'projections() serves todos by key');

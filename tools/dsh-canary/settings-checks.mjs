@@ -30,7 +30,7 @@ export async function settingsChecks({ runtimeRoot, directories }) {
   const configs = { model: { provider: 'synthetic', model: 'original' }, credentials: { path: path.join(home, '.credentials.yaml'), watch: false }, speech: { defaultProvider: 'sensevoice-local' }, sensevoice: { dataRoot: path.join(home, 'speech') } };
   await writeFile(path.join(bundle, 'cordis.patch.yml'), JSON.stringify([{ insert: Object.keys(names).map(id => ({ id, name: `cordis:${id}`, ...configs[id] ? { config: configs[id] } : {} })) }]));
   await writeFile(path.join(dir, 'cordis.yml'), '[]\n');
-  const profile = { name: 'synthetic', startedBundles: ['synthetic-settings-bundle'], dir, patchPath: path.join(dir, 'cordis.patch.yml'), installAnchor: path.join(home, 'package.json'), cwd: directories.workspace, home, overlays: [], telemetryDisabledEnv: undefined };
+  const profile = { name: 'synthetic', startedBundles: ['synthetic-settings-bundle'], dir, patchPath: path.join(dir, 'cordis.patch.yml'), installAnchor: path.join(home, 'package.json'), cwd: directories.workspace, home, overlays: [], overlayPaths: [], telemetryDisabledEnv: undefined };
   const builtins = Object.fromEntries(await Promise.all(Object.entries(names).map(async ([key, name]) => [key, await load(name)])));
   let ctx;
   const checks = [];

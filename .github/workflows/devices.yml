@@ -1,0 +1,154 @@
+name: Devices
+
+# The header regression checks on an iOS simulator and an Android emulator, required before every release:
+# in the real DSH.app, ios/DSHUITests/HeaderButtonsTests taps the chats header with UIKit's own
+# taps and measures it; on both platforms tools/header-check.sh runs src/header.test.tsx with the platform's own taps
+# while the phone connects, cannot reach its computer and is connected, in light and dark, and measures the header at
+# each step. No secrets, signing or network service: the app runs on sample data and a fake computer.
+on:
+  push:
+    branches: [main, ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devices-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The same NSH as ci.yml, testflight.yml and android-release.yml; update them together.
+  NSH_COMMIT: 33512ba2268774f5a8904e1532aabe37b2f2a65f
+  RUSTUP_TOOLCHAIN: stable
+
+jobs:
+  ios:
+    name: Header on an iOS simulator
+    runs-on: macos-26
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: Prepare XcodeGen
+        shell: bash
+        env:
+          XCODEGEN_VERSION: '2.45.4'
+          XCODEGEN_SHA256: '090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef'
+        run: |
+          set -euo pipefail
+          curl -sfL -o "$RUNNER_TEMP/xcodegen.zip" "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          dirname "$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen -perm -u+x -print -quit)" >> "$GITHUB_PATH"
+      - name: Build the pinned NSH and its iOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          git init -q "$RUNNER_TEMP/nsh"
+          git -C "$RUNNER_TEMP/nsh" fetch -q --depth 1 https://github.com/jt-wang/nsh.git "$NSH_COMMIT"
+          git -C "$RUNNER_TEMP/nsh" checkout -q --detach FETCH_HEAD
+          git -C "$RUNNER_TEMP/nsh" apply "$GITHUB_WORKSPACE/nsh-app/ios/nsh-window-tap.patch"
+          git -C "$RUNNER_TEMP/nsh" apply "$GITHUB_WORKSPACE/nsh-app/nsh-number-pad.patch"
+          (cd "$RUNNER_TEMP/nsh" && cargo build --locked --release -p nsh-cli)
+          echo "NSH_SOURCE=$RUNNER_TEMP/nsh" >> "$GITHUB_ENV"
+          echo "NSH=$RUNNER_TEMP/nsh/target/release/nsh" >> "$GITHUB_ENV"
+          NSH_SOURCE="$RUNNER_TEMP/nsh" python3 nsh-app/ios/runtime_sdk.py prepare "$RUNNER_TEMP/dsh-runtime.json"
+      - name: Build DSH.app for the simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          IOS_ONLY=1 tools/build-tailcat.sh
+          DSH_NSH_RECEIPT="$RUNNER_TEMP/dsh-runtime.json" nsh-app/ios/build.sh
+      - name: Boot a fresh iPhone simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime=$(xcrun simctl list runtimes available -j | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x["platform"]=="iOS"]; print(r[-1]["identifier"])')
+          # The newest iPhone this Xcode has, preferring a Pro (the size the reference screenshots use).
+          model=$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; t=[d["identifier"] for d in json.load(sys.stdin)["devicetypes"] if d["name"].startswith("iPhone")]; p=[i for i in t if i.endswith("-Pro")]; print((p or t)[-1])')
+          udid=$(xcrun simctl create "DSH header check" "$model" "$runtime")
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "UDID=$udid" >> "$GITHUB_ENV"
+      - name: Header buttons in DSH.app (UIKit taps)
+        shell: bash
+        working-directory: nsh-app
+        run: |
+          xcodebuild test -quiet -project ios/DSH.xcodeproj -scheme DSH -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath ios/build/derived -resultBundlePath "$RUNNER_TEMP/header-buttons.xcresult" \
+            -only-testing:DSHUITests/HeaderButtonsTests
+      - name: Header in every connection state (tools/header-check.sh ios)
+        shell: bash
+        env:
+          DSH_DERIVED: nsh-app/ios/build/derived
+        run: tools/header-check.sh ios
+      - name: Keep the measurements and screens
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: header-ios-${{ github.run_id }}
+          path: |
+            nsh-app/build/header-probe
+            ${{ runner.temp }}/header-buttons.xcresult
+          retention-days: 14
+          if-no-files-found: warn
+
+  android:
+    name: Header on an Android emulator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Prepare the Android SDK, the native compiler and the emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y libclang-dev libssl-dev cmake
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;36.0.0' 'ndk;27.2.12479018'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          # nsh builds the test APK for phones' ABIs (arm64-v8a, armeabi-v7a) plus the emulator's x86_64.
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build the pinned NSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q "$RUNNER_TEMP/nsh"
+          git -C "$RUNNER_TEMP/nsh" fetch -q --depth 1 https://github.com/jt-wang/nsh.git "$NSH_COMMIT"
+          git -C "$RUNNER_TEMP/nsh" checkout -q --detach FETCH_HEAD
+          git -C "$RUNNER_TEMP/nsh" apply "$GITHUB_WORKSPACE/nsh-app/nsh-number-pad.patch"
+          (cd "$RUNNER_TEMP/nsh" && cargo build --locked --release -p nsh-cli)
+          echo "NSH=$RUNNER_TEMP/nsh/target/release/nsh" >> "$GITHUB_ENV"
+      - name: Header in every connection state (tools/header-check.sh android)
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          script: bash tools/header-check.sh android
+      - name: Keep the measurements and screens
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: header-android-${{ github.run_id }}
+          path: nsh-app/build/header-probe
+          retention-days: 14
+          if-no-files-found: warn

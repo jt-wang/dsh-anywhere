@@ -30,8 +30,8 @@ is another author's DSH plugin (remote workspaces over SSH), not this one.
    person: DSH Anywhere works with DSH Desktop, which DeepSeek makes only for Macs and Windows x64; it would need DSH
    Desktop on one of those. Do not install the package there: it would refuse to start (`unsupported_computer`).
 2. DSH Desktop is installed and has been opened once: `profiles/desktop/package.json` exists in the DSH home.
-3. `dsh --version` prints `0.2.0-rc.2`, a 0.2.1 version (`0.2.1`, `0.2.1-alpha.N`, `-beta.N`, `-rc.N`) or a 0.2.2
-   release candidate or release (`0.2.2-rc.N`, `0.2.2`). If `dsh` is
+3. `dsh --version` prints `0.2.0-rc.2`, a 0.2.1 or 0.2.3 release or numbered pre-release (`-alpha.N`, `-beta.N`,
+   `-rc.N`), or a 0.2.2 release candidate or release (`0.2.2-rc.N`, `0.2.2`). If `dsh` is
    not found, use the app's own launcher from the table in its place (on Windows, DSH Desktop's **Manage dsh
    Command…** also puts `dsh` on the user's PATH).
 4. Earlier install from source: if `profiles/desktop/cordis.patch.yml` in the DSH home contains

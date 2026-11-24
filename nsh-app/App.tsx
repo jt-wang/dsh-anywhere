@@ -103,9 +103,30 @@ function App() {
     host.call('diagnostics.resources', { enabled: appActive() && prefs.enabled && prefs.categories.resources }).catch(() => { if (prefs.enabled) diagnostics.failed.set(true) })
   })
   boot()
-  const nav = createNavStack<Route>([{ name: 'sessions' }])
   // One stable list/navigation tree serves phone and sidebar, preserving open forms on resize.
   const sidebar = createNavStack<Route>([{ name: 'sessions' }])
+  const detail = createNavStack<Route>([{ name: 'sessions' }])
+  // A phone pushes pages over the list itself, so a back or swipe uncovers the list as it was instead of an empty page.
+  const stack = () => (wideLayout() ? detail : sidebar)
+  const nav = {
+    routes: () => stack().routes(),
+    push: (route: Route) => untracked(stack).push(route),
+    pop: (n?: number) => untracked(stack).pop(n),
+    popToRoot: () => untracked(stack).popToRoot(),
+  }
+  let wasWide = untracked(wideLayout)
+  effect(() => {
+    const wide = wideLayout()
+    if (wide === wasWide) return
+    wasWide = wide
+    untracked(() => {
+      const [from, to] = wide ? [sidebar, detail] : [detail, sidebar]
+      const pages = from.routes().slice(1)
+      if (!pages.length) return
+      to.setRoutes([to.routes()[0]!, ...pages])
+      from.popToRoot()
+    })
+  })
   const openSession = (session: Summary) => {
     if (wideLayout()) {
       const current = nav.routes().at(-1)
@@ -161,9 +182,11 @@ function App() {
     : route.name === 'sessions'
     ? <NavPage title={!wideLayout() || inSidebar ? S.chats : ''} headerClass={HEADER} class="bg-background"
         headerTitle={inSidebar ? (progressAvailable() ? <HomeTabs tab={tab} onTab={(t) => tab.set(t)} /> : <Text class="text-foreground text-[19px] font-medium">{S.chats}</Text>) : undefined}
-        headerRight={<If when={inSidebar}><View class="flex-row items-center">
-          <IconButton name="compose" label={S.newChat} testID="new-chat" class="w-[44px] h-[44px]" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'new_chat' }); tab.set('chats'); newChat.set(true) }} />
-          <IconButton name="more" label={S.more} testID="more" class="w-[44px] h-[44px]" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'menu' }); if (Date.now() - menuClosed > 300) menu.set(true) }} />
+        headerRight={<If when={inSidebar}><View class="flex-row items-center android:p-[6px]">
+          {/* 36 pt tall on iOS, whose bar top-aligns a taller item and takes taps only in its 36 pt band; on Android
+              the buttons' hit slop reaches only as far as this row, so it pads itself by the slop. */}
+          <IconButton name="compose" label={S.newChat} testID="new-chat" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'new_chat' }); tab.set('chats'); newChat.set(true) }} />
+          <IconButton name="more" label={S.more} testID="more" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'menu' }); if (Date.now() - menuClosed > 300) menu.set(true) }} />
         </View></If>}>
         <If when={inSidebar} else={
           <View class="flex-1 items-center justify-center gap-3 px-6">
@@ -235,12 +258,12 @@ function App() {
           <>
             <ProgressFeed />
             <View class="flex-1 flex-row bg-background">
-              <View testID={wideLayout() ? 'wide-sidebar' : undefined} class={wideLayout() ? 'border-r border-border' : 'flex-1'}
-                style={{ width: wideLayout() ? sidebarWidth() : undefined, display: wideLayout() || nav.routes().length === 1 ? 'flex' : 'none' }}>
+              <View testID={wideLayout() ? 'wide-sidebar' : 'phone-stack'} class={wideLayout() ? 'border-r border-border' : 'flex-1'}
+                style={{ width: wideLayout() ? sidebarWidth() : undefined }}>
                 <NavStack state={sidebar} class="flex-1">{(route) => page(route, true)}</NavStack>
               </View>
-              <View class="flex-1" style={{ display: wideLayout() || nav.routes().length > 1 ? 'flex' : 'none' }}>
-                <NavStack state={nav} class="flex-1">{(route) => page(route)}</NavStack>
+              <View class="flex-1" style={{ display: wideLayout() ? 'flex' : 'none' }}>
+                <NavStack state={detail} class="flex-1">{(route) => page(route)}</NavStack>
               </View>
             </View>
             {/* On the sample nothing is news: the notice stays in sight, and no notification is asked for. */}

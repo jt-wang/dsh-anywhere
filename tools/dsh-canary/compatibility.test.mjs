@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { bundleCatalog, canonical, channelMetadata, compareRuntimes, ownerConfigs, remoteContracts, reviewChanges } from './compatibility.mjs';
 
 // Reduced literals from official 0.2.2-rc.1 SessionController/commands descriptors.
@@ -72,17 +77,58 @@ test('never evaluates upstream expressions; unsupported generator shapes fail cl
   assert.throws(() => remoteContracts('export const TYPERT_REMOTE = arbitrary()'), /createTypertRemoteInfo/);
   assert.throws(() => remoteContracts('export const TYPERT_REMOTE = {'), /Invalid generated descriptor syntax/);
 });
-test('channel resolution compares baseline, latest and next without upgrading or trusting shell input', () => {
+test('channel resolution compares baseline, latest, next and alpha without upgrading or trusting shell input', () => {
   const packument = {
-    'dist-tags': { latest: '0.2.2-rc.1', next: '0.2.2-rc.5' },
-    versions: Object.fromEntries(['0.2.2-rc.1', '0.2.2-rc.5'].map(version => [version, { dist: { integrity: 'sha512-synthetic', tarball: `https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-${version}.tgz` } }])),
+    'dist-tags': { latest: '0.2.2-rc.1', next: '0.2.2-rc.5', alpha: '0.2.3-alpha.2' },
+    versions: Object.fromEntries(['0.2.2-rc.1', '0.2.2-rc.5', '0.2.3-alpha.2'].map(version => [version, { dist: { integrity: 'sha512-synthetic', tarball: `https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-${version}.tgz` } }])),
   };
   const metadata = channelMetadata(packument, '0.2.2-rc.1', 'next');
   assert.equal(metadata.selected, '0.2.2-rc.5');
-  assert.equal(Object.keys(metadata.versions).length, 2);
+  assert.equal(Object.keys(metadata.versions).length, 3);
   assert.equal(metadata.releaseKey, channelMetadata(packument, '0.2.2-rc.1', '0.2.2-rc.5').releaseKey);
+  const alpha = channelMetadata(packument, '0.2.2-rc.1', 'alpha');
+  assert.equal(alpha.selected, '0.2.3-alpha.2');
+  assert.equal(alpha.releaseKey, channelMetadata(packument, '0.2.2-rc.1', alpha.selected).releaseKey);
+  for (const requested of ['alpha', '0.2.3-alpha.2']) {
+    assert.equal(channelMetadata(packument, '0.2.2-rc.1', requested).baseline, '0.2.2-rc.5');
+  }
+  assert.equal(channelMetadata(packument, '0.2.2-rc.1', 'next').baseline, '0.2.2-rc.1');
+  const later = { ...packument, 'dist-tags': { ...packument['dist-tags'], alpha: '0.2.3-alpha.3' },
+    versions: { ...packument.versions, '0.2.3-alpha.3': packument.versions['0.2.3-alpha.2'] } };
+  assert.equal(channelMetadata(later, '0.2.2-rc.1', 'alpha').baseline, '0.2.2-rc.1');
+  const withoutAlpha = { ...packument, 'dist-tags': { latest: '0.2.2-rc.1', next: '0.2.2-rc.5' } };
+  assert.equal(channelMetadata(withoutAlpha, '0.2.2-rc.1', 'latest').selected, '0.2.2-rc.1');
+  for (const requested of ['next', '0.2.2-rc.5']) {
+    assert.equal(channelMetadata(withoutAlpha, '0.2.2-rc.1', requested).selected, '0.2.2-rc.5');
+  }
+  assert.throws(() => channelMetadata(withoutAlpha, '0.2.2-rc.1', 'alpha'), /Missing official release metadata: alpha/);
   assert.throws(() => channelMetadata(packument, 'latest', 'next'), /Baseline must be an exact/);
   for (const requested of ['next;echo bad', '../runtime', '"}]', 'https://example.invalid/dsh.tgz', '0.2.3']) assert.throws(() => channelMetadata(packument, '0.2.2-rc.1', requested));
+});
+
+test('an invalid review file does not block metadata and produces a static inspection failure', async t => {
+  const output = await mkdtemp(path.join(os.tmpdir(), 'dsh-canary-compatibility-'));
+  t.after(() => rm(output, { recursive: true, force: true }));
+  const review = path.join(output, 'review.json');
+  await writeFile(review, '{');
+  const dist = { integrity: 'sha512-synthetic', tarball: 'https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh.tgz' };
+  const packument = {
+    'dist-tags': { latest: '0.2.2-rc.5', next: '0.2.2-rc.5', alpha: '0.2.3-alpha.2' },
+    versions: { '0.2.2-rc.5': { dist }, '0.2.3-alpha.2': { dist } },
+  };
+  const mockFetch = `globalThis.fetch = async url => Response.json(String(url).startsWith('https://registry.npmjs.org/') ? ${JSON.stringify(packument)} : {})`;
+  const script = fileURLToPath(new URL('./compatibility.mjs', import.meta.url));
+  const common = ['--output-dir', output, '--review-baseline', review];
+  const metadata = spawnSync(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(mockFetch)}`, script, 'metadata', '--baseline-version', '0.2.2-rc.1', '--requested', 'alpha', ...common], { encoding: 'utf8' });
+  assert.equal(metadata.status, 0, metadata.stderr);
+  const channels = JSON.parse(await readFile(path.join(output, 'channels.json'), 'utf8'));
+  assert.equal(channels.selected, '0.2.3-alpha.2');
+  assert.equal(channels.baseline, '0.2.2-rc.5');
+  const compare = spawnSync(process.execPath, [script, 'compare', '--baseline-root', output, '--runtime-root', output, ...common], { encoding: 'utf8' });
+  assert.equal(compare.status, 1, compare.stderr);
+  const report = JSON.parse(await readFile(path.join(output, 'compatibility.json'), 'utf8'));
+  assert.equal(report.status, 'inspection-failed');
+  assert.match(report.error, /JSON/);
 });
 
 test('review baseline accepts only the exact reviewed before/after contract on its release pair', () => {

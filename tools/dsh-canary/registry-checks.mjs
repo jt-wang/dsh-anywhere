@@ -4,7 +4,7 @@ import { mkdir, writeFile, appendFile, readdir } from 'node:fs/promises';
 import { request } from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { rc2Family } from './composition.mjs';
+import { checksAlphaNativeRelay, rc2Family } from './composition.mjs';
 import { assertOwnedPath } from './safety.mjs';
 
 /** Real installed Loader/Include patch, services and controller; no live profile. */
@@ -47,6 +47,14 @@ export async function registryChecks({ runtime, loader, directories, runRoot, pr
   for (const [id, config] of [['dsh-subagent', { maxDepth: 4, maxActiveSubagents: 8 }], ['dsh-subagent-fork-in-process', {}], ['dsh-subagent-spawn-in-process', {}]]) {
     const module = await loader.load(id), fiber = ctx.plugin(module.default ?? module, config);
     await fiber.await(); assert.equal(fiber.state, 2);
+  }
+  const relayFibers = [];
+  if (checksAlphaNativeRelay(runtime.version)) {
+    for (const [id, config] of [['dsh-host-webserver', { host: '127.0.0.1', port: 0 }], ['dsh-host-authentication-token', {}]]) {
+      const module = await loader.load(id), fiber = ctx.plugin(module.default ?? module, config);
+      relayFibers.push(fiber);
+      await fiber.await(); assert.equal(fiber.state, 2);
+    }
   }
   const loaderFiber = ctx.plugin(Loader, { baseUrl: pathToFileURL(profile + path.sep).href });
   await loaderFiber;
@@ -91,8 +99,8 @@ export async function registryChecks({ runtime, loader, directories, runRoot, pr
     admin = new HostState(config.statePath);
     for (const row of sessions) admin.rememberMobileSession(row.sessionId);
     const offer = admin.createPairing({ readWorkspaceIds: ['*'], executeWorkspaceIds: ['*'] });
-    const call = (suffix, token, body) => new Promise((resolve, reject) => {
-      const req = request(new URL(`http://127.0.0.1:${options.port}/v1${suffix}`), { method: body === undefined ? 'GET' : 'POST', agent: false, headers: { Connection: 'close', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) } }, res => {
+    const call = (suffix, token, body, prefix = '/v1') => new Promise((resolve, reject) => {
+      const req = request(new URL(`http://127.0.0.1:${options.port}${prefix}${suffix}`), { method: body === undefined ? 'GET' : 'POST', agent: false, headers: { Connection: 'close', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) } }, res => {
         const chunks = [];
         res.on('data', chunk => chunks.push(chunk));
         res.once('end', () => { try { resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }); } catch (error) { reject(error); } });
@@ -104,6 +112,20 @@ export async function registryChecks({ runtime, loader, directories, runRoot, pr
     const paired = await call('/pairings', undefined, { pairingToken: offer.pairingToken, deviceName: 'Synthetic canary phone' });
     assert.equal(paired.status, 201);
     const token = paired.body.deviceToken;
+    const relayChecks = [];
+    if (relayFibers.length) {
+      assert.equal(ctx.connection.authenticatedUrl, undefined, 'Exercise the alpha WebServer entry URL, not the legacy method');
+      const rpc = (method, args, credential) => call(`/api/${method}`, credential,
+        { type: 'client-request', rpcId: randomUUID(), method, payload: { args } }, '/dsh');
+      const denied = await rpc('session/list', { _request: {} });
+      assert.equal(denied.status, 401, 'Native relay must reject an unpaired caller');
+      const native = await rpc('session/list', { _request: {} }, token);
+      assert.equal(native.status, 200, 'Authenticated native session/list through the alpha relay');
+      assert.equal(native.body.result?.ok, true);
+      assert.deepEqual(native.body.result.value.items.map(row => row.sessionId).sort(), sessions.map(row => row.sessionId).sort());
+      console.error(`NATIVE_RELAY_HTTP ${JSON.stringify({ method: 'session/list', status: native.status, syntheticSessions: sessions.length })}`);
+      relayChecks.push('alpha-authenticated-native-session-list-http-200');
+    }
     const projects = await call('/workspaces', token), listed = await call('/sessions', token);
     console.error(`REGISTRY_HTTP ${JSON.stringify({ workspaces: { status: projects.status, ...(projects.body.error ? { code: projects.body.error.code } : {}) }, sessions: { status: listed.status, ...(listed.body.error ? { code: listed.body.error.code } : {}) }, registryPresent: true, tracingProxyIdentityStable: false, sameRealm: true })}`);
     assert.equal(projects.status, 200, 'Real profile-insert registry GET /workspaces');
@@ -236,9 +258,10 @@ export async function registryChecks({ runtime, loader, directories, runRoot, pr
     }
     await companion.fiber.dispose();
     assert.equal(companion.fiber.state, 4, 'Companion fiber fully disposed');
+    for (const fiber of relayFibers.reverse()) await fiber.dispose();
     assert.equal(options.isolation.activeListeners, 0, 'Owned listener closed on profile disposal');
     abort.abort();
-    return { checks: ['real-loader-file-url-profile-insert', 'same-realm-registry-get-without-inject', 'three-real-registry-workspaces', 'registry-http-workspaces-and-sessions', 'per-workspace-session-filter', 'registry-create-attaches-session', 'registry-create-requestId-dedup', 'registry-live-rename-order-archive', 'registry-loss-fails-closed-http-503', 'profile-plugin-disposal-closes-listener', 'registry-zero-llm-calls-before-child-canary', 'real-profile-child-summary/snapshot', 'cold-broken-body-denied-get/sse-404', 'cold-broken-body-archived-get/sse-404', 'cold-broken-body-permitted-get/sse-safe-500', 'cold-unreadable-header-stat-throws-list-omits', 'cold-unreadable-header-denied/permitted-get/sse-404', ...children.checks], ...(children.limitations ? { limitations: children.limitations } : {}), result: { workspaces: expectedProjects, sessions, createdSessionId: receipt.result.sessionId, http: { workspaces: projects.status, sessions: listed.status }, registryPresent: true, tracingProxyIdentityStable: false, sameRealm: true } };
+    return { checks: ['real-loader-file-url-profile-insert', 'same-realm-registry-get-without-inject', 'three-real-registry-workspaces', 'registry-http-workspaces-and-sessions', 'per-workspace-session-filter', 'registry-create-attaches-session', 'registry-create-requestId-dedup', 'registry-live-rename-order-archive', 'registry-loss-fails-closed-http-503', 'profile-plugin-disposal-closes-listener', 'registry-zero-llm-calls-before-child-canary', 'real-profile-child-summary/snapshot', 'cold-broken-body-denied-get/sse-404', 'cold-broken-body-archived-get/sse-404', 'cold-broken-body-permitted-get/sse-safe-500', 'cold-unreadable-header-stat-throws-list-omits', 'cold-unreadable-header-denied/permitted-get/sse-404', ...relayChecks, ...children.checks], ...(children.limitations ? { limitations: children.limitations } : {}), result: { workspaces: expectedProjects, sessions, createdSessionId: receipt.result.sessionId, http: { workspaces: projects.status, sessions: listed.status }, registryPresent: true, tracingProxyIdentityStable: false, sameRealm: true } };
   } finally {
     admin?.close();
     await loaderFiber.dispose();

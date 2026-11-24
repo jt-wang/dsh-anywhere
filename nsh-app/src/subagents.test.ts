@@ -79,7 +79,7 @@ function transport(version = '0.2.2-rc.1') {
 test('child controls choose the released rc.2 boundary before sending, and re-read when the computer changes', async () => {
   const { state, client } = transport()
   const content = [{ type: 'text', text: 'synthetic follow-up' }]
-  for (const [version, modern] of [['0.2.2-rc.1', false], ['0.2.2-rc.2', true], ['0.2.2-rc.3', true], ['0.2.2-rc.4', true], ['0.2.2-rc.5', true], ['0.2.1-rc.3', false]] as const) {
+  for (const [version, modern] of [['0.2.2-rc.1', false], ['0.2.2-rc.2', true], ['0.2.2-rc.3', true], ['0.2.2-rc.4', true], ['0.2.2-rc.5', true], ['0.2.3-alpha.2', true], ['0.2.1-rc.3', false]] as const) {
     state.version = version
     expect(await followUp(client, 'parent', 'child', 'request-1', content)).toEqual({ messageId: 'accepted-message' })
     expect(await interruptChild(client, 'parent', 'child')).toEqual({ accepted: true })
@@ -91,12 +91,12 @@ test('child controls choose the released rc.2 boundary before sending, and re-re
         : { method: 'subagents/interruptByParent', args: { childSessionId: 'child', parentSessionId: 'parent', mode: 'continuable' } },
     ])
   }
-  expect(state.writes.length).toBe(12)
-  expect(state.reads).toBe(12)
+  expect(state.writes.length).toBe(14)
+  expect(state.reads).toBe(14)
 })
 
 test('unknown or custom desktop versions never probe a child with a mutation', async () => {
-  for (const version of ['', '0.2.2-rc.01', '0.2.2-rc.2-custom', '0.2.2-rc.10', '0.2.3', '0.3.0']) {
+  for (const version of ['', '0.2.2-rc.01', '0.2.2-rc.2-custom', '0.2.2-rc.10', '0.2.3-alpha.3', '0.2.3', '0.3.0']) {
     const { state, client } = transport(version)
     for (const run of [() => followUp(client, 'p', 'c', 'r', []), () => interruptChild(client, 'p', 'c')]) {
       let code = ''

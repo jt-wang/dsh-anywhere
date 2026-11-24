@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url';
 // Exercise CLI preflight/receipt with an unsupported synthetic manifest, not a live runtime.
 test('runtime staged under installation cache keeps the canonical output root and accepts --cache-root', async t => {
   const cacheRoot = path.join(os.homedir(), 'Documents', 'DeepSeekHarness', 'cache', 'dsh-anywhere', 'canary');
+  const workflow = await readFile(new URL('../../.github/workflows/dsh-canary.yml', import.meta.url), 'utf8');
+  const receiptGlob = workflow.match(/^\s+~\/(\S+\/receipt\.json)$/m)?.[1];
+  assert.ok(receiptGlob, 'Canary workflow uploads isolated receipts');
   await mkdir(cacheRoot, { recursive: true });
   const fixture = await mkdtemp(path.join(cacheRoot, 'output-root-test-'));
   const runtimeRoot = path.join(fixture, 'runtime');
@@ -21,6 +24,8 @@ test('runtime staged under installation cache keeps the canonical output root an
     assert.doesNotMatch(child.stderr, /Only the installation cache/);
     assert.ok(child.stdout.trim().startsWith('{'), 'preflight must reach the receipt, not reject the canonical cache');
     const summary = JSON.parse(child.stdout);
+    const receiptFromHome = path.relative(os.homedir(), summary.receiptPath).split(path.sep).join('/');
+    assert.ok(path.posix.matchesGlob(receiptFromHome, receiptGlob), 'The workflow glob matches the receipt path');
     const runRoot = path.dirname(summary.receiptPath);
     assert.equal(path.dirname(runRoot).toLowerCase(), cacheRoot.toLowerCase());
     assert.match(path.basename(runRoot), /^run-/);

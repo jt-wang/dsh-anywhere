@@ -1,5 +1,5 @@
 // Manual generation continuation extends DSH's conversationContinuation projection, not a local failure taxonomy.
-// Only rc.5 has been exercised here. Never probe an unknown host with an empty prompt.
+// Never probe an unknown host with an empty prompt.
 export interface ContinuationClient {
   computer(): Promise<{ dshVersion: string }>
   rpc<T = any>(method: string, args: Record<string, unknown>): Promise<T>
@@ -40,7 +40,7 @@ export class Continuation {
   }
   private async check(ending: number): Promise<ContinuationStatus> {
     const { dshVersion } = await this.client.computer()
-    if (dshVersion !== '0.2.2-rc.5') return /^(0\.2\.[01](?:-rc\.\d+|-alpha\.\d+)?|0\.2\.2-rc\.[0-4])$/.test(dshVersion) ? 'unsupported' : 'unknown'
+    if (dshVersion !== '0.2.2-rc.5' && dshVersion !== '0.2.3-alpha.2') return /^(0\.2\.[01](?:-rc\.\d+|-alpha\.\d+)?|0\.2\.2-rc\.[0-4])$/.test(dshVersion) ? 'unsupported' : 'unknown'
     const [projection, state] = await Promise.all([
       this.client.rpc('session/projections', { request: { sessionId: this.sessionId } }),
       this.client.rpc('session/state', { request: { sessionId: this.sessionId } }),

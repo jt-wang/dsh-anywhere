@@ -64,6 +64,57 @@ final class HeaderButtonsTests: XCTestCase {
         screenshot("new-chat-composer")
     }
 
+    // A required check before every release. 0.1.21 (22) on an iPhone: 44 pt buttons in the 36 pt header row sat
+    // 4 pt below the title and reached the connection banner.
+    func testChatsHeaderButtonsLineUpWithTheTitle() throws {
+        try sample()
+        let bar = app.navigationBars.firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 10), "No header bar")
+        let title = bar.staticTexts["Chats"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "No \"Chats\" title in the header")
+        let banner = try require("try-banner")
+        for id in ["new-chat", "more"] {
+            let f = try require(id).frame
+            XCTAssertEqual(f.midY, title.frame.midY, accuracy: 1, "\(id) center is off the title's line: \(f) vs \(title.frame)")
+            XCTAssertTrue(bar.frame.insetBy(dx: -0.5, dy: -0.5).contains(f), "\(id) \(f) reaches out of the header \(bar.frame)")
+            XCTAssertLessThanOrEqual(f.maxY, banner.frame.minY + 0.5, "\(id) \(f) reaches the banner \(banner.frame)")
+        }
+        screenshot("chats-header")
+    }
+
+    // Where a tap on a header button counts, measured on iOS 26.5: the bar item takes touches in a 36 pt band, so the
+    // 36 pt button is all of it, edge to edge; its 6 pt hit slop reaches only sideways. 0.1.21's 44 pt button drew 8 pt
+    // below that band, where a tap did nothing.
+    private func tapAt(x: CGFloat, y: CGFloat) {
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: y)).tap()
+    }
+
+    func testHomeMenuOpensFromTapsAtTheButtonsEdgesAndInsideItsHitSlop() throws {
+        try sample()
+        let more = try require("more")
+        let f = more.frame
+        for (name, x, y) in [("2 pt inside the top", f.midX, f.minY + 2), ("2 pt inside the bottom", f.midX, f.maxY - 2),
+                             ("3 pt right of it, inside its hit slop", f.maxX + 3, f.midY)] {
+            let menu = element("menu-settings")
+            XCTAssertFalse(menu.exists)
+            tapAt(x: x, y: y)
+            XCTAssertTrue(menu.waitForExistence(timeout: 5), "A tap \(name) of ⋯ \(f) did not open its menu")
+            screenshot("menu-from-\(name)")
+            // Close it with a tap far from the header.
+            tapAt(x: 30, y: app.frame.height - 120)
+            expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: menu)
+            waitForExpectations(timeout: 5)
+        }
+    }
+
+    func testNewChatOpensFromATapAtTheButtonsBottomEdge() throws {
+        try sample()
+        let f = try require("new-chat").frame
+        tapAt(x: f.midX, y: f.maxY - 2)
+        _ = try require("start-chat")
+        screenshot("new-chat-from-edge")
+    }
+
     func testHomeMenuOpensSchedules() throws {
         try sample()
         try tapHeader("more")
@@ -121,16 +172,26 @@ final class HeaderButtonsTests: XCTestCase {
     func testChatHeaderMenuPreservesReadingPosition() throws {
         try sample()
         try require("session-try-fix").tap()
-        let message = (1...25).map { "Reading line \($0): preserve this position." }.joined(separator: "\n")
+        let message = (1...40).map { "Reading line \($0): preserve this position." }.joined(separator: "\n")
         let composer = try require("composer")
         composer.tap()
         composer.typeText(message)
         try require("send").tap()
         XCTAssertTrue(app.staticTexts["This is a sample answer. In the real app, your message goes to the agent on your computer and its answer comes back here."].waitForExistence(timeout: 10))
         let thread = try require("thread")
-        // Read a little earlier without flinging to the beginning or collapsing UIKit's navigation bar.
-        let point = thread.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
-        point.press(forDuration: 0.05, thenDragTo: point.withOffset(CGVector(dx: 0, dy: 60)), withVelocity: .slow, thenHoldForDuration: 0.1)
+        // Read earlier without flinging to the beginning or collapsing UIKit's navigation bar. The menu puts the
+        // keyboard away (keyboard.test.tsx) and the list grows by about its height: a reader that close to the end stays
+        // with the end (WANG-115: 60 pt back moved the message 130 pt), so read back farther than the keyboard frees.
+        // Drag in steps inside the list: a drag into the keyboard would put it away interactively first.
+        let keyboard = app.keyboards.firstMatch
+        var back = (keyboard.exists ? keyboard.frame.height : 0) + 180
+        while back > 0 {
+            let step = min(back, 200)
+            let point = thread.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
+            point.press(forDuration: 0.05, thenDragTo: point.withOffset(CGVector(dx: 0, dy: step)), withVelocity: .slow, thenHoldForDuration: 0.1)
+            back -= step
+        }
+        XCTAssertTrue(keyboard.exists, "The keyboard must still be up when the header is pressed")
         let reading = app.staticTexts.matching(NSPredicate(format: "label == %@", message)).firstMatch
         XCTAssertTrue(reading.exists)
         let y = reading.frame.minY

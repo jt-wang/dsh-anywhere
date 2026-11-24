@@ -15,9 +15,10 @@ export const rc2Family = version => RC2_LINE.test(version);
  * dsh-tools no longer takes `mode` (native execution is the separate dsh-tool-executor-native plugin, dsh-tools
  * README), and the SessionController also injects `typertGateway`, which dsh-api-gateway provides
  * (dsh-base/cordis.patch.yml mounts it). */
-const LINE_022 = /^0\.2\.2(?:-rc\.(?:0|[1-9]\d*))?$/;
-export const line022 = version => LINE_022.test(version);
-export const canaryAccepts = version => ['0.2.0-rc.2', '0.2.1-alpha.1'].includes(version) || rc2Family(version) || line022(version);
+const GATEWAY_LINES = /^(?:0\.2\.2(?:-rc\.(?:0|[1-9]\d*))?|0\.2\.3(?:-(?:alpha|beta|rc)\.(?:0|[1-9]\d*))?)$/;
+export const usesGatewayComposition = version => GATEWAY_LINES.test(version);
+export const checksAlphaNativeRelay = version => version === '0.2.3-alpha.2';
+export const canaryAccepts = version => ['0.2.0-rc.2', '0.2.1-alpha.1'].includes(version) || rc2Family(version) || usesGatewayComposition(version);
 const COMPONENTS = [
   ['cordis-plugin-timer', {}], ['dsh-typert-registry', {}],
   ['dsh-llm', {}], ['dsh-session', {}], ['dsh-session-projection', {}],
@@ -36,6 +37,7 @@ export function officialLoader(runtimeRoot) {
   const evidence = [];
   let installedVersion;
   const allowed = new Set(['cordis', 'cordis-plugin-loader', 'cordis-plugin-include', 'dsh-app-boot', 'dsh-agent-preset-registry', 'dsh-agent-preset', 'dsh-api-workspace-controller', 'dsh-credentials', 'dsh-subagent', 'dsh-subagent-fork-in-process', 'dsh-subagent-spawn-in-process', ...COMPONENTS.map(([id]) => id), 'dsh-api-remote-access', 'dsh-working-directory', 'dsh-api-gateway', 'dsh-tool-executor-native', 'dsh-tool-todo', 'dsh-session-projection-cache', 'dsh-session-persistence-jsonl', 'dsh-storage-json', 'dsh-fs-local', 'dsh-attachment-local']);
+  for (const id of ['dsh-host-webserver', 'dsh-host-authentication-token']) allowed.add(id);
   return {
     evidence,
     get installedVersion() { return installedVersion; },
@@ -50,7 +52,7 @@ export function officialLoader(runtimeRoot) {
     },
     async version() {
       const manifest = JSON.parse(await readFile(path.join(runtimeRoot, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8'));
-      assert.ok(canaryAccepts(manifest.version), `The canary runs 0.2.0-rc.2, 0.2.1-alpha.1, 0.2.1 from rc.2 on and 0.2.2 from rc.0 on, not ${manifest.version}`);
+      assert.ok(canaryAccepts(manifest.version), `The canary runs 0.2.0-rc.2, 0.2.1-alpha.1, 0.2.1 from rc.2 on, 0.2.2 from rc.0 on, and 0.2.3, not ${manifest.version}`);
       installedVersion = manifest.version;
       return installedVersion;
     },
@@ -71,7 +73,7 @@ export async function composeRuntime(loader, directories, { compression = 'none'
     const version = loader.installedVersion ?? await loader.version();
     // 0.2.1-rc.2 adds required remote-access and working-directory services to the composition.
     const rc2Extras = [['dsh-api-remote-access', {}], ['dsh-working-directory', { defaultDirectory: directories.workspace }]];
-    const components = line022(version)
+    const components = usesGatewayComposition(version)
       ? [...COMPONENTS.map(([id, config]) => [id, id === 'dsh-tools' ? {} : config]), ['dsh-tool-executor-native', {}], ...rc2Extras, ['dsh-api-gateway', {}]]
       : rc2Family(version) ? [...COMPONENTS, ...rc2Extras] : COMPONENTS;
     for (const [id, config] of [
