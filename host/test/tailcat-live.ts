@@ -20,7 +20,14 @@ const raw = JSON.parse(readFileSync(configPath, 'utf8'));
 raw.tailcat.helperPath = helperPath; writeFileSync(configPath, JSON.stringify(raw, null, 2));
 const host = await startHostServer({ config: raw as HostConfiguration, adapter, workspaceSource: await createWorkspaceSource({ workspaceSource: 'dsh-registry' }, () => registryService) });
 const started = Date.now();
-while (!host.tailcat?.status().ready) { if (Date.now() - started > 60_000) throw new Error('helper never ready: ' + JSON.stringify(host.tailcat?.status())); await new Promise(r => setTimeout(r, 250)); }
+// Each change of the helper's phase or restart count, with the time since start: the helper says only its phase.
+let seen = '';
+while (!host.tailcat?.status().ready) {
+  const { phase, restarts, running } = host.tailcat!.status(), now = JSON.stringify({ phase, restarts, running });
+  if (now !== seen) { console.log(`[host] helper +${Date.now() - started} ms`, now); seen = now; }
+  if (Date.now() - started > 60_000) throw new Error('helper never ready: ' + JSON.stringify(host.tailcat?.status()));
+  await new Promise(r => setTimeout(r, 250));
+}
 console.log('[host] helper ready', JSON.stringify({ ...host.tailcat.status(), address: host.tailcat.status().address ? 'tc…' : '' }));
 const output = join(dir, 'companion', 'invitations', 'phone.json');
 // The phone prints the four emoji it shows; the computer's answer is yes only when its own four are the same.

@@ -19,7 +19,7 @@ import { ComputerPage, ComputerSettingsPage, pageTitle, type ComputerPageId } fr
 import { createComputerStore } from './src/computer-settings.ts'
 import { computerStrings } from './src/computer-settings-strings.ts'
 import { DangerSheetHost } from './src/danger.tsx'
-import { ActionSheetHost, HeaderMenu, IconButton } from './src/ui.tsx'
+import { ActionSheetHost, HeaderMenu, IconButton, menuButton } from './src/ui.tsx'
 import { SelectTextHost } from './src/copy.tsx'
 import { TrajectoryPage } from './src/trajectory.tsx'
 import { DetailsPage } from './src/details.tsx'
@@ -145,7 +145,15 @@ function App() {
   const chatMenu = signal(false)
   const renaming = signal<Summary | undefined>(undefined)
   const notice = signal('')
-  let menuClosed = 0 // a press on ⋯ while the menu is open closes it as a press outside; it must not reopen it
+  const more = menuButton(menu)
+  // Test runs only (a DEBUG iOS build launched with `-dshMenuTrace YES`, header-fixture.tsx): each press ⋯ delivers,
+  // each press outside the menu and each state of the menu, in ms since the first (monotonic), in a 1 px text the UI tests read, so
+  // a native double tap shows both presses and the closed state between them (WANG-121).
+  const tracing = !!(host.params as { menuTrace?: boolean } | undefined)?.menuTrace
+  const trace = signal('')
+  let traceStart: number | undefined
+  const note = (what: string) => { const now = performance.now(); traceStart ??= now; trace.update((s) => `${s}${s ? ' ' : ''}${what}@${Math.round(now - traceStart!)}`) }
+  if (tracing) effect(() => { const open = menu(); untracked(() => note(open ? 'open' : 'closed')) })
   effect(() => { nav.routes(); diagnostics.callback(); setTimeout(() => Keyboard.dismiss(), 0) }) // the keyboard belongs to the page that asked for it
   const terminalMenu = signal(false)
   const tab = signal<'chats' | 'progress'>('chats')
@@ -160,8 +168,8 @@ function App() {
       </NavPage>
     : route.name === 'terminal'
     ? <NavPage title={route.title ?? S.terminal} headerClass={HEADER} class="bg-background"
-        headerRight={<IconButton name="x" label={S.closeTerminal} testID="terminal-more" onPress={() => { if (Date.now() - menuClosed > 300) terminalMenu.set(true) }} />}>
-        <TerminalPage sessionId={route.session.sessionId} target={route.target} menu={terminalMenu} onMenuClosed={() => { menuClosed = Date.now(); terminalMenu.set(false) }} onClosed={() => nav.pop()} />
+        headerRight={<IconButton name="x" label={S.closeTerminal} testID="terminal-more" onPress={() => terminalMenu.set(true)} />}>
+        <TerminalPage sessionId={route.session.sessionId} target={route.target} menu={terminalMenu} onMenuClosed={() => terminalMenu.set(false)} onClosed={() => nav.pop()} />
       </NavPage>
     : route.name === 'files'
     ? <FilesPage sessionId={route.session.sessionId} path={route.path} file={route.file} headerClass={HEADER}
@@ -186,7 +194,7 @@ function App() {
           {/* 36 pt tall on iOS, whose bar top-aligns a taller item and takes taps only in its 36 pt band; on Android
               the buttons' hit slop reaches only as far as this row, so it pads itself by the slop. */}
           <IconButton name="compose" label={S.newChat} testID="new-chat" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'new_chat' }); tab.set('chats'); newChat.set(true) }} />
-          <IconButton name="more" label={S.more} testID="more" onPress={() => { diagnostics.record('interaction', 'ui.action', { action: 'menu' }); if (Date.now() - menuClosed > 300) menu.set(true) }} />
+          <IconButton name="more" label={S.more} testID="more" {...more.props} onPress={(e) => { if (tracing) note('press'); diagnostics.record('interaction', 'ui.action', { action: 'menu' }); more.props.onPress(e) }} />
         </View></If>}>
         <If when={inSidebar} else={
           <View class="flex-1 items-center justify-center gap-3 px-6">
@@ -200,8 +208,9 @@ function App() {
             <SessionsScreen onOpen={openSession} selected={visible} newChat={newChat} onNewChatClosed={() => newChat.set(false)} />
           </View>
           <If when={tab() === 'progress'}><ProgressScreen onProject={(p) => nav.push({ name: 'project', id: p.id, title: p.title })} onOpen={openJob} /></If>
-          <HeaderMenu open={menu} onClose={() => { menuClosed = Date.now(); menu.set(false) }} actions={[{ id: 'schedules', label: S.schedules, icon: 'clock' }, { id: 'settings', label: S.settings, icon: 'sliders' }]}
+          <HeaderMenu open={menu} onPressOutside={tracing ? () => { note('outside'); more.outside() } : more.outside} onClose={() => menu.set(false)} actions={[{ id: 'schedules', label: S.schedules, icon: 'clock' }, { id: 'settings', label: S.settings, icon: 'sliders' }]}
             onChoose={(id) => { if (id === 'schedules') nav.push({ name: 'schedules' }); else if (id === 'settings') { diagnostics.record('interaction', 'ui.action', { action: 'settings' }); nav.push({ name: 'settings' }) } }} />
+          {tracing ? <Text testID="menu-trace" class="absolute bottom-0 left-0 w-[1px] h-[1px] text-[1px]" style={{ pointerEvents: 'none' }}>{trace()}</Text> : null}
         </View>
         </If>
       </NavPage>
@@ -210,17 +219,18 @@ function App() {
     : chatPage(route)
   const chatPage = (route: Route & { name: 'chat' }) => {
     const activity = route.child ? undefined : createActivity()
+    const chatMore = menuButton(chatMenu)
     return <NavPage title={titleOf(route.session.sessionId, route.session.title)} headerClass={HEADER} class="bg-background"
         headerRight={route.child ? <ConnectionDot /> : <View class="flex-row items-center">
           <ConnectionDot />
           <ActivityButton activity={activity!} />
-          <IconButton name="more" label={S.more} testID="chat-more" onPress={() => { if (Date.now() - menuClosed > 300) chatMenu.set(true) }} />
+          <IconButton name="more" label={S.more} testID="chat-more" {...chatMore.props} />
         </View>}>
         <View class="flex-1">
           <ChatScreen sessionId={route.session.sessionId} isCurrent={() => nav.routes().at(-1) === route} child={route.child} {...(route.at ? { at: route.at } : {})} activity={activity} where={route.session.project && route.session.cwd ? { title: route.session.project, path: route.session.cwd } : undefined} onTitle={(t) => { if (!route.child) setTitles({ [route.session.sessionId]: t }) }}
             onOpenChild={(c) => nav.push({ name: 'chat', session: { ...route.session, sessionId: c.id, title: c.name, running: c.running }, child: { parentSessionId: route.session.sessionId, subagent: c } })} />
           <If when={notice()}><Text testID="chat-notice" class="absolute top-2 left-4 right-4 rounded-[10px] bg-popover border border-border px-3 py-2 text-foreground text-[13px] shadow-md">{notice()}</Text></If>
-          <HeaderMenu open={chatMenu} onClose={() => { menuClosed = Date.now(); chatMenu.set(false) }}
+          <HeaderMenu open={chatMenu} onPressOutside={chatMore.outside} onClose={() => chatMenu.set(false)}
             actions={[{ id: 'rename', label: S.rename, icon: 'pencil' }, { id: 'fork', label: S.fork, icon: 'fork' }, ...(route.child ? [] : [{ id: isPinned(route.session.sessionId) ? 'unpin' : 'pin', label: isPinned(route.session.sessionId) ? S.unpin : S.pin, icon: 'pin' as const }]), { id: 'files', label: S.files, icon: 'folder' }, { id: 'terminal', label: S.terminal, icon: 'terminal' }, { id: 'trajectory', label: S.trajectory, icon: 'route' }, { id: 'details', label: S.details, icon: 'info' }]}
             onChoose={(id) => {
               if (id === 'files') return nav.push({ name: 'files', session: route.session, path: '' })

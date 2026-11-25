@@ -81,6 +81,17 @@ case "$platform" in
           # The chats page itself (<page>-<connection>-<scheme>): tap ⋯ near its edges and inside its hit slop, and
           # look for the menu after each; Back closes it before the test goes on.
           name="$(basename "${png%.png}")"
+          # The ⋯ menu open (menu-again-<scheme>, WANG-121): two taps on ⋯ well within 300 ms of each other, from two
+          # `input` processes started 0.1 s apart, must close the menu and open it again (0.1.22 ignored the second).
+          # Each `input` exit code is kept, and the dump after them has the app's trace of what ⋯ and its menu saw.
+          case "$name" in menu-again-*)
+            read -r x y < <(python3 "$ROOT/tools/header-check.py" center "$xml" "$(cat "$OUT/density.txt")")
+            read -r first second < <("$adb" -s "$serial" shell "input tap $x $y & p=\$!; sleep 0.1; input tap $x $y; b=\$?; wait \$p; echo \$? \$b" </dev/null | tr -d '\r')
+            sleep 1.5
+            "$adb" -s "$serial" exec-out uiautomator dump /dev/tty </dev/null 2>/dev/null | sed -n 's/.*\(<?xml.*<\/hierarchy>\).*/\1/p' > "${png%.png}.double.xml" || true
+            printf '{"exits": [%s, %s]}\n' "${first:-null}" "${second:-null}" > "${png%.png}.double.json"
+            continue ;;
+          esac
           case "$name" in chats-*-*) ;; *) continue ;; esac
           [ "$(tr -cd - <<<"$name" | wc -c | tr -d ' ')" = 2 ] || continue
           taps="{"  # adb reads stdin: each call in this loop gets /dev/null so it leaves the tap list alone

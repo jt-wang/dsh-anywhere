@@ -26,15 +26,34 @@ final class HeaderButtonsTests: XCTestCase {
         add(image)
     }
 
-    private func sample() throws {
+    /// `trace`: the app shows the ⋯ menu's presses and states (`menuTrace`), and the test keeps them with its result.
+    private func sample(trace: Bool = false) throws {
         continueAfterFailure = false
-        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"] + (trace ? ["-dshMenuTrace", "YES"] : [])
+        if trace {
+            addTeardownBlock { [self] in
+                let log = XCTAttachment(string: element("menu-trace").exists ? element("menu-trace").label : "no trace")
+                log.name = "menu-trace"
+                log.lifetime = .keepAlways
+                add(log)
+            }
+        }
         app.launch()
         // Stop before interacting or taking screenshots if the app is already paired.
         let start = try require("try-it")
         start.tap()
         _ = try require("try-banner")
         _ = try require("session-try-fix")
+    }
+
+    /// What the home ⋯ menu saw, in order: `press` (one ⋯ delivered), `outside` (a press outside the menu), `open` and
+    /// `closed`, each with its time in ms (App.tsx, DEBUG builds launched with `-dshMenuTrace YES`).
+    private func menuTrace() -> [(what: String, at: Int)] {
+        element("menu-trace").label.split(separator: " ").compactMap { item in
+            let parts = item.split(separator: "@")
+            guard parts.count == 2, let at = Int(parts[1]) else { return nil }
+            return (String(parts[0]), at)
+        }
     }
 
     private func tapHeader(_ id: String) throws {
@@ -90,7 +109,7 @@ final class HeaderButtonsTests: XCTestCase {
     }
 
     func testHomeMenuOpensFromTapsAtTheButtonsEdgesAndInsideItsHitSlop() throws {
-        try sample()
+        try sample(trace: true)
         let more = try require("more")
         let f = more.frame
         for (name, x, y) in [("2 pt inside the top", f.midX, f.minY + 2), ("2 pt inside the bottom", f.midX, f.maxY - 2),
@@ -105,6 +124,30 @@ final class HeaderButtonsTests: XCTestCase {
             expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: menu)
             waitForExpectations(timeout: 5)
         }
+    }
+
+    // WANG-121: a second tap right after ⋯ closes its menu opens it again. UIKit's own double tap puts the two taps far
+    // closer together than the 300 ms that 0.1.22 ignored ⋯ for after its menu closed, where this test fails: the first
+    // tap closes the menu and the second is swallowed. The app's trace must show both taps delivered under 300 ms apart
+    // and the menu closed between them, so a tap that never arrived, or a menu that never closed, fails as well.
+    func testHomeMenuTakesASecondTapRightAfterItCloses() throws {
+        try sample(trace: true)
+        let more = try require("more")
+        let menu = element("menu-settings")
+        more.tap()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), "A tap on ⋯ did not open its menu")
+        let before = menuTrace()
+        XCTAssertEqual(before.last(where: { $0.what != "press" && $0.what != "outside" })?.what, "open", "The trace does not show the menu open: \(before)")
+        more.doubleTap()
+        Thread.sleep(forTimeInterval: 1.5)
+        screenshot("menu-after-double-tap")
+        let after = Array(menuTrace().dropFirst(before.count))
+        let presses = after.filter { $0.what == "press" }.map(\.at)
+        XCTAssertEqual(presses.count, 2, "A double tap on ⋯ must deliver two presses: \(after)")
+        XCTAssertTrue((0..<300).contains(presses[1] - presses[0]), "The two presses must come in order, under 300 ms apart: \(after)")
+        XCTAssertEqual(after.map(\.what).filter { $0 == "open" || $0 == "closed" }, ["closed", "open"],
+                       "The first tap must close the menu and the second open it: \(after)")
+        XCTAssertTrue(menu.exists, "Two quick taps on ⋯ with its menu open must close it and open it again; it is closed")
     }
 
     func testNewChatOpensFromATapAtTheButtonsBottomEdge() throws {

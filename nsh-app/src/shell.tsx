@@ -103,11 +103,14 @@ export function TerminalPage(props: { sessionId: string; target: TerminalTarget;
   }
   const html = untracked(() => terminalPage({ dark: colorScheme() === 'dark', fontSize: Math.max(12, Math.round(12 * Math.min(fontScale(), 1.6))), scrollback: 1000 }))
   effect(() => { const dark = colorScheme() === 'dark'; channel.send({ t: 'theme', dark }) })
+  let asking = false // a second press on × while its sheet is up asks nothing more (WANG-121)
   effect(() => {
     if (!props.menu()) return
     untracked(async () => {
       props.onMenuClosed()
-      const id = await chooseAction({ title: S.closeTerminalTitle, actions: [{ id: 'close', label: S.closeTerminal, destructive: true }] })
+      if (asking) return
+      asking = true
+      const id = await chooseAction({ title: S.closeTerminalTitle, actions: [{ id: 'close', label: S.closeTerminal, destructive: true }] }).finally(() => { asking = false })
       if (id !== 'close') return
       await session?.close()
       props.onClosed()

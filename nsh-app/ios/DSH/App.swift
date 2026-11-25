@@ -111,6 +111,10 @@ final class ShellController: UIViewController {
         var params: [String: Any] = [:]
         if let pairAtStart { params["pair"] = pairAtStart }
         if let open = Notify.shared.takePendingOpen() { params["open"] = open }
+        #if DEBUG
+        // UI tests only: `-dshMenuTrace YES` shows the ⋯ menu's presses and states to them (App.tsx, WANG-121).
+        if UserDefaults.standard.bool(forKey: "dshMenuTrace") { params["menuTrace"] = true }
+        #endif
         if !params.isEmpty { app.params = params }
         guard let bundle = Bundle.main.url(forResource: "bundle", withExtension: "nshc", subdirectory: "nsh") else {
             return NSLog("nsh: the app bundle is missing (ios/build.sh copies it)")

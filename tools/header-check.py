@@ -7,8 +7,11 @@ from the iOS probe (ios/DSHUITests/HeaderProbe.swift, frames in points) or `.xml
 header buttons are on one line (1 pt at most apart), the buttons are inside the bar, and none reaches the connection
 banner under it. A `-menu` marker has the ⋯ menu open and a `-new` marker the new chat sheet: a press that did nothing
 fails. On Android each chats-page marker also has `<marker>.taps.json`, where the probe tapped ⋯ near its edges and
-inside its hit slop (`taps`): each tap must have opened the menu. Prints one line per marker with the measured y
-values; exits 1 on any failure.
+inside its hit slop (`taps`): each tap must have opened the menu; and each `menu-again-<scheme>` marker, where the
+menu is open, has `<marker>.double.json` and `<marker>.double.xml` from two quick taps on ⋯: both `input` calls exit
+0, and the app's trace (`menu-trace`) in the dump after them, past what the marker's dump had, shows two presses in order,
+under 300 ms apart, the menu closed and then open, and the menu itself is in that dump (WANG-121). Prints one line
+per marker with the measured y values; exits 1 on any failure.
 """
 import json
 import re
@@ -127,6 +130,48 @@ def tap_points(xml, density):
         print(f"{label}\t{round(x * density)}\t{round(y * density)}")
 
 
+def center(xml, density):
+    """`x y` in pixels of ⋯'s center in this dump."""
+    more = android(xml, density)["views"]["more"]
+    print(round((more["x"] + more["w"] / 2) * density), round((more["y"] + more["h"] / 2) * density))
+
+
+def trace(xml):
+    """The app's `menu-trace` in a dump (App.tsx): [(what, ms)], or None without one."""
+    if not xml.exists() or not xml.stat().st_size:
+        return None
+    node = next((n for n in ET.parse(xml).iter("node") if n.get("resource-id") == "menu-trace"), None)
+    if node is None:
+        return None
+    return [(w, int(t)) for w, t in (item.split("@") for item in (node.get("text") or "").split())]
+
+
+def double_tap(folder, name):
+    """What is wrong with the probe's double tap at the `name` marker, or nothing."""
+    js = folder / f"{name}.double.json"
+    if not js.exists():
+        return ["not measured"]
+    exits = json.loads(js.read_text()).get("exits")
+    before, after = trace(folder / f"{name}.xml"), trace(folder / f"{name}.double.xml")
+    if exits != [0, 0]:
+        return [f"the two `input tap` calls exited {exits}"]
+    if before is None or after is None:
+        return ["no menu trace in the dump " + ("before" if before is None else "after") + " the taps"]
+    new = after[len(before):]
+    presses = [t for w, t in new if w == "press"]
+    states = [w for w, _ in new if w in ("open", "closed")]
+    problems = []
+    if len(presses) != 2:
+        problems.append(f"{len(presses)} presses on ⋯ delivered, not 2")
+    elif not 0 <= presses[1] - presses[0] < 300:
+        problems.append(f"the presses came {presses[1] - presses[0]} ms apart, not 0 to under 300")
+    if states != ["closed", "open"]:
+        problems.append(f"the menu went {states or 'nowhere'}, not closed and then open")
+    if not any(n.get("resource-id") == "header-menu" for n in ET.parse(folder / f"{name}.double.xml").iter("node")):
+        problems.append("the dump after the taps has no menu")
+    return [p + f" (trace {' '.join(f'{w}@{t}' for w, t in new)})" for p in problems]
+
+
 def main(folder):
     folder = Path(folder)
     density_file = folder / "density.txt"
@@ -153,11 +198,19 @@ def main(folder):
                     problems.append(f"a tap {label} of ⋯ did not open its menu" if label in taps else f"no tap {label}")
         print(f"{'FAIL' if problems else 'ok  '} {name}: {line}" + "".join(f"\n       {p}" for p in problems))
         failed |= bool(problems)
+    if density_file.exists():  # Android: the probe's double taps on an open menu
+        for scheme in SCHEMES:
+            problems = double_tap(folder, f"menu-again-{scheme}")
+            print(f"{'FAIL' if problems else 'ok  '} menu-again-{scheme}: two quick taps on ⋯ with its menu open"
+                  + "".join(f"\n       {p}" for p in problems))
+            failed |= bool(problems)
     return 1 if failed else 0
 
 
 if __name__ == "__main__":
     if sys.argv[1] == "taps":  # taps <dump.xml> <density>: the points the Android probe taps
         tap_points(sys.argv[2], float(sys.argv[3]))
+    elif sys.argv[1] == "center":  # center <dump.xml> <density>: where the Android probe double-taps ⋯
+        center(sys.argv[2], float(sys.argv[3]))
     else:
         sys.exit(main(sys.argv[1]))

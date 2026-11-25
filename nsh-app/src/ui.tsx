@@ -1,6 +1,6 @@
 // Icons: one-colour SVGs tinted with the theme (`tint-*`), the round icon button used in headers and the composer,
 // the action sheet every menu on the phone uses, and the phone's haptics.
-import { createMotion, effect, host, Image, Keyboard, keyboardFrame, LayoutAnimation, Overlay, platform, safeAreaInsets, signal, Text, untracked, View, type Bounds, type JSX, type ViewRef, windowSize } from 'nsh'
+import { createMotion, effect, host, Image, Keyboard, keyboardFrame, LayoutAnimation, Overlay, platform, safeAreaInsets, signal, Text, untracked, View, type Bounds, type JSX, type Point, type PressEvent, type Signal, type ViewRef, windowSize } from 'nsh'
 import { Sheet, type SheetProps } from 'nsh/base'
 import { coverWorkingText } from './work-cover.ts'
 import { bySize, SIZES } from './icons.gen.ts'
@@ -81,10 +81,12 @@ export function DropdownButton(props: { label: string; onPress: () => void; test
   )
 }
 
+const ICON_SLOP = 6
 /** Compact visual controls retain a 48 dp touch target through their 6 dp hit slop. */
-export function IconButton(props: { name: IconName; label: string; onPress: () => void; testID?: string; size?: IconSize; class?: string; iconClass?: string }) {
+export function IconButton(props: { name: IconName; label: string; onPress: (e?: PressEvent) => void; onPressDown?: () => void; onPressUp?: () => void; onTouchStart?: () => void; onTouchEnd?: () => void; onTouchCancel?: () => void; testID?: string; size?: IconSize; class?: string; iconClass?: string }) {
   return (
-    <View role="button" accessibilityLabel={props.label} testID={props.testID} onPress={props.onPress} hitSlop={6}
+    <View role="button" accessibilityLabel={props.label} testID={props.testID} onPress={props.onPress} onPressDown={props.onPressDown} onPressUp={props.onPressUp}
+      onTouchStart={props.onTouchStart} onTouchEnd={props.onTouchEnd} onTouchCancel={props.onTouchCancel} hitSlop={ICON_SLOP}
       class={`w-[36px] h-[36px] rounded-full items-center justify-center active:bg-secondary ${props.class ?? ''}`}>
       <Icon name={props.name} size={props.size ?? 20} class={props.iconClass ?? 'tint-foreground'} />
     </View>
@@ -183,11 +185,39 @@ export function ActionSheetHost() {
   )
 }
 
+/** The header button that opens `open`'s `HeaderMenu`: spread `props` on its `IconButton` and give `outside` to
+ * `HeaderMenu`'s `onPressOutside`. The menu's press outside closes it as a finger goes down on the button too (the
+ * menu hangs from a 1 px anchor, so the button is outside it), so holding the button closes the menu; that finger
+ * then does nothing as it lifts, and the next one opens the menu however soon it comes. One finger on the button runs
+ * from the first of its touch start and press down (iOS sends the press down first, Android and headless the touch
+ * start) to the first of its touch end, press up and touch cancel; its `onPress` comes after that, and the press
+ * outside within it or, headless, after the `onPress`. Each finger starts afresh, so a tap outside or a cancelled
+ * press leaves nothing for the next one, and an activation without a finger (an assistive technology's, a bare
+ * `onPress`) toggles (WANG-121). */
+export function menuButton(open: Signal<boolean>) {
+  let down = false // a finger is on the button
+  let closing = false // the press outside of the finger on the button, or the one that just left it, closed the menu
+  const begin = () => { if (!down) { down = true; closing = false } }
+  const end = () => { down = false }
+  return {
+    outside: () => { if (open()) { open.set(false); closing = true } },
+    props: {
+      onTouchStart: begin, onPressDown: begin,
+      onTouchEnd: end, onPressUp: end, onTouchCancel: end,
+      onPress: (e?: PressEvent) => {
+        const consumed = !!e && closing
+        closing = false
+        if (!consumed) open.set(!open())
+      },
+    },
+  }
+}
+
 /** A header's "⋯" menu, dropped under the button as Claude's app does: it grows from the corner (scale 0.8 → 1 with a
  * fade, Material 3's menu) in 150 ms and leaves faster. It hangs from the top right of the page's content, right under
  * the header: NSH lays out header buttons in the platform's toolbar, so a popup anchored to the button itself lands
  * elsewhere. The header button only toggles `open`. */
-export function HeaderMenu(props: { open: () => boolean; onClose: () => void; actions: SheetAction[]; onChoose: (id: string) => void }) {
+export function HeaderMenu(props: { open: () => boolean; onClose: () => void; actions: SheetAction[]; onChoose: (id: string) => void; onPressOutside?: (e: { pagePosition: Point }) => void }) {
   let anchor: ViewRef | undefined
   const shown = signal(false)
   coverWorkingText(shown)
@@ -201,7 +231,7 @@ export function HeaderMenu(props: { open: () => boolean; onClose: () => void; ac
     <>
       <View ref={anchor} class="absolute top-0 right-[10px] w-[1px] h-[1px]" style={{ pointerEvents: 'none' }} />
       <If when={shown()}>
-        <Overlay anchor={anchor} placement="bottom" align="end" offset={0} margin={8} onPressOutside={props.onClose} onCancel={props.onClose}
+        <Overlay anchor={anchor} placement="bottom" align="end" offset={0} margin={8} onPressOutside={props.onPressOutside ?? props.onClose} onCancel={props.onClose}
           style={{ ...m.style, transformOrigin: 'top right' }} class="min-w-[200px] py-[6px] rounded-[14px] border border-border bg-popover shadow-lg" testID="header-menu">
           {props.actions.map((a) => (
             <View role="menuitem" testID={`menu-${a.id}`} onPress={() => choose(a.id)} class="flex-row items-center gap-3 px-[14px] h-[44px] active:bg-secondary transition-colors duration-150">
