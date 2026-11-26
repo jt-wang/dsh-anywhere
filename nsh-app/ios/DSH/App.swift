@@ -112,7 +112,7 @@ final class ShellController: UIViewController {
         if let pairAtStart { params["pair"] = pairAtStart }
         if let open = Notify.shared.takePendingOpen() { params["open"] = open }
         #if DEBUG
-        // UI tests only: `-dshMenuTrace YES` shows the ⋯ menu's presses and states to them (App.tsx, WANG-121).
+        // UI tests only: `-dshMenuTrace YES` shows the ⋯ menu's presses and states to them (App.tsx).
         if UserDefaults.standard.bool(forKey: "dshMenuTrace") { params["menuTrace"] = true }
         #endif
         if !params.isEmpty { app.params = params }

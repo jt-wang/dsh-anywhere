@@ -32,7 +32,8 @@ export function OutgoingView(props: { message: () => Outgoing; busy: () => boole
     <View class="items-end gap-[4px]" testID={`outgoing-${o().state}`} style={m.style}>
       <If when={photos().length || files().length}>
         <View class="flex-row flex-wrap justify-end gap-2 max-w-[85%] opacity-60">
-          {photos().map((d) => <Image src={(d as { preview: string }).preview} class="w-[120px] h-[120px] rounded-[12px] object-cover" />)}
+          {/* overflow-hidden: without it NSH counts the photo's full pixel size in the chat's scroll content. */}
+          {photos().map((d) => <Image src={(d as { preview: string }).preview} class="w-[120px] h-[120px] rounded-[12px] object-cover overflow-hidden" />)}
           {files().map((d) => <View class="flex-row items-center gap-[6px] rounded-[12px] border border-border bg-card px-[10px] h-[38px]"><Icon name="file" size={15} /><Text class="text-foreground text-[13px] line-clamp-1 max-w-[200px]">{d.name}</Text></View>)}
         </View>
       </If>

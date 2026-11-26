@@ -19,8 +19,8 @@ dsh plugin --profile desktop add @jt-wang/dsh-anywhere
 The package is `@jt-wang/dsh-anywhere` on npm; always write the `@jt-wang/` scope, because the bare npm name
 `dsh-anywhere` is another author's plugin. No `dsh` on PATH: use the app's launcher
 `"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"`. DSH checks the supported versions
-(`0.2.0-rc.2`, every 0.2.1 release or pre-release, and every 0.2.2 release candidate or release) while
-installing.
+(`0.2.0-rc.2`, every 0.2.1 or 0.2.3 release or pre-release, every 0.2.2 release candidate or release, and every
+later version below 1.0.0) while installing.
 
 DSH loads the new bundle; on its first start the companion creates its private Tailcat configuration in
 `~/Library/Application Support/DSHAnywhere/host/` (a random host ID, a P-256 certificate for `h-<hostId>.dsh.invalid`,

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(path.join(project, 'host/package.json'));
@@ -303,6 +303,27 @@ export function channelMetadata(packument, defaultBaseline, requested) {
   }
   return { schemaVersion: 1, baseline, requested, selected, releaseKey: hash(`${selected}:${versions[selected].integrity}`), distTags, versions };
 }
+const RELEASE_COMMIT = /^release\(dsh\): (\S+)$/, RELEASE_TAG = /^dsh-v(\S+)$/;
+/** Each DSH version that is newer than npm `latest` or carries a dist-tag, from every place it appears before npm:
+ * the release commit and root package.json on master (merged hours before publication: 0.2.3-alpha.1 on master
+ * 2026-11-21 16:45 UTC, on npm 2026-11-22 03:45), GitHub releases, then npm. `unverified` keeps the phone connected but
+ * needs inspection and a canary before the line goes into host/src/compatibility.ts LINES; `refused` disconnects it. */
+export function upcomingVersions({ packument, releases, sourceVersion, commits }, { isCompatible, isVerified, isSemver, compare }) {
+  const distTags = packument['dist-tags'] ?? {};
+  assert.ok(typeof distTags.latest === 'string' && isSemver(distTags.latest), 'npm latest must be an exact version');
+  const seen = new Map();
+  const note = (version, source) => { if (typeof version === 'string' && isSemver(version)) (seen.get(version) ?? seen.set(version, []).get(version)).push(source); };
+  for (const [tag, version] of Object.entries(distTags)) note(version, `npm dist-tag ${tag}`);
+  for (const version of Object.keys(packument.versions ?? {})) note(version, 'npm');
+  for (const release of releases) note(RELEASE_TAG.exec(release.tag_name ?? '')?.[1], `GitHub release ${release.tag_name}${release.draft ? ' (draft)' : ''}`);
+  note(sourceVersion, 'master package.json');
+  for (const commit of commits) note(RELEASE_COMMIT.exec(commit.commit?.message?.split('\n')[0] ?? '')?.[1], `master commit ${String(commit.sha).slice(0, 9)}`);
+  const tagged = new Set(Object.values(distTags));
+  const versions = [...seen].filter(([version]) => tagged.has(version) || compare(version, distTags.latest) > 0).sort(([a], [b]) => compare(a, b))
+    .map(([version, sources]) => ({ version, verdict: isVerified(version) ? 'verified' : isCompatible(version) ? 'unverified' : 'refused', onNpm: Object.hasOwn(packument.versions ?? {}, version), sources }));
+  const status = versions.some(item => item.verdict === 'refused') ? 'refused' : versions.some(item => item.verdict === 'unverified') ? 'unverified' : 'verified';
+  return { schemaVersion: 1, kind: 'dsh-upcoming-versions', status, latest: distTags.latest, versions };
+}
 async function main() {
   const [mode, ...args] = process.argv.slice(2);
   const options = {};
@@ -313,6 +334,21 @@ async function main() {
   const output = options['--output-dir'];
   assert.ok(output, '--output-dir is required (use an ignored scratch/CI directory)');
   await mkdir(output, { recursive: true });
+  if (mode === 'upcoming') {
+    const { isCompatibleDshVersion, isVerifiedDshVersion, isDshSemver, compareDshVersions } = await import(pathToFileURL(path.join(project, 'host/dist/compatibility.js')).href);
+    const repo = 'https://api.github.com/repos/deepseek-ai/deepseek-harness';
+    // Every source is required: a missing one could hide the warning, so the run fails instead of reporting verified.
+    const [packument, releases, root, commits] = await Promise.all([jsonFetch('https://registry.npmjs.org/@deepseek-ai%2fdsh'), jsonFetch(`${repo}/releases?per_page=20`, true), jsonFetch(`${repo}/contents/package.json?ref=master`, true), jsonFetch(`${repo}/commits?sha=master&per_page=100`, true)]);
+    const sourceVersion = JSON.parse(Buffer.from(root.content, 'base64').toString('utf8')).version;
+    const report = { ...upcomingVersions({ packument, releases, sourceVersion, commits }, { isCompatible: isCompatibleDshVersion, isVerified: isVerifiedDshVersion, isSemver: isDshSemver, compare: compareDshVersions }), generatedAt: new Date().toISOString() };
+    await writeFile(path.join(output, 'upcoming.json'), JSON.stringify(report, null, 2));
+    const advice = { verified: 'Every upcoming DSH version is in a verified line.', unverified: 'A DSH line the companion has not verified is coming or out. Phones stay connected, but inspect it, run the canary with its exact version and add it to LINES in host/src/compatibility.ts.', refused: 'A DSH version the companion refuses is coming or out: phones on it will disconnect. Fix host/src/compatibility.ts before DSH Desktop ships it.' }[report.status];
+    const summary = [`## Upcoming DSH versions: ${report.status}`, '', advice, '', `npm latest is ${report.latest}.`, '', ...report.versions.map(item => `- **${item.version}** ${item.verdict}${item.onNpm ? '' : ' (not on npm yet)'}: ${item.sources.join(', ')}`)].join('\n');
+    await writeFile(path.join(output, 'upcoming.md'), `${summary}\n`);
+    console.log(summary);
+    process.exitCode = report.status === 'verified' ? 0 : 2;
+    return;
+  }
   if (mode === 'metadata') {
     const metadata = channelMetadata(await jsonFetch('https://registry.npmjs.org/@deepseek-ai%2fdsh'), options['--baseline-version'], options['--requested']);
     // Write resolved npm evidence before GitHub, so a GitHub outage cannot erase it.
@@ -332,7 +368,7 @@ async function main() {
     console.log(JSON.stringify({ baseline: metadata.baseline, selected: metadata.selected, distTags: metadata.distTags, upstream: Object.fromEntries(Object.entries(upstream).map(([key, value]) => [key, value.status])) }, null, 2));
     return;
   }
-  assert.equal(mode, 'compare', 'Use metadata or compare');
+  assert.equal(mode, 'compare', 'Use upcoming, metadata or compare');
   assert.ok(options['--baseline-root'] && options['--runtime-root'], 'Both inspected runtime roots are required');
   try {
     const review = options['--review-baseline'] ? JSON.parse(await readFile(options['--review-baseline'], 'utf8')) : undefined;

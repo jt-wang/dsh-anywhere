@@ -1,7 +1,9 @@
 name: DSH canary
 
-# DSH publishes pre-releases often, and the companion accepts every 0.2.1 version and the 0.2.2 release candidates
-# and release (host/src/compatibility.ts). Each day this runs the real DSH SessionController from npm's `latest`, `next` and `alpha`
+# DSH publishes pre-releases often. The companion accepts its verified lines and, unverified, every later version below
+# 1.0.0 (host/src/compatibility.ts). Every hour `upcoming` looks for a DSH version newer than npm `latest` on DSH's
+# master, its GitHub releases and npm, and turns red while one is unverified or refused, which is usually hours before
+# DSH Desktop offers it. Each day `canary` runs the real DSH SessionController from npm's `latest`, `next` and `alpha`
 # against the built companion adapter, so the release that breaks it is found the day it ships, not by a user.
 # Static drift against an explicitly inspected baseline also requires review, never an automatic upgrade.
 # A failure turns the run red; it opens no issue and publishes/releases nothing.
@@ -9,6 +11,7 @@ name: DSH canary
 on:
   schedule:
     - cron: '17 3 * * *'
+    - cron: '41 * * * *'
   push:
     paths:
       - .github/workflows/dsh-canary.yml
@@ -29,10 +32,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  upcoming:
+    name: Upcoming DSH versions
+    # One hourly observer, like the daily one below.
+    if: (github.event_name != 'schedule' || github.repository == 'jt-wang/dsh-anywhere') && !inputs.version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            host/package-lock.json
+      - name: Build the companion host
+        working-directory: host
+        run: |
+          npm ci
+          npm run build
+      - name: Find DSH versions before they reach DSH Desktop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/dsh-canary/compatibility.mjs upcoming --output-dir "$RUNNER_TEMP/dsh-upcoming"
+      - name: Upcoming summary
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/dsh-upcoming/upcoming.md"; then cat "$RUNNER_TEMP/dsh-upcoming/upcoming.md" >> "$GITHUB_STEP_SUMMARY"
+          else echo 'The upcoming-version check could not read every source. This is not a PASS.' >> "$GITHUB_STEP_SUMMARY"; fi
+
   canary:
     name: DSH ${{ matrix.tag }}
     # Keep one daily observer; private branches remain manually testable.
-    if: github.event_name != 'schedule' || github.repository == 'jt-wang/dsh-anywhere'
+    if: github.event_name != 'schedule' || (github.repository == 'jt-wang/dsh-anywhere' && github.event.schedule == '17 3 * * *')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -113,9 +149,10 @@ jobs:
           DSH_VERSION: ${{ steps.stage.outputs.version }}
         run: |
           node --input-type=module -e "
-            const { isCompatibleDshVersion, SUPPORTED_DSH_VERSIONS } = await import('./host/dist/compatibility.js');
+            const { isCompatibleDshVersion, isVerifiedDshVersion, SUPPORTED_DSH_VERSIONS } = await import('./host/dist/compatibility.js');
             const v = process.env.DSH_VERSION;
-            if (!isCompatibleDshVersion(v)) { console.error('DSH ' + v + ' is outside ' + SUPPORTED_DSH_VERSIONS + ': a new line needs inspection and a canary before it is added.'); process.exit(1); }
+            if (!isCompatibleDshVersion(v)) { console.error('DSH ' + v + ' is outside ' + SUPPORTED_DSH_VERSIONS + ': phones on it disconnect.'); process.exit(1); }
+            if (!isVerifiedDshVersion(v)) console.log('::warning::DSH ' + v + ' is accepted unverified: inspect it and run this canary before adding its line to LINES in host/src/compatibility.ts.');
             console.log('DSH ' + v + ' is in ' + SUPPORTED_DSH_VERSIONS);"
       - name: Type check against this runtime
         run: node tools/dsh-canary/typecheck.mjs "${{ steps.stage.outputs.runtime }}"

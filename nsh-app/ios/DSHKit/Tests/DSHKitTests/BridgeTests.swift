@@ -25,9 +25,14 @@ private final class ForwardReader: NWProtocolFramerImplementation {
             guard got, let b = byte else { return 1 }
             if b != 10 { line.append(b); if line.count > 200 { framer.markFailed(error: .posix(.EPROTO)); return 0 }; continue }
             guard String(decoding: line, as: UTF8.self) == "TP-FWD \(token)" else { framer.markFailed(error: .posix(.EACCES)); return 0 }
+            // The ClientHello often comes in the same read as the line: hand what is already here to TLS, as
+            // connectmobile's forward passes on everything after the line.
+            var rest = Data()
+            _ = framer.parseInput(minimumIncompleteLength: 0, maximumLength: 1 << 20) { b, _ in rest = Data(b ?? .init(start: nil, count: 0)); return rest.count }
+            framer.markReady()
+            if !rest.isEmpty { framer.deliverInput(data: rest, message: NWProtocolFramer.Message(definition: ForwardReader.definition), isComplete: false) }
             framer.passThroughInput()
             framer.passThroughOutput()
-            framer.markReady()
             return 0
         }
     }

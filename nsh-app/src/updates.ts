@@ -1,5 +1,6 @@
 // Which side to update when this app and the computer's plugin come from different DSH Anywhere releases. The
-// companion says its release in /v1/capabilities (`release`, from 0.8.1); the phone asks no one else. The plugin
+// companion says its release in /v1/capabilities (`release`, from 0.8.1), and DSH lists the plugin versions it can install
+// (pluginManager/listVersions); the phone asks no one else. The plugin
 // itself is updated by DSH Desktop's own plugin manager (Plugins in the sidebar), the Android app from the release's
 // APK, and the iPhone app in TestFlight. The panel's name in each language is Desktop's own (dsh-client-ui-plugin-manager
 // 0.2.2-rc.5 src/client/locales.ts `panel`; Desktop has no Korean or Traditional Chinese copy and shows English or Chinese).
@@ -26,10 +27,13 @@ export function newer(a: string, b: string): boolean {
 }
 
 /** @param app this app's version. @param release the computer's DSH Anywhere release, '' from a plugin before 0.8.1,
- *  which every release up to 0.1.10 shipped, so it is older than any app that reads this. */
-export function updateNotice(app: string, release: string, os: string): UpdateNotice | null {
+ *  which every release up to 0.1.10 shipped, so it is older than any app that reads this. @param installable whether
+ *  DSH on the computer lists a newer DSH Anywhere it can install (pluginManager/listVersions, from npm). npm gets a
+ *  release last, after its APK is Latest and its iPhone build is on TestFlight (docs/RELEASE.md), so until then the
+ *  computer is not asked for an update it cannot install (0.1.20's app asked for companion 0.8.10, never on npm). */
+export function updateNotice(app: string, release: string, os: string, installable: boolean): UpdateNotice | null {
   if (!parts(app)) return null
-  if (!release || newer(app, release)) return { kind: 'computer', version: app }
+  if (!release || newer(app, release)) return installable ? { kind: 'computer', version: app } : null
   if (!newer(release, app)) return null
   return os === 'android' ? { kind: 'apk', version: release } : os === 'ios' ? { kind: 'testflight', version: release } : null
 }

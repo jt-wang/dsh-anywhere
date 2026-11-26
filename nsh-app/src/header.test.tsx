@@ -64,7 +64,7 @@ for (const scheme of ['light', 'dark'] as const) {
   }, 300_000)
 }
 
-// The ⋯ menu takes every press on ⋯ (WANG-121). A press on ⋯ while the menu is open closes it as the finger goes
+// The ⋯ menu takes every press on ⋯. A press on ⋯ while the menu is open closes it as the finger goes
 // down; that press must not open it again as it lifts, however long the finger stays, and the next press opens it
 // however soon it comes. A device's own taps come seconds apart and hold a long press into an `onPress`, so there
 // the held press is the check; headless presses follow each other at once, so there the quick press is.
@@ -103,7 +103,7 @@ for (const scheme of ['light', 'dark'] as const) {
 }
 
 // The same, event by event, in the orders the platforms deliver one finger's events (measured on boop-35, an iPhone
-// 17 Pro simulator and headless, WANG-121), which headless presses alone cannot: the menu's press outside belongs to
+// 17 Pro simulator and headless), which headless presses alone cannot: the menu's press outside belongs to
 // the finger on ⋯ only while that finger is down. A tap outside, then a separate tap on ⋯ at the very same point,
 // opens the menu; a cancelled press, then an activation without a finger, toggles.
 test("⋯ pairs the events of one finger, in each platform's order, and an activation without a finger toggles", () => {

@@ -10,8 +10,9 @@ fails. On Android each chats-page marker also has `<marker>.taps.json`, where th
 inside its hit slop (`taps`): each tap must have opened the menu; and each `menu-again-<scheme>` marker, where the
 menu is open, has `<marker>.double.json` and `<marker>.double.xml` from two quick taps on ⋯: both `input` calls exit
 0, and the app's trace (`menu-trace`) in the dump after them, past what the marker's dump had, shows two presses in order,
-under 300 ms apart, the menu closed and then open, and the menu itself is in that dump (WANG-121). Prints one line
-per marker with the measured y values; exits 1 on any failure.
+under 300 ms apart, the menu closed and then open, and the menu itself is in that dump. Prints one line
+per marker with the measured y values; exits 1 on any failure. An Android dump with no view of the app, or with a
+system "isn't responding" dialog over it, fails with what it shows ("environment: ..."), not "no header bar".
 """
 import json
 import re
@@ -26,6 +27,46 @@ SCHEMES = ("light", "dark")
 
 def rect(x, y, w, h):
     return {"x": x, "y": y, "w": w, "h": h}
+
+
+# The app `nsh test --target android` runs (nsh-cli test_android.rs).
+APP_PACKAGE = "com.longbridge.nsh.host"
+# Android's own "isn't responding" dialog: its title and buttons belong to the system (package "android"), so an
+# app's text that happens to say "isn't responding" is not one.
+ANR = re.compile(r"isn.t responding")
+# The only ANRs the probe clears, and only before the test starts: the launcher's or System UI's.
+CLEARABLE = re.compile(r"^(Pixel Launcher|Launcher3?|System UI) isn.t responding$")
+
+
+def system_anr(nodes):
+    """The title of a system "isn't responding" dialog in a dump's nodes, or None."""
+    return next((n.get("text") for n in nodes if n.get("package") == "android"
+                 and n.get("resource-id") == "android:id/alertTitle" and ANR.search(n.get("text") or "")), None)
+
+
+def environment(xml):
+    """What the dump shows besides the app: None when the app's views are there and no system ANR dialog is.
+    An observation for the reader; it does not say why (the runner, the app or the test)."""
+    nodes = list(ET.parse(xml).iter("node"))
+    anr = system_anr(nodes)
+    if any(n.get("package") == APP_PACKAGE for n in nodes):
+        return f'environment: a system dialog "{anr}" is on screen over the app' if anr else None
+    shown = sorted({n.get("package") for n in nodes if n.get("package")})
+    return (f"environment: no view of {APP_PACKAGE} on screen; "
+            + (f'a system dialog "{anr}" is' if anr else f"the dump shows {', '.join(shown) or 'nothing'}"))
+
+
+def anr_button(xml):
+    """Pixel center of Wait on a launcher or System UI "isn't responding" dialog, or None for anything else."""
+    nodes = list(ET.parse(xml).iter("node"))
+    if not CLEARABLE.match(system_anr(nodes) or ""):
+        return None
+    n = next((n for n in nodes if n.get("package") == "android" and n.get("resource-id") == "android:id/aerr_wait"), None)
+    m = n is not None and re.match(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]", n.get("bounds", ""))
+    if not m:
+        return None
+    x1, y1, x2, y2 = map(int, m.groups())
+    return (x1 + x2) // 2, (y1 + y2) // 2
 
 
 def android(path, density):
@@ -50,7 +91,7 @@ def android(path, density):
             holders = [r for _, _, r in nodes if all(contains(r, i) for i in inside)]
             bar = min(holders, key=lambda r: r["w"] * r["h"], default=None)
             break
-    return {"platform": "android", "bar": bar, "texts": texts, "views": views}
+    return {"platform": "android", "bar": bar, "texts": texts, "views": views, "environment": environment(path)}
 
 
 def contains(outer, inner, slack=0.5):
@@ -74,6 +115,8 @@ PAGES = {
 
 def judge(name, m):
     problems, views = [], m.get("views", {})
+    if m.get("environment") and "no view of" in m["environment"]:  # nothing of the app to judge
+        return [m["environment"]], ""
     page = name.split("-")[0]
     if "-menu-" in name:
         return ([] if "header-menu" in views else ["⋯ was pressed but its menu is not open"]), ""
@@ -149,8 +192,16 @@ def trace(xml):
 def double_tap(folder, name):
     """What is wrong with the probe's double tap at the `name` marker, or nothing."""
     js = folder / f"{name}.double.json"
+    marker = folder / f"{name}.xml"
+    seen = environment(marker) if marker.exists() else None
+    if seen:  # the probe sends no taps onto a covered screen (tools/header-check.sh)
+        return [f"{seen}; no taps sent"]
     if not js.exists():
         return ["not measured"]
+    after_xml = folder / f"{name}.double.xml"
+    seen = environment(after_xml) if after_xml.exists() else None
+    if seen:
+        return [f"after the taps: {seen}"]
     exits = json.loads(js.read_text()).get("exits")
     before, after = trace(folder / f"{name}.xml"), trace(folder / f"{name}.double.xml")
     if exits != [0, 0]:
@@ -190,7 +241,9 @@ def main(folder):
             failed = True
             continue
         problems, line = judge(name, m)
-        if m["platform"] == "android" and name.startswith("chats-") and name.count("-") == 2:  # the chats page itself: the probe's edge taps
+        if m.get("environment") and m["environment"] not in problems:  # a system dialog over the app fails it too
+            problems.append(m["environment"])
+        if m["platform"] == "android" and not m.get("environment") and name.startswith("chats-") and name.count("-") == 2:  # the chats page itself: the probe's edge taps
             taps_file = folder / f"{name}.taps.json"
             taps = json.loads(taps_file.read_text()) if taps_file.exists() else {}
             for label, *_ in EDGE_TAPS:
@@ -212,5 +265,11 @@ if __name__ == "__main__":
         tap_points(sys.argv[2], float(sys.argv[3]))
     elif sys.argv[1] == "center":  # center <dump.xml> <density>: where the Android probe double-taps ⋯
         center(sys.argv[2], float(sys.argv[3]))
+    elif sys.argv[1] == "covered":  # covered <dump.xml>: what covers the app or replaces it; nothing when neither
+        print(environment(sys.argv[2]) or "")
+    elif sys.argv[1] == "anr":  # anr <dump.xml>: "x y" (pixels) or "back" to dismiss an ANR dialog; nothing without one
+        button = anr_button(sys.argv[2])
+        if button:
+            print(f"{button[0]} {button[1]}")
     else:
         sys.exit(main(sys.argv[1]))

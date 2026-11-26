@@ -1,8 +1,9 @@
 name: CI
 
 # Every pull request and every push to main or ci runs the tests a contributor runs locally, plus a secret scan of the
-# tree. The Android and iOS shells (Gradle and Swift tests, emulator and simulator checks) need the NSH runtime built
-# for each platform and run on a Mac before a release.
+# tree: the companion (with the real Cordis from a staged DSH runtime), Tailcat, the NSH app, and the Android and iOS
+# shells' unit tests (Gradle on the pinned NSH runtime, DSHKit `swift test`). Emulator and simulator checks run on a
+# Mac before a release.
 on:
   pull_request:
   push:
@@ -49,6 +50,10 @@ jobs:
     name: Companion / Linux / Node 24
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      # The DSH whose Cordis the real-Cordis tests (dsh-adapter, phone-adapter, progress-plugin) load. Exact, so a new
+      # DSH release cannot turn this job red; the DSH canary follows new releases.
+      DSH_VERSION: 0.2.2-rc.5
     defaults:
       run:
         working-directory: host
@@ -69,17 +74,27 @@ jobs:
       - name: Install locked dependencies
         run: |
           npm ci
-      - name: Compile
-        run: npm run build
-      - name: Test
-        run: npm test
+      - name: Stage DSH's Cordis from npm (no install scripts)
+        shell: bash
+        run: |
+          runtime="$RUNNER_TEMP/dsh-runtime"
+          mkdir -p "$runtime" && cd "$runtime"
+          echo '{"private":true}' > package.json
+          npm install --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund --save-exact "@deepseek-ai/dsh@$DSH_VERSION"
+          module="$runtime/node_modules/@deepseek-ai/cordis/lib/index.js"
+          test -f "$module"
+          echo "DSH_ANYWHERE_CORDIS_MODULE=$module" >> "$GITHUB_ENV"
+      - name: Build and test (real Cordis included)
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee "$RUNNER_TEMP/host-test.log"
+          if grep -E 'Cordis.*# SKIP' "$RUNNER_TEMP/host-test.log"; then echo 'A real-Cordis test was skipped.'; exit 1; fi
 
   host-macos:
     name: Companion / macOS / live Tailcat pairing
     runs-on: macos-26-intel
     timeout-minutes: 25
-    env:
-      GOTOOLCHAIN: go1.27.4
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -96,8 +111,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.27.4'
+          go-version-file: tailcat/go.mod
           cache: false
+      - name: Go is tailcat/go.mod's toolchain
+        shell: bash
+        run: bash tailcat/check-go-version.sh
       - name: Build the macOS Tailcat helper
         shell: bash
         run: |
@@ -110,7 +128,6 @@ jobs:
           export PATH="$(brew --prefix openssl@3)/bin:$PATH"
           openssl version
           npm ci
-          npm run build
           npm test
       - name: Pair a reference phone over real Tailcat relays
         shell: bash
@@ -146,8 +163,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: '1.27.4'
+          go-version-file: tailcat/go.mod
           cache: false
+      - name: Go is tailcat/go.mod's toolchain
+        shell: bash
+        run: bash check-go-version.sh
       - name: Format, vet and test
         run: |
           test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
@@ -184,7 +204,116 @@ jobs:
         run: |
           "$RUNNER_TEMP/nsh-bin/nsh" --version
           "$RUNNER_TEMP/nsh-bin/nsh" test
+          # Images in a scroll view must clip, or NSH counts their full pixel size in its content.
+          node scripts/scroll-content.mjs "$RUNNER_TEMP/nsh-bin/nsh" 390 844 --image photo-3000x4000.png=120x120 src/sent.test.tsx
           "$RUNNER_TEMP/nsh-bin/nsh" check
+
+  android:
+    name: Android shell / Gradle unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            host/package-lock.json
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: tailcat/go.mod
+          cache: false
+      - name: Go is tailcat/go.mod's toolchain
+        shell: bash
+        run: bash tailcat/check-go-version.sh
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "NSH_SOURCE=$RUNNER_TEMP/nsh" >> "$GITHUB_ENV"
+          echo "NSH_HOME=$RUNNER_TEMP/nsh-dist" >> "$GITHUB_ENV"
+      # The same NSH runtime android-release.yml builds: the pinned commit with the app's number-pad patch.
+      - name: Restore the NSH Android build
+        id: nsh-android-cache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ${{ runner.temp }}/nsh/target/release/nsh
+            ${{ runner.temp }}/nsh/target/android/release/classes.jar
+            ${{ runner.temp }}/nsh/target/android/release/lib/arm64-v8a/libnsh.so
+          key: nsh-android-${{ runner.os }}-${{ env.NSH_COMMIT }}-${{ hashFiles('nsh-app/nsh-number-pad.patch') }}
+      - name: Build the pinned NSH runtime
+        if: steps.nsh-android-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libclang-dev libssl-dev cmake
+          rustup target add aarch64-linux-android
+          git init -q "$NSH_SOURCE"
+          git -C "$NSH_SOURCE" fetch -q --depth 1 https://github.com/jt-wang/nsh.git "$NSH_COMMIT"
+          git -C "$NSH_SOURCE" checkout -q --detach FETCH_HEAD
+          git -C "$NSH_SOURCE" apply "$GITHUB_WORKSPACE/nsh-app/nsh-number-pad.patch"
+          cargo build --manifest-path "$NSH_SOURCE/Cargo.toml" --locked --release -p nsh-cli
+          (cd "$NSH_SOURCE" && cargo xtask android --release --abi arm64-v8a)
+      - name: Fetch NSH's Android AAR
+        shell: bash
+        run: |
+          # build.sh replaces all Java classes and native libraries in this AAR with the pinned build above.
+          curl -fsSL https://github.com/longbridge/nsh/releases/download/v0.3.0/nsh-embed-android.zip -o "$RUNNER_TEMP/nsh-android.zip"
+          echo "adc5c71e547c9901462208b50630548b3ae618b53555c581937a1d5c4e05eda6  $RUNNER_TEMP/nsh-android.zip" | sha256sum -c -
+          mkdir -p "$NSH_HOME/embed/android"
+          unzip -j "$RUNNER_TEMP/nsh-android.zip" '*/nsh.aar' -d "$NSH_HOME/embed/android"
+      - name: Build Tailcat and the app, then run the shell's unit tests
+        shell: bash
+        run: |
+          npm ci --prefix host
+          AAR_ONLY=1 tools/build-tailcat.sh
+          nsh-app/android/build.sh
+          mkdir -p nsh-app/android/app/src/test/resources
+          node nsh-app/android/app/src/test/make-fixtures.ts nsh-app/android/app/src/test/resources
+          (cd nsh-app/android && ./gradlew --no-daemon --console=plain testReleaseUnitTest)
+
+  ios-shell:
+    name: iOS shell / DSHKit swift test
+    runs-on: macos-26-intel
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      # pairing.json gets fresh synthetic keys each time; extra.json's PKCS#12 identities are made from it.
+      - name: Make the synthetic pairing fixtures
+        shell: bash
+        run: |
+          export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+          npm ci --prefix host
+          mkdir -p nsh-app/android/app/src/test/resources
+          node nsh-app/android/app/src/test/make-fixtures.ts nsh-app/android/app/src/test/resources
+          python3 -I nsh-app/ios/DSHKit/Tests/DSHKitTests/make-fixtures.py
+      - name: Test
+        working-directory: nsh-app/ios/DSHKit
+        run: |
+          swift --version
+          swift test
 
   secrets:
     name: Secret scan (gitleaks)

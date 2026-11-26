@@ -3,6 +3,10 @@ name: npm publish
 # Publishes the companion (Apple-silicon and Intel Macs, Windows x64) as @jt-wang/dsh-anywhere from a release tag, with npm trusted publishing (OIDC) and
 # provenance: no npm token is stored anywhere. DSH Desktop's plugin manager installs and updates it from npm.
 # Every formal release is published here, never with a manual `npm publish`.
+# npm goes last (docs/RELEASE.md): a phone asks for the version its computer's companion reports, and DSH Desktop updates
+# the companion from npm, so it publishes only once the release's APK is Latest on GitHub and its iPhone build is on
+# TestFlight (Beta App Review approved, in the public group), and it publishes the dsh-anywhere.tgz that release carries.
+# publish=false packs the companion from the tag instead, as a file the release may attach.
 "on":
   workflow_dispatch:
     inputs:
@@ -10,6 +14,16 @@ name: npm publish
         description: Release tag to publish, vX.Y.Z (run the workflow from that tag)
         required: true
         type: string
+      publish:
+        description: Publish to npm; false only packs and keeps the file as an artifact
+        required: false
+        type: boolean
+        default: true
+      testflight_run:
+        description: publish only. Run id of a testflight.yml status_only run on the tag's commit after Beta App Review approved the build
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -19,8 +33,86 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  order:
+    if: github.repository == 'jt-wang/dsh-anywhere' && github.ref == format('refs/tags/{0}', inputs.tag) && inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tgz_sha256: ${{ steps.order.outputs.tgz_sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: npm goes last, after the APK is Latest and the iPhone build is on TestFlight
+        id: order
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ github.sha }}
+          TESTFLIGHT_RUN: ${{ inputs.testflight_run }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
+          [[ "$TESTFLIGHT_RUN" =~ ^[0-9]+$ ]] || { echo "npm goes last: testflight_run must name the testflight.yml status_only run on $SOURCE_SHA made after Beta App Review approved the build" >&2; exit 1; }
+          order="$RUNNER_TEMP/npm-order"
+          rm -rf "$order" && mkdir -p "$order/asc"
+          gh api "repos/$GH_REPO/releases/tags/$TAG" > "$order/release.json"
+          gh api "repos/$GH_REPO/releases/latest" > "$order/latest.json"
+          gh release download "$TAG" -R "$GH_REPO" -p SHA256SUMS.txt -D "$order"
+          gh api "repos/$GH_REPO/actions/runs/$TESTFLIGHT_RUN" > "$order/run.json"
+          gh run download "$TESTFLIGHT_RUN" -R "$GH_REPO" -n "dsh-testflight-status-$TESTFLIGHT_RUN" -D "$order/asc"
+          python3 -I - "$order" <<'PY'
+          import json, os, re, sys
+          from pathlib import Path
+          order, tag, sha, run = Path(sys.argv[1]), os.environ['TAG'], os.environ['SOURCE_SHA'], os.environ['TESTFLIGHT_RUN']
+          version, app = tag[1:], json.loads(Path('nsh-app/nsh.json').read_text())
+          build = str(app.get('build'))
+          read = lambda name: json.loads((order / name).read_text())
+          release, latest, workflow, asc = read('release.json'), read('latest.json'), read('run.json'), read('asc/asc-status.json')
+          problems = []
+          def need(ok, why):
+              if not ok: problems.append(why)
+          need(app.get('version') == version, f'nsh-app/nsh.json is {app.get("version")}, the tag {tag}')
+          # The APK: the release is published and Latest, so releases/latest/download/dsh-anywhere.apk is this one.
+          need(release.get('tag_name') == tag and release.get('draft') is False and release.get('prerelease') is False,
+               f'the GitHub release {tag} is not published as a formal release')
+          need(latest.get('tag_name') == tag, f'the Latest GitHub release is {latest.get("tag_name")}, not {tag}')
+          assets = {a.get('name') for a in release.get('assets') or []}
+          for name in ('dsh-anywhere.apk', 'dsh-anywhere.tgz', 'SHA256SUMS.txt'):
+              need(name in assets, f'the GitHub release {tag} has no {name}')
+          sums = dict(reversed(m.groups()) for m in re.finditer(r'(?m)^([0-9a-f]{64})  (\S+)$', (order / 'SHA256SUMS.txt').read_text()))
+          need('dsh-anywhere.apk' in sums and 'dsh-anywhere.tgz' in sums, 'SHA256SUMS.txt lists no dsh-anywhere.apk or dsh-anywhere.tgz')
+          # The iPhone build: App Store Connect's receipt from testflight.yml, read on this same commit.
+          need(workflow.get('path') == '.github/workflows/testflight.yml' and workflow.get('status') == 'completed'
+               and workflow.get('conclusion') == 'success', f'run {run} is not a successful testflight.yml run')
+          need(workflow.get('head_sha') == sha, f'testflight.yml run {run} is on {workflow.get("head_sha")}, the tag on {sha}')
+          need(asc.get('observation') == 'complete' and asc.get('source_sha') == sha and asc.get('version') == version
+               and str(asc.get('build')) == build, f'the TestFlight receipt is not for {version} ({build}) from {sha}')
+          need(asc.get('processing_valid') is True, f'TestFlight has not processed {version} ({build})')
+          need(asc.get('beta_review_state') == 'APPROVED', f'Beta App Review of {version} ({build}) is {asc.get("beta_review_state")}, not APPROVED')
+          need(asc.get('external_build_state') == 'IN_BETA_TESTING' and asc.get('public_invitation_for_build') is True,
+               f'{version} ({build}) is not in the public TestFlight group')
+          builds = [b for b in (asc.get('build_inventory') or {}).get('builds') or [] if b.get('version') == version and b.get('build') == build]
+          need(len(builds) == 1 and builds[0].get('expired') is False, f'TestFlight {version} ({build}) is missing or expired')
+          for why in problems:
+              print(f'npm goes last: {why}', file=sys.stderr)
+          if problems:
+              sys.exit(1)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              out.write(f'tgz_sha256={sums["dsh-anywhere.tgz"]}\n')
+          print(f'{tag}: the APK is Latest and {version} ({build}) is on TestFlight; npm may publish the release\'s dsh-anywhere.tgz')
+          PY
+
   publish:
-    if: github.repository == 'jt-wang/dsh-anywhere' && github.ref == format('refs/tags/{0}', inputs.tag)
+    needs: order
+    if: >-
+      always() && github.repository == 'jt-wang/dsh-anywhere' && github.ref == format('refs/tags/{0}', inputs.tag) &&
+      (inputs.publish == false || needs.order.result == 'success')
     # The Mac Tailcat helpers link with cgo against the macOS SDK; the Windows one cross-compiles beside them.
     runs-on: macos-15
     timeout-minutes: 30
@@ -28,7 +120,6 @@ jobs:
       contents: read
       id-token: write
     env:
-      GOTOOLCHAIN: go1.27.4
       TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -40,9 +131,14 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        if: ${{ !inputs.publish }}
         with:
-          go-version: '1.27.4'
+          go-version-file: tailcat/go.mod
           cache: false
+      - name: Go is tailcat/go.mod's toolchain
+        if: ${{ !inputs.publish }}
+        shell: bash
+        run: bash tailcat/check-go-version.sh
       - name: The tag is a normal version and matches the package
         shell: bash
         run: |
@@ -51,6 +147,7 @@ jobs:
           app=$(node -p "require('./nsh-app/nsh.json').version")
           [[ "v$release" == "$TAG" && "v$app" == "$TAG" ]] || { echo "tag $TAG, companion release $release, app $app" >&2; exit 1; }
       - name: Build the Tailcat helper and the host, then test and pack
+        if: ${{ !inputs.publish }}
         shell: bash
         run: |
           HELPERS_ONLY=1 tools/build-tailcat.sh
@@ -58,6 +155,19 @@ jobs:
           (cd host && npm ci && npm run build)
           node --test tools/pack-bundle.test.mjs
           node tools/pack-bundle.mjs --out "$RUNNER_TEMP/npm"
+      - name: Take the dsh-anywhere.tgz the GitHub release carries
+        if: inputs.publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASED: ${{ needs.order.outputs.tgz_sha256 }}
+        run: |
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p dsh-anywhere.tgz -D "$RUNNER_TEMP/npm"
+          got=$(shasum -a 256 "$RUNNER_TEMP/npm/dsh-anywhere.tgz" | cut -d' ' -f1)
+          [[ -n "$RELEASED" && "$got" == "$RELEASED" ]] || { echo "downloaded dsh-anywhere.tgz $got, SHA256SUMS.txt ${RELEASED:-none}" >&2; exit 1; }
+      - name: The file is this release's companion
+        shell: bash
+        run: |
           tar -xzOf "$RUNNER_TEMP/npm/dsh-anywhere.tgz" package/package.json | node -e '
             let d = ""; process.stdin.on("data", c => d += c).on("end", () => {
               const m = JSON.parse(d), want = require("./host/package.json").version;
@@ -65,6 +175,7 @@ jobs:
             });'
           (cd "$RUNNER_TEMP/npm" && shasum -a 256 dsh-anywhere.tgz | tee SHA256SUMS.txt)
       - name: Publish with provenance (trusted publishing, no token)
+        if: inputs.publish
         shell: bash
         run: |
           # Trusted publishing needs npm 11.5.1 or later.

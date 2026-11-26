@@ -21,7 +21,7 @@ import { createUiModules, uiTool } from './ui-modules.ts';
 import { lifecycleLog } from './lifecycle-log.ts';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isCompatibleDshVersion } from './compatibility.ts';
+import { isCompatibleDshVersion, isVerifiedDshVersion } from './compatibility.ts';
 import { setupTailcat } from './setup-tailcat.ts';
 import { currentConfigPath, legacyCompanionActive, legacyConfigPath, runningDshVersion } from './zero-config.ts';
 import type { ProfileFacts } from './zero-config.ts';
@@ -230,7 +230,8 @@ export async function apply(ctx: CompanionContext, input: Config | BundleConfig 
       return async () => { dshRelay = undefined; await relay.close(); };
     });
     let closed = false;
-    log('running', HOST_VERSION);
+    // A DSH line the canary has not run yet still connects the phone; the log says so for the next look.
+    log('running', HOST_VERSION, config.dshVersion && !isVerifiedDshVersion(config.dshVersion) ? `unverified-dsh-${config.dshVersion}` : undefined);
     return async () => {
       if (closed) return; closed = true;
       log('stopping', HOST_VERSION);

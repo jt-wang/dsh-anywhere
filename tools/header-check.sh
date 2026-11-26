@@ -69,6 +69,31 @@ case "$platform" in
     export ANDROID_SERIAL="$serial"
     dpi=$("$adb" -s "$serial" shell wm density | tr -d '\r' | awk -F': ' '/Override/ {o=$2} /Physical/ {p=$2} END {print o ? o : p}')
     python3 -c "print(${dpi} / 160)" > "$OUT/density.txt"
+    dump() { "$adb" -s "$serial" exec-out uiautomator dump /dev/tty </dev/null 2>/dev/null | sed -n 's/.*\(<?xml.*<\/hierarchy>\).*/\1/p'; }
+    # A slow emulator's launcher or System UI can put "<name> isn't responding" over the screen. Before the
+    # test only, while no app of ours runs, tap Wait on such a dialog (header-check.py anr confirms it is the system's,
+    # for the launcher or System UI). During the test the probe never taps for it: the dump keeps it, and
+    # header-check.py fails that marker with what the dump shows.
+    clear_system_anr() {
+      local d btn
+      for _ in 1 2 3; do
+        d="$(mktemp)"; dump > "$d"
+        btn=""; [ ! -s "$d" ] || btn="$(python3 "$ROOT/tools/header-check.py" anr "$d")"
+        rm -f "$d"
+        [ -n "$btn" ] || return 0
+        echo "header-check: tapping Wait on a launcher or System UI \"isn't responding\" dialog before the test" >&2
+        "$adb" -s "$serial" shell input tap $btn </dev/null
+        sleep 2
+      done
+    }
+    # Start only once Android has booted, and with no ANR dialog left from booting.
+    for _ in $(seq 1 150); do
+      [ "$("$adb" -s "$serial" shell getprop sys.boot_completed </dev/null | tr -d '\r')" = 1 ] && break
+      sleep 2
+    done
+    [ "$("$adb" -s "$serial" shell getprop sys.boot_completed </dev/null | tr -d '\r')" = 1 ] || { echo "Android did not finish booting" >&2; exit 2; }
+    sleep 5
+    clear_system_anr
     (
       while [ ! -f "$OUT/stop" ]; do
         for png in "$OUT"/*.png; do
@@ -76,12 +101,18 @@ case "$platform" in
           xml="${png%.png}.xml"
           [ -f "$xml" ] && continue
           sleep 1  # the screenshot is taken; let the frame after it settle
-          "$adb" -s "$serial" exec-out uiautomator dump /dev/tty 2>/dev/null | sed -n 's/.*\(<?xml.*<\/hierarchy>\).*/\1/p' > "$xml.part" || true
+          # What has focus, kept beside the dump for the reader; the probe takes no input of its own for it.
+          "$adb" -s "$serial" shell dumpsys window </dev/null | tr -d '\r' | grep -E 'mCurrentFocus|mFocusedApp' > "${png%.png}.focus.txt" || true
+          dump > "$xml.part" || true
           if [ -s "$xml.part" ]; then mv "$xml.part" "$xml"; else rm -f "$xml.part"; continue; fi
+          # A dump without the app, or with a system dialog over it: keep the dump and focus, send no taps onto it
+          # (header-check.py fails the marker with what the dump shows).
+          covered="$(python3 "$ROOT/tools/header-check.py" covered "$xml")"
+          if [ -n "$covered" ]; then echo "header-check: $(basename "${png%.png}"): $covered; no taps sent" >&2; continue; fi
           # The chats page itself (<page>-<connection>-<scheme>): tap ⋯ near its edges and inside its hit slop, and
           # look for the menu after each; Back closes it before the test goes on.
           name="$(basename "${png%.png}")"
-          # The ⋯ menu open (menu-again-<scheme>, WANG-121): two taps on ⋯ well within 300 ms of each other, from two
+          # The ⋯ menu open (menu-again-<scheme>): two taps on ⋯ well within 300 ms of each other, from two
           # `input` processes started 0.1 s apart, must close the menu and open it again (0.1.22 ignored the second).
           # Each `input` exit code is kept, and the dump after them has the app's trace of what ⋯ and its menu saw.
           case "$name" in menu-again-*)

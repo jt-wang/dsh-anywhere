@@ -5,7 +5,9 @@
 // paired as owner calls DSH's pluginManager through the companion's relay (https://127.0.0.1:<port>/dsh/api/…), and the
 // check reads back that DSH's host still runs and answers, that DSH applied the change, and (from 0.8.7 on) that the
 // companion kept which phone made it.
-//   node host/test/self-change-e2e.mjs <dsh-anywhere.tgz> <DSH runtime folder | dsh command> [--from <version|current>]... [--action update|off|uninstall]... [--port <n>]
+//   node host/test/self-change-e2e.mjs <dsh-anywhere.tgz> <DSH runtime folder | dsh command> [--from <version|current>]... [--action update|off|uninstall]... [--port <n>] [--hold-lock <ms>]
+// --hold-lock: before the check adds its pairing offer, a separate process takes host.sqlite's write lock and keeps it
+// this long (under the 5 s the check waits), as the running companion may.
 // The runtime folder holds node_modules/@deepseek-ai/dsh (npm install @deepseek-ai/dsh), as for tools/computer-e2e.mjs;
 // the dsh command can be DSH Desktop's (DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh).
 // <dsh-anywhere.tgz> is the package under test (tools/pack-bundle.mjs; --only for this computer is enough), `current`
@@ -28,16 +30,17 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 const NAME = '@jt-wang/dsh-anywhere', UPSTREAM = 'https://registry.npmjs.org';
 const [tarball, dshArgument, ...rest] = process.argv.slice(2);
 const froms = [], actions = [];
-let port = '19447', bad = !tarball || !dshArgument;
+let port = '19447', holdLock = 0, bad = !tarball || !dshArgument;
 for (let i = 0; i < rest.length; i++) {
   const [flag, value] = [rest[i], rest[i + 1]];
   if (flag === '--from' && value) froms.push(value);
   else if (flag === '--action' && ['update', 'off', 'uninstall'].includes(value)) actions.push(value);
   else if (flag === '--port' && /^\d+$/.test(value ?? '')) port = value;
+  else if (flag === '--hold-lock' && /^\d+$/.test(value ?? '')) holdLock = Number(value);
   else { bad = true; break; }
   i++;
 }
-if (bad) { console.error('Usage: node host/test/self-change-e2e.mjs <dsh-anywhere.tgz> <DSH runtime folder | dsh command> [--from <version|current>]... [--action update|off|uninstall]... [--port <n>]'); process.exit(2); }
+if (bad) { console.error('Usage: node host/test/self-change-e2e.mjs <dsh-anywhere.tgz> <DSH runtime folder | dsh command> [--from <version|current>]... [--action update|off|uninstall]... [--port <n>] [--hold-lock <ms>]'); process.exit(2); }
 if (!froms.length) froms.push('0.8.7', 'current');
 if (!actions.length) actions.push('update', 'off', 'uninstall');
 // node <bin>, not the .bin shim: Windows will not spawn a .cmd without a shell.
@@ -152,7 +155,7 @@ async function runCase(from, action) {
   const configPath = defaultConfigPath(process.platform, env, home), logPath = path.join(path.dirname(configPath), 'companion.log');
   const log = () => existsSync(logPath) ? readFileSync(logPath, 'utf8') : '';
   const quiet = { out: () => {}, error: text => process.stderr.write(`[admin] ${text}`) };
-  let dsh, dshOut = '', answer = 'not sent', last;
+  let dsh, holder, dshOut = '', answer = 'not sent', last;
   try {
     // The companion on its own port (the computer's real one keeps 19445), then DSH installs and boots it.
     if (await runAdminCli(['setup-tailcat', '--config', configPath, '--port', port, '--dsh-version', dshVersion], quiet) !== 0) fail('setup-tailcat failed');
@@ -176,7 +179,19 @@ async function runCase(from, action) {
     const config = JSON.parse(readFileSync(configPath, 'utf8'));
     config.certificate = readFileSync(path.resolve(path.dirname(configPath), config.tls.certPath));
     const offer = randomBytes(32).toString('base64url');
-    const db = new DatabaseSync(path.join(path.dirname(configPath), 'state', 'host.sqlite'));
+    // The companion is writing too (its Tailcat helper's state as it starts): wait for its write as HostState does,
+    // where node:sqlite's default timeout of 0 fails at once with "database is locked".
+    const dbPath = path.join(path.dirname(configPath), 'state', 'host.sqlite');
+    if (holdLock) {
+      holder = spawn(process.execPath, ['--no-warnings', '--input-type=module', '-e', `import { DatabaseSync } from 'node:sqlite';
+        const db = new DatabaseSync(process.env.HOLD_DB, { timeout: 5000 }); db.exec('BEGIN IMMEDIATE'); process.stdout.write('holding');
+        setTimeout(() => { db.exec('COMMIT'); db.close(); }, Number(process.env.HOLD_MS));`], { env: { ...process.env, HOLD_DB: dbPath, HOLD_MS: String(holdLock) }, stdio: ['ignore', 'pipe', 'inherit'] });
+      let held = false;
+      holder.stdout.once('data', () => { held = true; });
+      await until('a separate process holds the write lock', 30_000, () => { if (holder.exitCode !== null) fail('the lock holder exited'); return held; });
+      console.log(`[self-change] a separate process holds host.sqlite's write lock for ${holdLock} ms`);
+    }
+    const db = new DatabaseSync(dbPath, { timeout: 5_000 });
     db.prepare('INSERT INTO pairings (token_hash, grants, expires_at) VALUES (?, ?, ?)').run(createHash('sha256').update(offer).digest('hex'),
       JSON.stringify({ readWorkspaceIds: ['*'], executeWorkspaceIds: ['*'] }), Date.now() + 300_000);
     db.close();
@@ -218,6 +233,7 @@ async function runCase(from, action) {
   } catch (error) {
     return { result: 'FAIL', detail: `${error instanceof Error ? error.message : error}; phone's answer ${answer}; DSH lists ${JSON.stringify(last === undefined ? null : last === 'unreachable' ? last : { version: last.version, enabled: last.enabled })}${log() ? ` | companion.log: ${log().trim().split('\n').slice(-2).join(' / ')}` : ''}` };
   } finally {
+    if (holder && holder.exitCode === null) holder.kill();
     if (dsh && dsh.exitCode === null) { dsh.kill(); await Promise.race([new Promise(r => dsh.once('exit', r)), sleep(15_000)]); if (dsh.exitCode === null) dsh.kill('SIGKILL'); }
     rmSync(scratch, { recursive: true, force: true });
   }

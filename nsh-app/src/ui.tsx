@@ -193,7 +193,7 @@ export function ActionSheetHost() {
  * start) to the first of its touch end, press up and touch cancel; its `onPress` comes after that, and the press
  * outside within it or, headless, after the `onPress`. Each finger starts afresh, so a tap outside or a cancelled
  * press leaves nothing for the next one, and an activation without a finger (an assistive technology's, a bare
- * `onPress`) toggles (WANG-121). */
+ * `onPress`) toggles. */
 export function menuButton(open: Signal<boolean>) {
   let down = false // a finger is on the button
   let closing = false // the press outside of the finger on the button, or the one that just left it, closed the menu

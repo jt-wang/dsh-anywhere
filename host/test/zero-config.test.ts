@@ -120,7 +120,21 @@ test('a bundle row with no configuration sets up Tailcat once, with the running 
   const stop = await plugin.apply(ctx, undefined as any);
   try { // stopped here, not in t.after: the sandbox's removal runs first there, and Windows cannot delete the open database
     assert.equal(JSON.parse(readFileSync(configPath, 'utf8')).tailcat.hostId, hostId, 'never regenerated');
-    assert.match(readFileSync(join(configPath, '..', 'companion.log'), 'utf8'), new RegExp(`running ${HOST_VERSION.replaceAll('.', '\\.')}`));
+    assert.match(readFileSync(join(configPath, '..', 'companion.log'), 'utf8'), new RegExp(`running ${HOST_VERSION.replaceAll('.', '\\.')}\n`));
+  } finally { await stop(); }
+});
+
+test('a DSH line the canary has not run yet still starts the companion, and its log says the line is unverified', async t => {
+  const root = sandbox(t);
+  const ctx = context({ profileContext: { installAnchor: installation(root, '0.2.4-alpha.1'), ...profile(root, '# synthetic\n') } });
+  const configPath = defaultConfigPath();
+  await assert.rejects(plugin.apply(ctx, {} as any), { code: SHIPPED_COMPUTERS.includes(`${process.platform}-${process.arch}`) ? 'tailcat_helper_missing' : 'unsupported_computer' });
+  const created = JSON.parse(readFileSync(configPath, 'utf8'));
+  assert.equal(created.dshVersion, '0.2.4-alpha.1');
+  writeFileSync(configPath, JSON.stringify({ ...created, port: await freePort(), tailcat: { ...created.tailcat, helperPath: FAKE_HELPER } }, null, 2), { mode: 0o600 });
+  const stop = await plugin.apply(ctx, undefined as any);
+  try {
+    assert.match(readFileSync(join(configPath, '..', 'companion.log'), 'utf8'), new RegExp(`running ${HOST_VERSION.replaceAll('.', '\\.')} unverified-dsh-0\\.2\\.4-alpha\\.1\n`));
   } finally { await stop(); }
 });
 
@@ -221,7 +235,7 @@ test('the folder does not move while an install-host companion, which names the 
 test('a bundle row fails closed without a supported DSH version and creates nothing', async t => {
   const root = sandbox(t);
   await assert.rejects(plugin.apply(context({}), {} as any), { code: 'unsupported_dsh_version' });
-  await assert.rejects(plugin.apply(context({ profileContext: { installAnchor: installation(root, '0.3.0'), ...profile(root) } }), {} as any), { code: 'unsupported_dsh_version' });
+  await assert.rejects(plugin.apply(context({ profileContext: { installAnchor: installation(root, '1.0.0'), ...profile(root) } }), {} as any), { code: 'unsupported_dsh_version' });
   assert.equal(existsSync(defaultConfigPath()), false);
 });
 

@@ -78,7 +78,7 @@ check('row name resolves to a file in the installed package', rowFile && existsS
 const installed = layer ? JSON.parse(readFileSync(path.join(layer.packageDir, 'package.json'), 'utf8')) : {};
 const runtime = boot.getDshRuntimeVersion();
 check('DSH finds the package compatible with this app', layer && boot.evaluatePluginCompatibility(installed) === undefined, { runtime, range: installed.engines?.dsh });
-const versions = ['0.2.0-rc.1', '0.2.0-rc.2', '0.2.0', '0.2.1-alpha.1', '0.2.1-beta.1', '0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.5', '0.2.1-rc.17', '0.2.1-nightly.1', '0.2.1', '0.2.2-alpha.1', '0.2.2', '0.2.3-alpha.2', '0.2.3-beta.1', '0.2.3-rc.1', '0.2.3-nightly.1', '0.2.3', '0.2.4-alpha.2', '0.3.0'];
+const versions = ['0.2.0-rc.1', '0.2.0-rc.2', '0.2.0', '0.2.1-alpha.1', '0.2.1-beta.1', '0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.5', '0.2.1-rc.17', '0.2.1-nightly.1', '0.2.1', '0.2.2-alpha.1', '0.2.2', '0.2.3-alpha.2', '0.2.3-beta.1', '0.2.3-rc.1', '0.2.3-nightly.1', '0.2.3', '0.2.4-0', '0.2.4-alpha.2', '0.2.4', '0.3.0-alpha.1', '0.3.0', '1.0.0-alpha.1', '1.0.0'];
 const disagree = versions.filter(version => (boot.evaluatePluginCompatibility(installed, {}, version) === undefined) !== isCompatibleDshVersion(version));
 check('engines.dsh, evaluated by DSH, agrees with isCompatibleDshVersion', disagree.length === 0, { versions: versions.length, disagree });
 const helper = layer ? path.join(layer.packageDir, 'dist', 'tailcat', `dsh-tailcat-host-darwin-${process.arch === 'x64' ? 'amd64' : process.arch}`) : '';

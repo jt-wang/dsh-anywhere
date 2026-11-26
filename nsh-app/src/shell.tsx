@@ -103,7 +103,7 @@ export function TerminalPage(props: { sessionId: string; target: TerminalTarget;
   }
   const html = untracked(() => terminalPage({ dark: colorScheme() === 'dark', fontSize: Math.max(12, Math.round(12 * Math.min(fontScale(), 1.6))), scrollback: 1000 }))
   effect(() => { const dark = colorScheme() === 'dark'; channel.send({ t: 'theme', dark }) })
-  let asking = false // a second press on × while its sheet is up asks nothing more (WANG-121)
+  let asking = false // a second press on × while its sheet is up asks nothing more
   effect(() => {
     if (!props.menu()) return
     untracked(async () => {

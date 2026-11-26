@@ -11,9 +11,11 @@ import { chooseAction, Icon } from './ui.tsx'
 import { progressAvailable, ProgressSetting } from './progress.tsx'
 import { CATEGORIES, diagnostics } from './diagnostics.ts'
 import { computerStrings } from './computer-settings-strings.ts'
+import { SELF, updateTarget, type VersionList } from './computer-settings.ts'
+import { HOST_VERSION } from '../../host/src/phone.ts'
 import { confirmDanger } from './danger.tsx'
 import { fill } from './plugins-strings.ts'
-import { APK_URL, U, UPDATE_GUIDE_URL, updateNotice, type UpdateNotice } from './updates.ts'
+import { APK_URL, newer, U, UPDATE_GUIDE_URL, updateNotice, type UpdateNotice } from './updates.ts'
 
 function Group(props: { children?: JSX.Element | JSX.Element[] }) { return <View class="rounded-[14px] bg-card border border-border overflow-hidden">{props.children}</View> }
 function Label(props: { text: string }) { return <Text class="px-2 pt-5 pb-[6px] text-muted-foreground text-[13px] font-medium">{props.text}</Text> }
@@ -70,7 +72,14 @@ export function SettingsPage(props: { onDiagnostics: () => void; onComputer?: ()
   host.call<{ version: string; build: string }>('app.info').then((v) => (v?.version ? appInfo.set(v) : appInfoFailed.set(true)), () => appInfoFailed.set(true))
   const computer = signal<{ name: string; companionVersion: string; release: string; dshVersion: string } | undefined>(undefined)
   const granted = signal<boolean | undefined>(undefined)
-  const load = () => dsh().computer().then((c) => computer.set(c), () => {})
+  // Whether DSH can install on the computer the companion this app's release ships (HOST_VERSION) or a later one; an
+  // older one still on npm would not bring the computer to this release. Only a phone that may change the
+  // computer may ask DSH.
+  const installable = signal(false)
+  const load = () => dsh().computer().then((c) => {
+    computer.set(c)
+    if (c.control !== false) dsh().rpc<VersionList>('pluginManager/listVersions', { name: SELF }).then((l) => { const v = updateTarget(l); installable.set(!!v && !newer(HOST_VERSION, v)) }, () => {})
+  }, () => {})
   const permission = () => host.call<{ granted?: boolean }>('notify.permission').then((v) => granted.set(v?.granted === true), () => {})
   load(); permission()
   // Back from the phone's settings, or reconnected: read again what may have changed there.
@@ -79,7 +88,7 @@ export function SettingsPage(props: { onDiagnostics: () => void; onComputer?: ()
   const allow = () => host.call<{ granted?: boolean }>('notify.request').then((v) => { granted.set(v?.granted === true); if (!v?.granted) host.call('notify.settings').catch(() => {}) }, () => {})
   const state = () => connection()
   // Which side to update, once both versions are known; never for the sample computer.
-  const notice = () => { const a = appInfo(), c = computer(); return a && c && !trying() ? updateNotice(a.version, c.release, platform.os) : null }
+  const notice = () => { const a = appInfo(), c = computer(); return a && c && !trying() ? updateNotice(a.version, c.release, platform.os, installable()) : null }
   const toggle = (key: keyof NotifyPrefs, label: string, hint?: string, first?: boolean) => (
     <View class={`flex-row items-center gap-3 px-[14px] py-3 ${first ? '' : 'border-t border-border'}`}>
       <View class="flex-1 gap-[2px]">

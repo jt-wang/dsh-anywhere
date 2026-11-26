@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { bundleCatalog, canonical, channelMetadata, compareRuntimes, ownerConfigs, remoteContracts, reviewChanges } from './compatibility.mjs';
+import { compareDshVersions, isCompatibleDshVersion, isDshSemver, isVerifiedDshVersion } from '../../host/src/compatibility.ts';
+import { bundleCatalog, canonical, channelMetadata, compareRuntimes, ownerConfigs, remoteContracts, reviewChanges, upcomingVersions } from './compatibility.mjs';
 
 // Reduced literals from official 0.2.2-rc.1 SessionController/commands descriptors.
 // They exercise wire semantics; they are not a replacement for comparing actual packages.
@@ -194,4 +195,34 @@ test('owner configuration changes are reviewed even when settings RPC declaratio
   assert.throws(() => ownerConfigs(`const Config = loadConfig();`), /no longer an inline object/);
   // Merely fingerprint executable-looking defaults. Never call upstream code during inspection.
   assert.deepEqual(ownerConfigs(`const Config = z.object({ language: z.string().default((() => { throw Error('must not execute'); })()) });`).Config.fields, ['language']);
+});
+
+const companion = { isCompatible: isCompatibleDshVersion, isVerified: isVerifiedDshVersion, isSemver: isDshSemver, compare: compareDshVersions };
+const npm = (latest, versions, tags = {}) => ({ 'dist-tags': { latest, ...tags }, versions: Object.fromEntries(versions.map(version => [version, {}])) });
+const releaseCommit = (version, sha = 'a'.repeat(40)) => ({ sha, commit: { message: `release(dsh): ${version}\n\nbody` } });
+
+test('upcoming DSH versions: the released verified lines are quiet, older refused versions are ignored', () => {
+  const report = upcomingVersions({ packument: npm('0.2.2-rc.5', ['0.2.2-alpha.3', '0.2.2-rc.5', '0.2.3-alpha.1', '0.2.3-alpha.2'], { next: '0.2.2-rc.5', alpha: '0.2.3-alpha.2' }), releases: [{ tag_name: 'dsh-v0.2.3-alpha.2' }, { tag_name: 'dsh-v0.2.2-alpha.3' }], sourceVersion: '0.2.3-alpha.2', commits: [releaseCommit('0.2.3-alpha.2'), { sha: 'b', commit: { message: 'release(vendor): cordis 4.2.0-alpha.1' } }] }, companion);
+  assert.equal(report.status, 'verified');
+  assert.deepEqual(report.versions.map(item => item.version), ['0.2.2-rc.5', '0.2.3-alpha.1', '0.2.3-alpha.2']);
+  assert.deepEqual(report.versions.at(-1).sources, ['npm dist-tag alpha', 'npm', 'GitHub release dsh-v0.2.3-alpha.2', 'master package.json', 'master commit aaaaaaaaa']);
+});
+
+test('upcoming DSH versions: a new line merged on master warns before npm or GitHub has it', () => {
+  const packument = npm('0.2.2-rc.5', ['0.2.2-rc.5', '0.2.3-alpha.2'], { alpha: '0.2.3-alpha.2' });
+  const report = upcomingVersions({ packument, releases: [], sourceVersion: '0.2.4-alpha.1', commits: [releaseCommit('0.2.4-alpha.1', 'c'.repeat(40))] }, companion);
+  assert.equal(report.status, 'unverified');
+  assert.deepEqual(report.versions.at(-1), { version: '0.2.4-alpha.1', verdict: 'unverified', onNpm: false, sources: ['master package.json', 'master commit ccccccccc'] });
+  const refused = upcomingVersions({ packument, releases: [{ tag_name: 'dsh-v1.0.0-alpha.1', draft: true }], sourceVersion: '0.2.3-alpha.2', commits: [] }, companion);
+  assert.equal(refused.status, 'refused');
+  assert.deepEqual(refused.versions.at(-1), { version: '1.0.0-alpha.1', verdict: 'refused', onNpm: false, sources: ['GitHub release dsh-v1.0.0-alpha.1 (draft)'] });
+  // A dist-tag moved back to a version the companion refuses also warns, even below latest.
+  assert.equal(upcomingVersions({ packument: npm('0.2.2-rc.5', ['0.2.2-alpha.3', '0.2.2-rc.5'], { alpha: '0.2.2-alpha.3' }), releases: [], commits: [] }, companion).status, 'refused');
+});
+
+test('upcoming DSH versions: malformed tags and messages are ignored, a malformed latest fails', () => {
+  const report = upcomingVersions({ packument: npm('0.2.2-rc.5', ['0.2.2-rc.5']), releases: [{ tag_name: 'v9.9.9' }, { tag_name: 'dsh-v0.3.0-alpha.01' }, {}], sourceVersion: 'workspace', commits: [{ sha: 'd', commit: { message: 'release(dsh): 0.3.0 and more' } }, {}] }, companion);
+  assert.equal(report.status, 'verified');
+  assert.deepEqual(report.versions.map(item => item.version), ['0.2.2-rc.5']);
+  assert.throws(() => upcomingVersions({ packument: npm('next', []), releases: [], commits: [] }, companion), /npm latest must be an exact version/);
 });

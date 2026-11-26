@@ -126,7 +126,7 @@ final class HeaderButtonsTests: XCTestCase {
         }
     }
 
-    // WANG-121: a second tap right after ⋯ closes its menu opens it again. UIKit's own double tap puts the two taps far
+    // A second tap right after ⋯ closes its menu opens it again. UIKit's own double tap puts the two taps far
     // closer together than the 300 ms that 0.1.22 ignored ⋯ for after its menu closed, where this test fails: the first
     // tap closes the menu and the second is swallowed. The app's trace must show both taps delivered under 300 ms apart
     // and the menu closed between them, so a tap that never arrived, or a menu that never closed, fails as well.
@@ -224,7 +224,7 @@ final class HeaderButtonsTests: XCTestCase {
         let thread = try require("thread")
         // Read earlier without flinging to the beginning or collapsing UIKit's navigation bar. The menu puts the
         // keyboard away (keyboard.test.tsx) and the list grows by about its height: a reader that close to the end stays
-        // with the end (WANG-115: 60 pt back moved the message 130 pt), so read back farther than the keyboard frees.
+        // with the end (60 pt back moved the message 130 pt), so read back farther than the keyboard frees.
         // Drag in steps inside the list: a drag into the keyboard would put it away interactively first.
         let keyboard = app.keyboards.firstMatch
         var back = (keyboard.exists ? keyboard.frame.height : 0) + 180

@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createDeterministicAdapter, ephemeralBrowserCredentials, PROVIDER, MODEL } from './deterministic.mts';
+import { compareDshVersions, isCompatibleDshVersion, isDshSemver, isVerifiedDshVersion, UNVERIFIED_FROM } from '../../host/src/compatibility.ts';
 
 /** rc.3 ships the same session, workspace and service code as rc.2, and so do rc.4 and rc.5: only
  * versions differ. The daily canary (.github/workflows/dsh-canary.yml) runs each later 0.2.1 rc
@@ -16,7 +17,13 @@ export const rc2Family = version => RC2_LINE.test(version);
  * README), and the SessionController also injects `typertGateway`, which dsh-api-gateway provides
  * (dsh-base/cordis.patch.yml mounts it). */
 const GATEWAY_LINES = /^(?:0\.2\.2(?:-rc\.(?:0|[1-9]\d*))?|0\.2\.3(?:-(?:alpha|beta|rc)\.(?:0|[1-9]\d*))?)$/;
-export const usesGatewayComposition = version => GATEWAY_LINES.test(version);
+/** Every version the companion accepts from 0.2.4-0 on (host/src/compatibility.ts) runs with the latest inspected
+ * composition, the Gateway one, so the package, service and contract checks apply to a new line before and after it
+ * is added to LINES. Until then the run is a trial: the receipt says `trial` instead of the line being verified.
+ * 1.x and malformed versions stay refused, and so do older versions the canary never ran. */
+const later = version => isDshSemver(version) && compareDshVersions(version, UNVERIFIED_FROM) >= 0 && isCompatibleDshVersion(version);
+export const trialComposition = version => later(version) && !isVerifiedDshVersion(version);
+export const usesGatewayComposition = version => GATEWAY_LINES.test(version) || later(version);
 export const checksAlphaNativeRelay = version => version === '0.2.3-alpha.2';
 export const canaryAccepts = version => ['0.2.0-rc.2', '0.2.1-alpha.1'].includes(version) || rc2Family(version) || usesGatewayComposition(version);
 const COMPONENTS = [
@@ -52,7 +59,7 @@ export function officialLoader(runtimeRoot) {
     },
     async version() {
       const manifest = JSON.parse(await readFile(path.join(runtimeRoot, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8'));
-      assert.ok(canaryAccepts(manifest.version), `The canary runs 0.2.0-rc.2, 0.2.1-alpha.1, 0.2.1 from rc.2 on, 0.2.2 from rc.0 on, and 0.2.3, not ${manifest.version}`);
+      assert.ok(canaryAccepts(manifest.version), `The canary runs 0.2.0-rc.2, 0.2.1-alpha.1, 0.2.1 from rc.2 on, 0.2.2 from rc.0 on, 0.2.3, and as a trial every later version below 1.0.0, not ${manifest.version}`);
       installedVersion = manifest.version;
       return installedVersion;
     },

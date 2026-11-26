@@ -1,4 +1,4 @@
-// Going back from a chat to the list on a phone (WANG-87). The chat is pushed over the list on the list's own stack, so
+// Going back from a chat to the list on a phone. The chat is pushed over the list on the list's own stack, so
 // the back's transition uncovers the list as it was; the list then refreshes in the background, and "No chats yet"
 // only shows once the computer has answered that there are none. Headless; every chat is made up.
 import { expect, open, test } from 'nsh/test'

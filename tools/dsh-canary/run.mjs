@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { installIsolation, sanitizeEnvironment } from './isolation.mjs';
 import { assertOwnedPath, parseArgs } from './safety.mjs';
-import { checksAlphaNativeRelay, composeRuntime, officialLoader, usesGatewayComposition } from './composition.mjs';
+import { checksAlphaNativeRelay, composeRuntime, officialLoader, trialComposition, usesGatewayComposition } from './composition.mjs';
 import { controllerChecks, coldChecks, adapterChecks } from './checks.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -48,6 +48,7 @@ async function bounded(work) {
 try {
   await bounded(async () => {
     receipt.version = await loader.version();
+    receipt.trial = trialComposition(receipt.version);
     mark('compose-real-runtime');
     runtime = await composeRuntime(loader, directories);
     receipt.components = runtime.mounted;
@@ -175,5 +176,5 @@ try {
   }
   receipt.finishedAt = Date.now();
   await writeFile(receiptPath, JSON.stringify(receipt, null, 2), { flag: 'wx', mode: 0o600 });
-  console.log(JSON.stringify({ kind: receipt.kind, success: receipt.success, version: receipt.version, node: receipt.node, checks: receipt.phases.flatMap(phase => phase.checks), controllerCalls: receipt.controllerCalls, remountedCalls: receipt.remountedCalls, mobileAdapter: receipt.mobileAdapter, isolation, cleanup: receipt.cleanup, ...(receipt.failure ? { failure: receipt.failure } : {}), receiptPath }, null, 2));
+  console.log(JSON.stringify({ kind: receipt.kind, success: receipt.success, version: receipt.version, trial: receipt.trial, node: receipt.node, checks: receipt.phases.flatMap(phase => phase.checks), controllerCalls: receipt.controllerCalls, remountedCalls: receipt.remountedCalls, mobileAdapter: receipt.mobileAdapter, isolation, cleanup: receipt.cleanup, ...(receipt.failure ? { failure: receipt.failure } : {}), receiptPath }, null, 2));
 }

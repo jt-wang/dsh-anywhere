@@ -148,7 +148,7 @@ function App() {
   const more = menuButton(menu)
   // Test runs only (a DEBUG iOS build launched with `-dshMenuTrace YES`, header-fixture.tsx): each press ⋯ delivers,
   // each press outside the menu and each state of the menu, in ms since the first (monotonic), in a 1 px text the UI tests read, so
-  // a native double tap shows both presses and the closed state between them (WANG-121).
+  // a native double tap shows both presses and the closed state between them.
   const tracing = !!(host.params as { menuTrace?: boolean } | undefined)?.menuTrace
   const trace = signal('')
   let traceStart: number | undefined

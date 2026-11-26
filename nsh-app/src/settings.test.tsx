@@ -2,12 +2,16 @@
 // appearance, the language and the notifications, and Unlink. Headless: the test plays the shell and the computer.
 import { expect, open, test } from 'nsh/test'
 import { APK_URL, UPDATE_GUIDE_URL } from './updates.ts'
+import { HOST_VERSION } from '../../host/src/phone.ts'
 
 const ORIGIN = 'http://127.0.0.1:40001/dsh'
 const paired = { paired: true, origin: ORIGIN, token: 'synthetic-device-token' }
 const ok = (value: unknown) => ({ body: { type: 'server-response', rpcId: 'x', result: { ok: true, value } } })
+/** DSH's pluginManager/listVersions for DSH Anywhere, newest first, as npm has it. */
+const listed = (version: string) => ok({ status: 'listed', installed: '0.8.11', versions: [{ version, tags: ['latest'], prerelease: false, bundle: true }], omitted: 0 })
+const onNpm = (version: string) => ({ [`POST ${ORIGIN}/api/pluginManager/listVersions`]: () => listed(version) })
 
-async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' }), extra: Record<string, unknown> = {}, platform: 'ios' | 'android' = 'ios', caps: Record<string, unknown> = {}) {
+async function settings(granted: boolean, offline = false, info: () => unknown = () => ({ version: '2.4.9', build: '314' }), extra: Record<string, unknown> = {}, platform: 'ios' | 'android' = 'ios', caps: Record<string, unknown> = {}, network: Record<string, () => unknown> = {}) {
   // Connected (a socket that opens) unless offline: the route shows only while the computer answers.
   const app = await open(offline ? '../App.tsx' : './fixtures/connected/App.tsx', {
     platform,
@@ -20,6 +24,7 @@ async function settings(granted: boolean, offline = false, info: () => unknown =
     network: {
       [`POST ${ORIGIN}/api/session/list`]: () => ok({ items: [] }),
       [`GET http://127.0.0.1:40001/v1/capabilities`]: () => offline ? { status: 503 } : { body: { hostName: 'DSH Anywhere companion', computerName: 'Studio', hostVersion: '0.7.13', upstreamVersion: '0.2.1-rc.3', ...caps } },
+      ...network,
     },
   })
   await app.waitFor('id:more')
@@ -178,11 +183,11 @@ for (const platform of ['ios', 'android'] as const) {
     await same.waitFor('text:0.1.11 (12)')
     expect(same.shows('id:update-notice')).toBe(false)
 
-    const old = await settings(true, false, app('0.1.11'), {}, platform, { hostVersion: '0.7.15' })
+    const old = await settings(true, false, app('0.1.11'), {}, platform, { hostVersion: '0.7.15' }, onNpm(HOST_VERSION))
     await old.waitFor('text:Update DSH Anywhere on your computer to 0.1.11')
     await old.press('id:update-action')
     expect(old.openedUrls()).toEqual([UPDATE_GUIDE_URL])
-    const behind = await settings(true, false, app('0.1.12'), {}, platform, { release: '0.1.11' })
+    const behind = await settings(true, false, app('0.1.12'), {}, platform, { release: '0.1.11', hostVersion: '0.8.2' }, onNpm(HOST_VERSION))
     await behind.waitFor('text:Update DSH Anywhere on your computer to 0.1.12')
 
     // 0.1.10 against 0.1.9 is newer by numbers, older as text.
@@ -195,6 +200,40 @@ for (const platform of ['ios', 'android'] as const) {
       expect(ahead.shows('text:Your computer runs a newer version than this app. Update DSH Anywhere in TestFlight.')).toBe(true)
       expect(ahead.shows('id:update-action')).toBe(false)
     }
+  })
+}
+
+// npm gets a release last (docs/RELEASE.md): an app that came out first, as 0.1.20's did with companion 0.8.10 never on
+// npm, does not ask the computer for an update DSH cannot install yet; once DSH lists this release's companion
+// (HOST_VERSION) or a later one, the app does. An older release's companion, newer than the computer's, is not enough.
+for (const platform of ['ios', 'android'] as const) {
+  test(`${platform}: Settings asks to update the computer only once DSH lists a newer DSH Anywhere it can install`, async () => {
+    const app = () => ({ version: '0.1.22', build: '23' })
+    const caps = { release: '0.1.21', hostVersion: '0.0.2' }
+    const notYet = await settings(true, false, app, {}, platform, caps, onNpm('0.0.2'))
+    await notYet.waitFor('text:0.1.22 (23)'); await notYet.wait(300)
+    expect(notYet.shows('id:update-notice')).toBe(false)
+    // Two releases behind, with only the release in between on npm (a 0.1.22 app, companion 0.8.9, npm at 0.8.11).
+    const between = await settings(true, false, app, {}, platform, { release: '0.1.19', hostVersion: '0.0.1' }, onNpm('0.0.2'))
+    await between.waitFor('text:0.1.22 (23)'); await between.wait(300)
+    expect(between.shows('id:update-notice')).toBe(false)
+    const unlisted = await settings(true, false, app, {}, platform, caps, { [`POST ${ORIGIN}/api/pluginManager/listVersions`]: () => ok({ status: 'listed', installed: '0.8.11', versions: [] }) })
+    await unlisted.waitFor('text:0.1.22 (23)'); await unlisted.wait(300)
+    expect(unlisted.shows('id:update-notice')).toBe(false)
+    const refused = await settings(true, false, app, {}, platform, caps, { [`POST ${ORIGIN}/api/pluginManager/listVersions`]: () => ok({ status: 'refused' }) })
+    await refused.waitFor('text:0.1.22 (23)'); await refused.wait(300)
+    expect(refused.shows('id:update-notice')).toBe(false)
+    const unanswered = await settings(true, false, app, {}, platform, caps)
+    await unanswered.waitFor('text:0.1.22 (23)'); await unanswered.wait(300)
+    expect(unanswered.shows('id:update-notice')).toBe(false)
+    // A phone that may only read chats cannot ask DSH, so it is not told either.
+    let asked = false
+    const readOnly = await settings(true, false, app, {}, platform, { ...caps, capabilities: { control: false } }, { [`POST ${ORIGIN}/api/pluginManager/listVersions`]: () => { asked = true; return listed(HOST_VERSION) } })
+    await readOnly.waitFor('text:0.1.22 (23)'); await readOnly.wait(300)
+    expect(readOnly.shows('id:update-notice')).toBe(false)
+    expect(asked).toBe(false)
+    const published = await settings(true, false, app, {}, platform, caps, onNpm(HOST_VERSION))
+    await published.waitFor('text:Update DSH Anywhere on your computer to 0.1.22')
   })
 }
 
